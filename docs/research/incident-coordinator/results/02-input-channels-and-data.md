@@ -122,7 +122,7 @@ flowchart TD
 
 По строке — отдельный JSON-объект. `received_at` здесь проставлен стендом; условные имена сервисов/регионов.
 
-```json
+```jsonl
 {"source_kind":"monitoring","source_system":"demo-grafana-adapter","external_event_id":"gf-01-firing","revision":1,"occurred_at":"2026-11-20T08:00:00Z","received_at":"2026-11-20T08:00:03Z","payload":{"receiver":"demo","status":"firing","alerts":[{"status":"firing","fingerprint":"a1","labels":{"alertname":"Balance5xx","service":"balance-api"},"startsAt":"2026-11-20T08:00:00Z"}]}}
 {"source_kind":"monitoring","source_system":"demo-grafana-adapter","external_event_id":"gf-01-resolved","revision":2,"occurred_at":"2026-11-20T08:17:00Z","received_at":"2026-11-20T08:17:02Z","payload":{"receiver":"demo","status":"resolved","alerts":[{"status":"resolved","fingerprint":"a1","labels":{"alertname":"Balance5xx","service":"balance-api"},"startsAt":"2026-11-20T08:00:00Z","endsAt":"2026-11-20T08:17:00Z"}]}}
 {"source_kind":"complaint_aggregate","source_system":"demo-complaints","external_event_id":"agg-01","revision":1,"occurred_at":"2026-11-20T08:01:00Z","received_at":"2026-11-20T08:02:00Z","payload":{"service":"balance-api","window_minutes":5,"unique_reporters":12,"count_basis":"synthetic_unique_ids","summary":"Не отображается баланс"}}
