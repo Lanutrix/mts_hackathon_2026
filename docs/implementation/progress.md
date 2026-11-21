@@ -15,8 +15,8 @@
 | DNS/TLS/external smoke | blocked | Нет DNS credentials; NXDOMAIN и authoritative timeout; domain не опубликован |
 | SSH password rotation/recovery | blocked | Только пользователь/защищённая консоль; root/password policy сохранена |
 | Tooling lock | done | Версии/SHA/лицензии/capabilities/smoke; Astryx unverified |
-| OpenSpec | done | strict validate; незавершённые deployment tasks сохранены |
-| PR | not_run | Создание после финального контроля артефактов |
+| OpenSpec | done для завершённых этапов | strict validate; 49/55 задач отмечены; deployment и deferred остаются открыты |
+| PR | done | [Draft PR #3](https://github.com/Lanutrix/mts_hackathon_2026/pull/3), main; без merge |
 | F37–F40 | deferred | Адаптеры каналов/routing/ACK не реализованы |
 
-Ничего из blocked не объявляется pass. Независимая работа продолжается до проверенной ветки, release archive и PR. Следующее действие, зависящее от пользователя: защищённый интерактивный root-вход для bootstrap, подтверждение ротации пароля/recovery и контроль DNS. Пароли/приватные ключи не присылать в чат.
+Ничего из blocked не объявляется pass. Ветка опубликована, PR создан. Release archive подготавливается отдельно и проверяется SHA-256; его загрузка не означает активацию. Следующее действие, зависящее от пользователя: защищённый интерактивный root-вход для bootstrap, подтверждение ротации пароля/recovery и контроль DNS. Пароли/приватные ключи не присылать в чат.

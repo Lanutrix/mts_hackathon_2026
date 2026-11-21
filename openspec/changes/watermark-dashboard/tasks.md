@@ -15,7 +15,7 @@
 - [x] 1.12 Latency p95 2000/10000 и длительный wallboard
 - [ ] 1.13 Безопасный VDS deploy, backup restore, rollback, SSH recovery
 - [ ] 1.14 Authoritative DNS, TLS, внешний функциональный smoke
-- [ ] 1.15 Traceability, финальный обязательный прогон, PR без merge
+- [x] 1.15 Traceability, финальный обязательный прогон, PR без merge
 
 ## 2. Покрытие сценариев
 - [x] 2.1 F01: Viewer открывает S01 с исходными 44 записями; Четыре группы 0/2/1/5, понятная свежесть, без исторического звукового шторма
@@ -59,4 +59,4 @@
 - [ ] 2.39 F39: Email/chat/voice fixtures с неоднозначностью; Текст остаётся данными; unknown/review вместо выдуманного инициатора (deferred extension)
 - [ ] 2.40 F40: Опциональная рекомендация/назначение/ACK/reject; Только отдельный demo-контур; SENT≠DELIVERED≠ACKED, не основной lifecycle (deferred extension)
 
-Блокеры 1.13–1.14: первоначальная root-установка, PostgreSQL restore/rollback на VDS, SSH recovery/rotation, DNS/TLS и внешний smoke. F37–F40 остаются deferred. 1.15 закрывается после PR.
+Блокеры 1.13–1.14: первоначальная root-установка, PostgreSQL restore/rollback на VDS, SSH recovery/rotation, DNS/TLS и внешний smoke. F37–F40 остаются deferred. 1.15 выполнен: финальные проверки и traceability сохранены, создан draft PR #3 без merge. Остаются 2 blocked этапа и 4 deferred расширения.
