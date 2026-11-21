@@ -1,0 +1,946 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Watermelon API",
+    "version": "0.1.0",
+    "description": "Один источник истины: accepted file revision. Public read-only DEMO; cookie + CSRF для mutations."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "wm_session"
+      },
+      "csrf": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token"
+      }
+    },
+    "schemas": {
+      "RawIncident": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sysId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stateId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "priorityId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "Revision": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "Incident": {
+        "type": "object",
+        "required": [
+          "key",
+          "id",
+          "raw",
+          "revision",
+          "groups",
+          "sourcePresent"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "raw": {
+            "$ref": "#/components/schemas/RawIncident"
+          },
+          "sourcePresent": {
+            "type": "boolean"
+          },
+          "quarantined": {
+            "type": "boolean"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "critical",
+                "coordinators",
+                "high",
+                "research"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health/live": {
+      "get": {
+        "summary": "Liveness; не проверяет БД",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Readiness БД и всех источников; 503 degraded",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Совместимый summary источников",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/me": {
+      "get": {
+        "summary": "Текущий пользователь и разрешённые источники",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/login": {
+      "post": {
+        "summary": "Вход; 10 попыток/мин; HttpOnly SameSite Strict; Secure production",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "summary": "Завершить сессию",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "summary": "Согласованная revision: четыре группы по 30, count, unique, quality, notifications",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "service",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "up",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "critical",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "coordinators",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "high",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "research",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/incidents": {
+      "get": {
+        "summary": "Список по 50: quality/history и offset",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/incident/{id}": {
+      "get": {
+        "summary": "Детали с полным raw и 50 последними immutable changes",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ]
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "summary": "До 200 событий, offset/nextOffset; personal read",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/notifications/read": {
+      "post": {
+        "summary": "Coordinator/demo-admin: локальная отметка; не ACK",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/preferences": {
+      "get": {
+        "summary": "Личные настройки coordinator/demo-admin",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      },
+      "post": {
+        "summary": "zone UTC/Europe/Moscow, sound и notifications boolean",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/preview": {
+      "post": {
+        "summary": "Demo-admin: text содержит исходный JSON-массив ≤20 МиБ, token живёт 5 минут",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/commit": {
+      "post": {
+        "summary": "Demo-admin: token preview; atomic working file → ingestion; original read-only",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/export": {
+      "get": {
+        "summary": "Исходный array; mode=normalized явно изменяет представление дат/priority",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ]
+      }
+    },
+    "/api/demo": {
+      "get": {
+        "summary": "Состояние DEMO scenario; demo-admin",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      },
+      "post": {
+        "summary": "play/pause/step/reset/edit; demo-admin",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analysis/{id}": {
+      "post": {
+        "summary": "Coordinator/demo-admin; bounded local model, evidence, stale/fallback, 6 запросов/мин",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream": {
+      "get": {
+        "summary": "SSE: ready/resync/revision/status/reset/heartbeat, id=revision; cursor или Last-Event-ID; полный resync",
+        "responses": {
+          "200": {
+            "description": "Успешный результат",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

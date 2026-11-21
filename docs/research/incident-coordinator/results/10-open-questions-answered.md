@@ -1,3 +1,5 @@
+> Историческая редакция 20.11.2026. Объём MVP уточнён по официальному кейсу: [новая редакция](../../../requirements/incident-coordinator/official-case-revision.md). IN/ANL/OUT и ACK не являются обязательным ядром дашборда. Исходный текст сохранён ниже.
+
 # 10. Ответы на Q01–Q25: статус, доказательства, план проверки
 
 **Основание:** [открытые вопросы](../../../requirements/incident-coordinator/open-questions.md), [три расшифровки](../../../meetings/2026-11-20/README.md), [decision log](../../../requirements/incident-coordinator/decision-log.md), [источники](sources.md). Все Q01–Q25 пройдены **без выдуманного доступа к регламентам МТС**.

@@ -1,14 +1,61 @@
-# mts_hackathon_2026
+# МТС Watermelon — дашборд координатора
 
-Репозиторий проекта интеллектуальной координации и маршрутизации инцидентов (MTS Hackathon 2026).
+Рабочий MVP наблюдения за JSON-файлом. Четыре независимые группы, SSE, история, уведомления, общий экран, импорт/экспорт, серверные роли и локальная ИИ-сводка. Это демонстрационный стенд, не официальная продуктивная система МТС.
 
-> Статус: исходная документация собрана на основе командного обсуждения 20 ноября 2026 года. Исследовательские выводы, характеристики систем заказчика и правила SLA должны подтверждаться отдельной аналитикой, а не считаться установленными фактами.
+[Figma](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe) · [Требования](docs/requirements/incident-coordinator/official-case-revision.md) · [Статус и блокеры](docs/implementation/progress.md) · [Проверки](docs/qa/test-report.md) · [Матрица F01–F40](docs/qa/flow-coverage.csv) · [Деплой](docs/deploy/runbook.md)
 
-## Документация
+## Локальный запуск
 
-- [Карта документации](docs/README.md)
-- [Встреча 20.11.2026: саммари и расшифровки](docs/meetings/2026-11-20/README.md)
-- [Предварительная постановка задачи и архитектура](docs/requirements/incident-coordinator/README.md)
-- [Аналитика: задание для ChatGPT Work](docs/research/incident-coordinator/README.md)
+Node **24.18.0**, npm **11.16.0**. Установка зависимостей строго по package-lock.json:
 
-Транскрипции содержат разговорную лексику и местами неточно распознанные термины. Это первичный материал, а не согласованное техническое задание.
+```sh
+npm ci --ignore-scripts
+npm run build
+npm run dev
+```
+
+Откройте http://127.0.0.1:3000. Создаётся синтетическая выписка из 600 записей в `.runtime/demo/incidents.json`; PostgreSQL-совместимый PGlite хранит проекцию в `.runtime/db`. Измените файл отдельным процессом — интерфейс обновится без перезагрузки. Не запускайте два backend над одним DATA_DIR.
+
+```sh
+npm run generate -- 120 42 .runtime/acceptance
+npx tsx scripts/mutate.ts .runtime/demo/incidents.json critical
+```
+
+Создание пользователя — в собственном интерактивном терминале, пароль не отображается и не передаётся аргументом:
+
+```sh
+npm run user -- operator demo-admin .runtime/users.json
+```
+
+Затем задайте `USERS_FILE` на созданный файл и перезапустите сервер. В PowerShell: `$env:USERS_FILE='.runtime/users.json'`; в POSIX shell: `export USERS_FILE=.runtime/users.json`. Фиксированного admin-пароля нет. Viewer читает, coordinator анализирует и сохраняет личные отметки, demo-admin управляет рабочими копиями и сценарием.
+
+Для оригинального файла задайте `ORIGINAL_PATH` на внешний защищённый путь. Оригинал доступен только авторизованным и только для чтения; в Git и публичной демонстрации его нет. Импорт оригинального формата выполняйте в приватную рабочую копию. `DATABASE_URL` переключает хранилище на PostgreSQL; на VDS предусмотрена peer-аутентификация через Unix socket.
+
+`.env.example` описывает настройки; автоматической загрузки .env нет — передавайте переменные средой или systemd EnvironmentFile. `ITSM_URL` принимается только как HTTPS URL без credentials. Без него показан явно обозначенный макет с тем же ID.
+
+## Проверки и синтетика
+
+```sh
+npm test
+npx playwright install chromium firefox webkit
+npm run test:e2e
+npm run ai:smoke
+npx tsx scripts/fixtures.ts
+npx tsx scripts/benchmark.ts
+npx tsx scripts/soak.ts
+```
+
+`npm test` без ORIGINAL_PATH пропускает единственную проверку закрытого оригинала. Локальный отчёт включает её фактический запуск. AI smoke загружает публичную закреплённую ONNX-модель один раз; после кэширования работает локально. Этот запрос действительно выполняет ML; CI использует отдельный ограниченный mock для ошибок/таймаутов. Без модели показывается подписанный fallback.
+
+Генератор: seeds 42/43/44/92831, 120/600/2000/10000 записей; фиксированные часы, независимый oracle и manifests. `--live` сдвигает время только новой копии. `data/demo/design.json` — одинаковая синтетика для Figma и визуальной проверки. Пограничные случаи — `data/demo/boundaries.json`.
+
+## Навигация по реализации
+
+- `packages/domain`: исходная схема, нормализация, группы, transitions, генератор.
+- `apps/worker`: стабильное чтение файла, transactional ingestion и восстановление.
+- `apps/server`: API, роли, история/read state, audit, AI worker и staging support.
+- `apps/web`: React, Golos Text, semantic CSS tokens, доступные формы и wallboard.
+- `packages/contracts/openapi.json`: фактические маршруты и DTO.
+- `docs`: требования, ADR, дизайн, доказательства, runbooks и сценарий защиты.
+
+F37–F40 (канальные адаптеры, routing/ACK/телефония) отложены явно. Статус публичного домена и VDS проверяется отдельно от успешной локальной сборки.

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.runtime/
+test-results/
+playwright-report/
+data/private/
+*.log
+.cache/
+*.pem
+*.key
+.agents/skills/

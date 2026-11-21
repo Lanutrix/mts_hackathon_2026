@@ -1,0 +1,214 @@
+{
+  "durationSeconds": 600,
+  "errors": [],
+  "samples": [
+    {
+      "elapsedSeconds": 0,
+      "metrics": {
+        "Documents": 2,
+        "JSEventListeners": 312,
+        "Nodes": 2608,
+        "JSHeapUsedSize": 4622564
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 30,
+      "metrics": {
+        "Documents": 2,
+        "JSEventListeners": 5028,
+        "Nodes": 2608,
+        "JSHeapUsedSize": 10675060
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 60,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 3838,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 8634072
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 90,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 3838,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 8711648
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 120,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 3183,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 8513364
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 150,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 4100,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 8869956
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 180,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 3183,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 9296848
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 210,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 1873,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 7519880
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 240,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 1480,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 6901448
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 270,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 4275,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 5473140
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 300,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 956,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 6489940
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 330,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 563,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 6893036
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 360,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 694,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 7567396
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 390,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 5410,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 10352596
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 420,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 4755,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 9922132
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 450,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 3445,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 9547428
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 480,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 1742,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 7409412
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 510,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 1349,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 7494440
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 540,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 6065,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 10819704
+      },
+      "cards": 120
+    },
+    {
+      "elapsedSeconds": 570,
+      "metrics": {
+        "Documents": 1,
+        "JSEventListeners": 4493,
+        "Nodes": 2601,
+        "JSHeapUsedSize": 9495204
+      },
+      "cards": 120
+    }
+  ],
+  "settled": [
+    {
+      "Documents": 1,
+      "JSEventListeners": 301,
+      "Nodes": 2601,
+      "JSHeapUsedSize": 5629916
+    }
+  ]
+}

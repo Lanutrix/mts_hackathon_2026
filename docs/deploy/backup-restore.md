@@ -1,0 +1,7 @@
+# Backup и проверка восстановления
+
+Локальный PGlite: остановить приложение, затем `npx tsx scripts/backup-local.ts backup .runtime/db .runtime/backup-new`. Для проверки — `restore .runtime/backup-new .runtime/restore-new`. Назначение должно быть новым каталогом: скрипт не перезаписывает существующий. Тест `tests/recovery.test.ts` реально копирует закрытую БД в отдельную директорию, открывает её, проверяет revision, историю, personal read state и дедуп повторного снимка.
+
+VDS PostgreSQL (blocked до установки): остановить writer, сохранить `pg_dump -Fc -d watermelon -f backup.dump`, архив demo/workspace/users с режимом 0600 и конфигурацию за пределами Git. Root создаёт **отдельную** БД `watermelon_restore_check` владельца deploy; `pg_restore --exit-on-error --no-owner -d watermelon_restore_check backup.dump`. Не выполнять restore поверх watermelon ради теста. Проверить counts/hash/revision/events/reads/ai_cache, поднять app на localhost с DATA_DIR, соответствующим восстановленной копии. Сравнить dashboard и выполнить повтор того же файла — revision не меняется. После проверки хранить отчёт без данных/паролей.
+
+Для production stop→dump→files→start предусмотрено в activate.sh. При ошибке backup переключение не продолжается. Требуется операторский start предыдущего сервиса после устранения ошибки. Backup содержит закрытые данные и salted user hashes: не включать в CI artifacts, PR и outputs. Retention: проектное предложение 7 дневных + 4 недельных; автоматическое удаление пока не настроено.

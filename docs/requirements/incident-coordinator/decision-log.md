@@ -18,3 +18,20 @@
 | D12 | Перезапускать SLA при изменении приоритета | Открыто | Не принимать правило без исследования |
 | D13 | Использовать голос, Telegram или иные боты | Дополнительные идеи | Не базовая зависимость MVP |
 | D14 | Частота напоминаний 30 минут | Пример, не требование | Требуется политика уведомлений |
+
+## Решения реализации 21.11.2026
+
+| ID | Решение проекта | Основание | Последствия |
+|---|---|---|---|
+| ADR-W01 | Файловый dashboard вместо платформы автоназначения | PDF 3–6,9–10 | OUT/ACK — расширения F37–F40 |
+| ADR-W02 | 7 Resolved, 10 Closed; независимые группы | Уточнения 16:06,19:08 + пример | Контроль 0/2/1/5 |
+| ADR-W03 | Deadline всегда из файла; Europe/Moscow display | Исходный формат; решение UI | Нет автоматических SLA 2/6/12 |
+| ADR-W04 | Synthetic-only public; оригиналы вне Git | Права на анализ не равны публикации | Локальная проверка original через путь |
+| ADR-W05 | Последний хороший snapshot и sourcePresent | Контракт пользователя | Пропажа не закрывает incident |
+| ADR-W06 | Серверные роли и session/CSRF | Контракт пользователя | Никаких фиксированных admin-паролей |
+| ADR-W07 | Figma → tokens → React; спокойный интерфейс | PDF 6,11; пользователь | Четыре группы всегда различимы |
+| ADR-W08 | Не менять root SSH policy до deploy+recovery проверки | Контракт деплоя | Сначала независимый вход deploy |
+
+| ADR-W09 | Node24/Fastify/React, один writer; PostgreSQL production/PGlite local; capped DOM | Измеренный 2k/10k benchmark | [Стек и ограничения](../../implementation/stack-decision.md) |
+| ADR-W10 | Extractive local ML, evidence, без назначения команд | Реальный ONNX smoke и отсутствие ownership-каталога | Fallback подписан; suggestedTeams пуст |
+| ADR-W11 | Snapshots metadata + immutable before/after, additive schema | Размер 10k и транзакционная согласованность | Restore проверяется отдельно; demo reset сохраняет audit |
