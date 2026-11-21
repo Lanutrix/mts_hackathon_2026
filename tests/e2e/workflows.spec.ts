@@ -311,10 +311,19 @@ test("live embeds a quiet 3D slice with the active count and opens evidence from
       .evaluate((el) => (el as HTMLCanvasElement).toDataURL());
   const image = await still();
   await expect(page.getByText("Риски кейса", { exact: true })).toHaveCount(0);
+  const filtered = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/dashboard" &&
+      url.searchParams.get("signal") === "critical"
+    );
+  });
   await page.getByTestId("group-critical").click();
+  const board = await (await filtered).json();
+  const id = board.triage.cases[0].lead.id;
+  const ticket = page.getByRole("button", { name: id + " ↗", exact: true });
+  await expect(ticket).toBeVisible();
   expect(await still()).toBe(image);
-  const ticket = page.locator(".case-source").first();
-  const id = (await ticket.innerText()).split(/\s/)[0];
   await ticket.click();
   await expect(page).toHaveURL(new RegExp("/incident/" + id));
   await expect(
