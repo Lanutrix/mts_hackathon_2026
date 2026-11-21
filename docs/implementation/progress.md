@@ -1,6 +1,6 @@
 # Состояние реализации
 
-Обновлено UTC 2026-11-21T00:23:51+00:00. Ветка feat/watermelon-dashboard-20261121, база research 54ae863, main cf4ad3f. PR2 открыт и не слит. Транскрипции и оригиналы не изменялись.
+Обновлено UTC 2026-11-21T08:31:26+00:00. Ветка feat/watermelon-dashboard-20261121, база research 54ae863, main cf4ad3f. PR2 открыт и не слит. Транскрипции и оригиналы не изменялись.
 
 | Этап | Статус | Доказательство / следующий шаг |
 |---|---|---|
@@ -12,13 +12,13 @@
 | QA/performance | done локально | samples/soak, defects, coverage; PostgreSQL/VDS не подменён PGlite |
 | VDS preflight/deploy key | done | Проверен host key, отдельный deploy, второй вход |
 | VDS staging, restore и откат | done | [Протокол](../qa/evidence/vds-staging.json). Две браузерные сессии, PostgreSQL 18.6, 11 таблиц восстановлены, переход на предыдущий коммит проверен |
-| Публичная активация и production rollback | blocked | Нужна системная установка через защищённый root-вход |
+| Публичный релиз | done | 166d769, системные службы включены, рабочая БД восстановлена отдельно и сверена по всем 11 таблицам. [Дашборд](https://mts-watermelon.ru/) |
 | DNS | done | Все четыре авторитетных NS Timeweb и два рекурсивных сервера возвращают 89.19.215.254 |
-| TLS и внешний smoke | blocked | Системные прокси и приложение ожидают первоначальной установки |
-| SSH password rotation/recovery | blocked | Только пользователь/защищённая консоль; root/password policy сохранена |
+| TLS и внешний smoke | done | HTTP 308, доверенный TLS, две сессии Chromium, запись файла, SSE/reconnect, вход и ИИ с пятью основаниями за 6635 мс. [Протокол](../qa/evidence/public-release.json) |
+| SSH password rotation/recovery | deferred | Root-вход и отдельный ключ deploy проверены. Владелец поручил опубликовать стенд без ожидания подтверждения ротации и recovery-консоли. |
 | Tooling lock | done | Версии/SHA/лицензии/capabilities/smoke; Astryx unverified |
-| OpenSpec | done для завершённых этапов | strict validate; 49/55 задач отмечены; deployment и deferred остаются открыты |
+| OpenSpec | done для завершённых этапов | 50/55. В 1.13 открыта проверка recovery провайдера, F37–F40 отложены. |
 | PR | done | [Draft PR #3](https://github.com/Lanutrix/mts_hackathon_2026/pull/3), main; без merge |
 | F37–F40 | deferred | Адаптеры каналов/routing/ACK не реализованы |
 
-Ничего из blocked не объявляется pass. Ветка опубликована, PR создан. Первый архив a5b35d4 передан и проверен по SHA-256. Выявленные на стенде дефекты исправлены в ветке PR. Следующее действие, зависящее от пользователя: защищённый интерактивный root-вход для bootstrap, ротация ранее раскрытого пароля и проверка recovery перед изменением SSH policy. Пароли/приватные ключи не присылать в чат.
+На домене работает релиз 166d769. PR открыт как draft. Откат между релизами проверялся на закрытом стенде. Это первый публичный релиз.

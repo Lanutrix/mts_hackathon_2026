@@ -2,7 +2,7 @@
 
 Рабочий MVP наблюдения за JSON-файлом. Четыре независимые группы, SSE, история, уведомления, общий экран, импорт/экспорт, серверные роли и локальная ИИ-сводка. Это демонстрационный стенд, не официальная продуктивная система МТС.
 
-[Figma](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe) · [Требования](docs/requirements/incident-coordinator/official-case-revision.md) · [Статус и блокеры](docs/implementation/progress.md) · [Проверки](docs/qa/test-report.md) · [Матрица F01–F40](docs/qa/flow-coverage.csv) · [Деплой](docs/deploy/runbook.md)
+[Открыть демо](https://mts-watermelon.ru/) · [Figma](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe) · [Требования](docs/requirements/incident-coordinator/official-case-revision.md) · [Статус и блокеры](docs/implementation/progress.md) · [Проверки](docs/qa/test-report.md) · [Матрица F01–F40](docs/qa/flow-coverage.csv) · [Деплой](docs/deploy/runbook.md)
 
 ## Локальный запуск
 

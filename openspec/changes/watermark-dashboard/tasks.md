@@ -14,7 +14,7 @@
 - [x] 1.11 Visual/a11y/keyboard/zoom/reduced motion и browsers
 - [x] 1.12 Latency p95 2000/10000 и длительный wallboard
 - [ ] 1.13 Безопасный VDS deploy, backup restore, rollback, SSH recovery
-- [ ] 1.14 Authoritative DNS, TLS, внешний функциональный smoke
+- [x] 1.14 Authoritative DNS, TLS, внешний функциональный smoke
 - [x] 1.15 Traceability, финальный обязательный прогон, PR без merge
 
 ## 2. Покрытие сценариев
@@ -59,4 +59,4 @@
 - [ ] 2.39 F39: Email/chat/voice fixtures с неоднозначностью; Текст остаётся данными; unknown/review вместо выдуманного инициатора (deferred extension)
 - [ ] 2.40 F40: Опциональная рекомендация/назначение/ACK/reject; Только отдельный demo-контур; SENT≠DELIVERED≠ACKED, не основной lifecycle (deferred extension)
 
-Блокеры 1.13–1.14: первоначальная системная установка, публичное переключение/откат, SSH recovery/rotation, TLS и внешний smoke. На закрытом VDS-стенде выполнены PostgreSQL restore, browser smoke и переключение/откат; A-запись подтверждена. F37–F40 остаются deferred. 1.15 выполнен: финальные проверки и traceability сохранены, создан draft PR #3 без merge. Остаются 2 blocked этапа и 4 deferred расширения.
+В 1.13 выполнены системный деплой, восстановление рабочей БД в отдельной базе и репетиция отката на VDS. Доступ к recovery-консоли провайдера и ротация пароля не подтверждены. По указанию владельца публикация состоялась. Это первый публичный релиз. 1.14 и 1.15 выполнены. F37–F40 остаются deferred.

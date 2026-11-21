@@ -1,6 +1,6 @@
 # Фактические проверки
 
-Обновлено 2026-11-21T00:23:51+00:00. Итог проекта **частично готово**: локальный продукт и проверяемая ветка; deployment/DNS/production smoke blocked. Матрица [F01–F40](flow-coverage.csv) сохраняет весь обязательный объём.
+Обновлено 2026-11-21T08:31:26+00:00. Демонстрационный стенд опубликован на [mts-watermelon.ru](https://mts-watermelon.ru/). Доступны [матрица F01–F40](flow-coverage.csv) и [протокол публичной проверки](evidence/public-release.json).
 
 | Проверка | Результат | Доказательство / предел |
 |---|---|---|
@@ -15,8 +15,8 @@
 | A11y | automated critical/serious = 0 в прошедших browser suites | Dashboard/login axe; ручная проверка ниже; не сертификат WCAG |
 | Impeccable explicit detect | 0 mechanical findings | [JSON](evidence/impeccable-detect.json); hook не включался, visual pass этим не подменяется |
 | Process restart / offline backup restore | done локально | tests/restart.test.ts + tests/recovery.test.ts; отдельный процесс/каталог |
-| PostgreSQL restore и release rollback на VDS | done на закрытом стенде | [Протокол](evidence/vds-staging.json). Production-переключение ожидает root-установки |
-| HTTPS / внешний smoke | blocked | A-запись подтверждена у всех четырёх авторитетных NS; ожидается системная установка прокси и TLS |
+| PostgreSQL restore и release rollback на VDS | done в проверенных контурах | Рабочий dump восстановлен в отдельной БД, все 11 таблиц совпали. Откат между релизами выполнен на staging. |
+| HTTPS / внешний smoke | done | Два независимых браузерных контекста, обработка SSE, reconnect, Secure-cookie, ITSM, ИИ и проверка готовности после удаления тестовой учётной записи. |
 
 Тестовые учётные данные случайны и остаются только в памяти/хеш-файле `.runtime`, trace/video выключены. Снимки экрана снимаются только на публичной синтетике без формы пароля. Исторические failure traces с credentials не сохранялись по прямому запрету пользователя; вместо них — точные причины, assertions и безопасные публичные screenshots в defects.md. CI workflow закреплён SHA actions; его remote run не равен локальному pass.
 
