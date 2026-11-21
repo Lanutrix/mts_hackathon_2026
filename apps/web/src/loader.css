@@ -1,0 +1,75 @@
+.wm-loader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7em;
+  font: inherit;
+}
+.wm-loader-optic {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 1.65em;
+  height: 1.65em;
+  flex: none;
+}
+.wm-loader-optic::before {
+  content: "";
+  position: absolute;
+  inset: 0.08em;
+  border: 0.1em solid currentColor;
+  border-radius: 27%;
+  transform: rotate(-22deg);
+}
+.wm-loader-optic > i {
+  display: block;
+  width: 61%;
+  height: 36%;
+  border-radius: 12% 12% 100% 100% / 12% 12% 150% 150%;
+  background: #da204e;
+  border-bottom: 0.13em solid #357166;
+  transform: rotate(-28deg);
+}
+.wm-loader-stage {
+  display: flex;
+  min-height: clamp(170px, 32vh, 340px);
+  gap: 1.1rem;
+  color: #51475e;
+  font:
+    500 0.88rem/1.4 "Golos Text",
+    Arial,
+    sans-serif;
+}
+.wm-loader-stage .wm-loader-optic {
+  width: 2.8rem;
+  height: 2.8rem;
+}
+.wm-boot {
+  min-height: 88svh;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wm-loader-optic::before {
+    animation: wm-focus 1.65s cubic-bezier(0.43, 0, 0.24, 1) infinite;
+  }
+  .wm-loader-optic > i {
+    animation: wm-slice 1.65s ease-in-out infinite;
+  }
+}
+@keyframes wm-focus {
+  0%,
+  100% {
+    transform: perspective(4em) rotate(-22deg) rotateY(-20deg);
+  }
+  50% {
+    transform: perspective(4em) rotate(68deg) rotateY(42deg);
+  }
+}
+@keyframes wm-slice {
+  0%,
+  100% {
+    transform: translateY(0.09em) rotate(-28deg);
+  }
+  50% {
+    transform: translateY(-0.12em) rotate(7deg);
+  }
+}

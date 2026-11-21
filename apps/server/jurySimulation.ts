@@ -4,12 +4,13 @@ import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   FIELDS,
   PRIORITIES,
   STATES,
   TEAM,
+  canonical,
   parseSnapshot,
   transition,
   type Group,
@@ -48,7 +49,7 @@ export interface JurySnapshot {
   time: string;
 }
 
-interface SimulationOptions {
+export interface SimulationOptions {
   stepDelays?: readonly [number, number, number, number, number];
   temporaryRoot?: string;
   graceMs?: number;
@@ -147,9 +148,126 @@ function forViewer(item: Incident): JuryIncident {
   };
 }
 
+interface Version {
+  revision: number;
+  kind: "created" | "updated";
+  at: string;
+  changed: string[];
+  before_doc: Incident | null;
+  after_doc: Incident;
+}
+
+interface Accepted {
+  snapshot: JurySnapshot;
+  rows: Map<string, Incident>;
+  versions: Map<string, Version[]>;
+}
+
+// Keep the JSON export and its queryable ticket history bounded together.
+// Every event in the 24-item journal still has a corresponding ticket.
+const maxTickets = 12;
+
+function accept(
+  previous: Accepted | undefined,
+  candidates: Incident[],
+  runId: string,
+  revision: number,
+  step: number,
+  stepDelay: number,
+) {
+  const now = Date.now();
+  const time = new Date(now).toISOString();
+  const rows = new Map<string, Incident>();
+  const versions = new Map<string, Version[]>();
+  let events = previous?.snapshot.events ?? [];
+  for (const candidate of candidates) {
+    const before = previous?.rows.get(candidate.key);
+    const history = previous?.versions.get(candidate.key) ?? [];
+    if (before?.hash === candidate.hash) {
+      rows.set(candidate.key, before);
+      versions.set(candidate.key, history);
+      continue;
+    }
+    const { incident, reasons } = transition(before, candidate);
+    incident.revision = revision;
+    incident.updatedAt = time;
+    rows.set(incident.key, incident);
+    const changed = Object.keys({ ...before?.raw, ...incident.raw }).filter(
+      (field) =>
+        canonical(before?.raw[field]) !== canonical(incident.raw[field]),
+    );
+    const entry: Version = {
+      revision,
+      kind: before ? "updated" : "created",
+      at: time,
+      changed,
+      before_doc: before ?? null,
+      after_doc: incident,
+    };
+    versions.set(incident.key, [entry, ...history].slice(0, 50));
+    if (reasons.length) {
+      events = [
+        { ...forViewer(incident), reasons, revision, at: time },
+        ...events,
+      ].slice(0, maxEvents);
+    }
+  }
+  const active = rows.get(candidates.at(-1)!.key)!;
+  const nextAt = new Date(now + stepDelay).toISOString();
+  const snapshot: JurySnapshot = {
+    runId,
+    revision,
+    step,
+    nextAt,
+    incidents: [forViewer(active)],
+    events,
+    time,
+  };
+  return {
+    namespace: "simulation",
+    revision,
+    acceptedAt: time,
+    rows,
+    versions,
+    snapshot,
+    simulation: { runId, step, nextAt, currentId: active.id },
+    status: {
+      state: "live" as const,
+      checkedAt: time,
+      error: null,
+      metrics: {},
+    },
+    history(key: string, maxRevision = revision) {
+      return (versions.get(key) ?? []).filter(
+        (entry) => entry.revision <= maxRevision,
+      );
+    },
+    notifications(
+      _user: string,
+      after = 0,
+      maxRevision = revision,
+      offset = 0,
+    ) {
+      return events
+        .filter(
+          (event) => event.revision > after && event.revision <= maxRevision,
+        )
+        .slice(offset, offset + 200)
+        .map((event) => ({
+          ...event,
+          namespace: "simulation",
+          read: false,
+          snapshot: event,
+        }));
+    },
+  };
+}
+
+type ReadView = ReturnType<typeof accept>;
+
 async function runSimulation(
   signal: AbortSignal,
-  publish: (snapshot: JurySnapshot) => void,
+  publish: (view: ReadView) => void,
   options: SimulationOptions,
 ) {
   const directory = await mkdtemp(
@@ -158,44 +276,31 @@ async function runSimulation(
   const file = join(directory, "incidents.json");
   const delays = options.stepDelays ?? defaultDelays;
   const runId = randomUUID();
-  let raw: Raw = {};
-  let previous: Incident | undefined;
-  let events: JuryEvent[] = [];
+  const records: Raw[] = [];
+  let previous: Accepted | undefined;
   try {
     for (let revision = 1; !signal.aborted; revision++) {
       const step = (revision - 1) % delays.length;
       const cycle = Math.floor((revision - 1) / delays.length) + 1;
-      raw = sourceRow(raw, step, runId, cycle, Date.now());
-      await atomicWrite(file, JSON.stringify([raw]));
-
-      const [accepted] = parseSnapshot(
+      const raw = sourceRow(
+        records.at(-1) ?? {},
+        step,
+        runId,
+        cycle,
+        Date.now(),
+      );
+      if (step === 0) records.push(raw);
+      else records[records.length - 1] = raw;
+      if (records.length > maxTickets) records.shift();
+      await atomicWrite(file, JSON.stringify(records));
+      const { rows } = parseSnapshot(
         await readFile(file, "utf8"),
         "simulation",
-      ).rows;
-      const { incident, reasons } = transition(
-        previous?.key === accepted.key ? previous : undefined,
-        accepted,
       );
-      previous = incident;
-      const row = forViewer(incident);
-      const now = Date.now();
-      const time = new Date(now).toISOString();
-      if (reasons.length) {
-        events = [{ ...row, reasons, revision, at: time }, ...events].slice(
-          0,
-          maxEvents,
-        );
-      }
+      const view = accept(previous, rows, runId, revision, step, delays[step]);
+      previous = view;
       if (signal.aborted) break;
-      publish({
-        runId,
-        revision,
-        step,
-        incidents: [row],
-        events,
-        time,
-        nextAt: new Date(now + delays[step]).toISOString(),
-      });
+      publish(view);
       await wait(delays[step], undefined, { signal });
     }
   } catch (error) {
@@ -211,98 +316,218 @@ async function runSimulation(
   }
 }
 
+function frame(event: string, data: unknown, id?: string | number) {
+  return (
+    (id === undefined ? "" : `id: ${id}\n`) +
+    `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+  );
+}
+
+type Viewer = {
+  protocol: "snapshot" | "dashboard";
+  initial: boolean;
+  cursor: number;
+};
+
 export function registerJurySimulation(
   app: FastifyInstance,
   publicDemo: boolean,
   options: SimulationOptions = {},
 ) {
-  const viewers = new Set<ServerResponse>();
-  let current: { controller: AbortController; done: Promise<void> } | undefined;
-  let latest: JurySnapshot | undefined;
+  const viewers = new Map<ServerResponse, Viewer>();
+  let current:
+    | {
+        controller: AbortController;
+        done: Promise<void>;
+        first: Promise<ReadView | undefined>;
+      }
+    | undefined;
+  let latest: ReadView | undefined;
   let grace: NodeJS.Timeout | undefined;
   let closing = false;
 
-  function encode(snapshot: JurySnapshot) {
-    return `id: ${snapshot.runId}:${snapshot.revision}\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`;
-  }
-
-  function write(viewer: ServerResponse, frame: string) {
-    // EventSource reconnects with a complete snapshot if a slow client falls behind.
+  function write(viewer: ServerResponse, message: string) {
     if (viewer.writableNeedDrain) viewer.destroy();
-    else if (!viewer.destroyed && !viewer.writableEnded) viewer.write(frame);
+    else if (!viewer.destroyed && !viewer.writableEnded) viewer.write(message);
   }
 
   function endViewers() {
-    for (const viewer of viewers) {
+    for (const viewer of viewers.keys()) {
       if (viewer.writableNeedDrain) viewer.destroy();
       else viewer.end();
     }
     viewers.clear();
   }
 
+  function idle() {
+    clearTimeout(grace);
+    if (!closing && !viewers.size)
+      grace = setTimeout(
+        () => current?.controller.abort(),
+        options.graceMs ?? 12_000,
+      );
+  }
+
+  function deliver(
+    response: ServerResponse,
+    viewer: Viewer,
+    view: ReadView,
+    snapshotFrame: string,
+  ) {
+    if (viewer.protocol === "snapshot") write(response, snapshotFrame);
+    else if (viewer.initial) {
+      write(
+        response,
+        frame(
+          viewer.cursor === view.revision ? "ready" : "resync",
+          {
+            revision: view.revision,
+            runId: view.simulation.runId,
+            reason:
+              viewer.cursor > view.revision
+                ? "server-reset"
+                : "snapshot-required",
+          },
+          view.revision,
+        ),
+      );
+    } else {
+      write(
+        response,
+        frame(
+          "revision",
+          {
+            revision: view.revision,
+            at: view.acceptedAt,
+            runId: view.simulation.runId,
+          },
+          view.revision,
+        ),
+      );
+    }
+    viewer.initial = false;
+  }
+
   function start() {
-    if (current || closing || !viewers.size) return;
+    if (current || closing) return current;
     const controller = new AbortController();
+    let resolveFirst!: (view: ReadView | undefined) => void;
+    const first = new Promise<ReadView | undefined>((resolve) => {
+      resolveFirst = resolve;
+    });
     const heartbeat = setInterval(() => {
-      for (const viewer of viewers) write(viewer, ": heartbeat\n\n");
-    }, 15_000);
+      for (const [response, viewer] of viewers)
+        write(
+          response,
+          viewer.protocol === "snapshot"
+            ? ": heartbeat\n\n"
+            : frame("heartbeat", {
+                revision: latest?.revision ?? 0,
+                at: new Date().toISOString(),
+              }),
+        );
+    }, 10_000);
     const done = runSimulation(
       controller.signal,
-      (snapshot) => {
-        latest = snapshot;
-        const frame = encode(snapshot);
-        for (const viewer of viewers) write(viewer, frame);
+      (view) => {
+        latest = view;
+        resolveFirst(view);
+        const snapshotFrame = frame(
+          "snapshot",
+          view.snapshot,
+          `${view.snapshot.runId}:${view.revision}`,
+        );
+        for (const [response, viewer] of viewers)
+          deliver(response, viewer, view, snapshotFrame);
       },
       options,
     )
       .catch((error: unknown) => {
         app.log.error({ err: error }, "Jury simulation stopped");
+        for (const [response, viewer] of viewers)
+          if (viewer.protocol === "dashboard")
+            write(response, frame("status", { state: "error" }));
         endViewers();
       })
       .finally(() => {
         clearInterval(heartbeat);
+        resolveFirst(undefined);
         latest = undefined;
         current = undefined;
-        // A viewer may have arrived while the previous run was cleaning up.
-        start();
+        if (viewers.size) start();
       });
-    current = { controller, done };
+    current = { controller, done, first };
+    return current;
+  }
+
+  async function read(reply: FastifyReply) {
+    if (!publicDemo) {
+      reply.code(404).send({ message: "Учебный эфир отключён" });
+      return;
+    }
+    if (current?.controller.signal.aborted) await current.done;
+    const session = start();
+    if (session) {
+      // The normal dashboard loads JSON and opens SSE concurrently. Polling-only
+      // viewers renew the same grace interval on each read.
+      idle();
+      const view = latest ?? (await session.first);
+      if (view) return view;
+    }
+    reply.code(503).send({ message: "Учебный источник временно недоступен" });
+  }
+
+  function stream(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    protocol: Viewer["protocol"],
+  ) {
+    if (!publicDemo)
+      return reply.code(404).send({ message: "Учебный эфир отключён" });
+    if (closing || viewers.size >= maxViewers)
+      return reply
+        .code(503)
+        .send({ message: "Учебный эфир временно недоступен" });
+    const response = reply.raw;
+    reply.hijack();
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      "X-Accel-Buffering": "no",
+    });
+    response.write("retry: 3000\n\n");
+    clearTimeout(grace);
+    const cursor = Number(
+      req.headers["last-event-id"] ??
+        (req.query as { cursor?: string }).cursor ??
+        0,
+    );
+    const viewer = { protocol, initial: true, cursor };
+    viewers.set(response, viewer);
+    response.once("close", () => {
+      if (viewers.delete(response) && !viewers.size) idle();
+    });
+    if (latest && !current?.controller.signal.aborted) {
+      const refreshed = { ...latest.snapshot, time: new Date().toISOString() };
+      deliver(
+        response,
+        viewer,
+        latest,
+        frame(
+          "snapshot",
+          refreshed,
+          `${refreshed.runId}:${refreshed.revision}`,
+        ),
+      );
+    }
+    start();
   }
 
   app.get(
     "/api/simulation/stream",
     { exposeHeadRoute: false },
-    async (_req, reply) => {
-      if (!publicDemo)
-        return reply.code(404).send({ message: "Учебный эфир отключён" });
-      if (closing || viewers.size >= maxViewers)
-        return reply
-          .code(503)
-          .send({ message: "Учебный эфир временно недоступен" });
-      const viewer = reply.raw;
-      reply.hijack();
-      viewer.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-store, no-transform",
-        "X-Accel-Buffering": "no",
-      });
-      viewer.write("retry: 3000\n\n");
-      clearTimeout(grace);
-      viewers.add(viewer);
-      viewer.once("close", () => {
-        if (!viewers.delete(viewer) || viewers.size || closing) return;
-        grace = setTimeout(
-          () => current?.controller.abort(),
-          options.graceMs ?? 12_000,
-        );
-      });
-      if (latest && !current?.controller.signal.aborted) {
-        write(viewer, encode({ ...latest, time: new Date().toISOString() }));
-      }
-      start();
-    },
+    async (req, reply) => stream(req, reply, "snapshot"),
   );
-
   app.addHook("preClose", async () => {
     closing = true;
     clearTimeout(grace);
@@ -310,4 +535,5 @@ export function registerJurySimulation(
     endViewers();
     await current?.done;
   });
+  return { read, stream };
 }

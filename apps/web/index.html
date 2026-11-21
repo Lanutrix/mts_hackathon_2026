@@ -9,10 +9,17 @@
       content="Watermelon — рабочее место координатора массовых инцидентов. Откройте эфир смены или рабочую очередь для разбора обращений."
     />
     <link rel="icon" href="/src/assets/watermelon-focus.svg?no-inline" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/loader.css" />
     <title>Инциденты в фокусе · Watermelon</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="wm-loader wm-loader-stage wm-boot" role="status">
+        <i class="wm-loader-optic" aria-hidden="true"><i></i></i>
+        <span>Загрузка Watermelon…</span>
+      </div>
+      <noscript>Для работы эфира включите JavaScript.</noscript>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

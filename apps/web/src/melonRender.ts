@@ -1,276 +1,384 @@
-import { melonMesh } from "./melonRenderGeometry";
-import { fragmentSource, vertexSource } from "./melonRenderShaders";
+import { canvasRenderer } from "./melonCanvas";
+import {
+  groupLoads,
+  melonGroups,
+  modelPoses,
+  orbit,
+  world,
+  type Vec,
+  type MelonFilter,
+  type ModelState,
+  type ObjectName,
+} from "./melonModel";
+import { webGLRenderer, type SceneFrame } from "./melonWebGL";
+export type { MelonFilter } from "./melonModel";
 
-export type MelonFilter =
-  "all" | "critical" | "coordinators" | "high" | "research";
-const groups: MelonFilter[] = ["critical", "coordinators", "high", "research"];
-const weights = () => new Float32Array(4);
-
-function makeProgram(gl: WebGLRenderingContext) {
-  const program = gl.createProgram();
-  if (!program) return null;
-  const shaders: WebGLShader[] = [];
-  try {
-    for (const [kind, source] of [
-      [gl.VERTEX_SHADER, vertexSource],
-      [gl.FRAGMENT_SHADER, fragmentSource],
-    ] as const) {
-      const shader = gl.createShader(kind);
-      if (!shader) return null;
-      shaders.push(shader);
-      gl.shaderSource(shader, source);
-      gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return null;
-      gl.attachShader(program, shader);
-    }
-    gl.linkProgram(program);
-    if (gl.getProgramParameter(program, gl.LINK_STATUS)) return program;
-    return null;
-  } finally {
-    for (const shader of shaders) gl.deleteShader(shader);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
-      gl.deleteProgram(program);
-  }
-}
-
+type Events = {
+  ready: (mode: "webgl" | "canvas" | "poster") => void;
+  target: (name: ObjectName) => void;
+  select: (filter: MelonFilter) => void;
+  paused: (value: boolean) => void;
+};
 export function mountMelon(
-  canvas: HTMLCanvasElement,
-  active: MelonFilter,
+  glCanvas: HTMLCanvasElement,
+  plane: HTMLCanvasElement,
+  surface: HTMLElement,
+  initial: ModelState,
+  hero: boolean,
   compact: boolean,
-  onReady: () => void,
+  events: Events,
+  forceFallback = false,
 ) {
-  const context = canvas.getContext("webgl", {
-    alpha: true,
-    antialias: true,
-    depth: true,
-    powerPreference: "low-power",
-    premultipliedAlpha: true,
-  });
-  if (!context) return null;
-  const gl = context;
-  const program = makeProgram(gl);
-  if (!program) return null;
-  const buffer = gl.createBuffer();
-  if (!buffer) {
-    gl.deleteProgram(program);
+  let hardware: ReturnType<typeof webGLRenderer> = null;
+  try {
+    if (!forceFallback) hardware = webGLRenderer(glCanvas, hero);
+  } catch {
+    /* 2D uses a separate context. */
+  }
+  const renderer = hardware ?? canvasRenderer(plane, hero);
+  if (!renderer) {
+    events.ready("poster");
     return null;
   }
-  const mesh = melonMesh();
-  const floor = new Float32Array([
-    -1, -1, 0, 0, 0, 1, 0, 3, -1, 0, 0, 0, 1, 0, -1, 3, 0, 0, 0, 1, 0,
-  ]);
-  const data = new Float32Array(mesh.vertices.length + floor.length);
-  data.set(mesh.vertices);
-  data.set(floor, mesh.vertices.length);
-  gl.useProgram(program);
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-  for (const [name, size, offset] of [
-    ["a_point", 3, 0],
-    ["a_normal", 3, 12],
-    ["a_material", 1, 24],
-  ] as const) {
-    const location = gl.getAttribLocation(program, name);
-    gl.enableVertexAttribArray(location);
-    gl.vertexAttribPointer(location, size, gl.FLOAT, false, 28, offset);
-  }
-  const uniform = (name: string) => gl.getUniformLocation(program, name);
-  const u = {
-    rotation: uniform("u_rotation"),
-    camera: uniform("u_camera"),
-    translation: uniform("u_translation"),
-    scale: uniform("u_scale"),
-    pivot: uniform("u_pivot"),
-    floor: uniform("u_floor"),
-    index: uniform("u_index"),
-    focus: uniform("u_focus"),
-  };
-  // Each section moves about its own center. Positive depth points towards
-  // the lens. The larger front section forms the face of the assembled fruit.
-  gl.enable(gl.DEPTH_TEST);
-  gl.enable(gl.BLEND);
-  gl.blendFuncSeparate(
-    gl.SRC_ALPHA,
-    gl.ONE_MINUS_SRC_ALPHA,
-    gl.ONE,
-    gl.ONE_MINUS_SRC_ALPHA,
+  const scene = renderer;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  const rotations = { fruit: orbit(), frame: orbit() };
+  let target: ObjectName = "fruit",
+    paused = reduced.matches;
+  let model = initial,
+    loads = groupLoads(model),
+    focus = melonGroups.map((g) => Number(model.active === g));
+  const occupied = melonGroups.map((g) => Number((model.counts?.[g] ?? 0) > 0));
+  const depths = hero ? [0.16, -0.12] : [0.16, -0.13, -0.425, -0.7, -0.984];
+  const samples: Vec[][] = scene.centers.map((_, i) =>
+    [depths[i], depths[i + 1]].flatMap((z) =>
+      Array.from(
+        { length: 7 },
+        (_, j) =>
+          [
+            1.16 * Math.sqrt(1 - z * z) * Math.cos((j * Math.PI) / 6),
+            -1.08 * Math.sqrt(1 - z * z) * Math.sin((j * Math.PI) / 6),
+            1.82 * z,
+          ] as Vec,
+      ),
+    ),
   );
-  gl.clearColor(0, 0, 0, 0);
-
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const pointer = { x: 0, y: 0, targetX: 0, targetY: 0 };
-  const focus = weights();
-  const target = weights();
-  let group = groups.indexOf(active);
-  if (group >= 0) {
-    focus[group] = 1;
-    target[group] = 1;
-  }
-  let width = 0,
+  const framePoints: Vec[] = [];
+  for (const x of [-0.83, 0.83])
+    for (const y of [-0.9, 0.9])
+      for (const z of [-0.11, 0.11]) framePoints.push([x, y, z]);
+  let backingWidth = 1,
+    backingHeight = 1,
+    baseScale = 1;
+  let request = 0,
+    lastTick = 0,
+    lastDraw = 0,
+    phase = 0,
+    pickFrame: SceneFrame | null = null;
+  let shown = false,
+    disposed = false,
+    width = 0,
     height = 0,
-    frame = 0,
-    lastTime = 0;
-  let phase = reduced.matches || compact ? 1 : 0;
-  let sequence: "entry" | "change" = "entry";
-  let shown = true,
-    ready = false,
-    disposed = false;
-
-  function render() {
-    if (!width || !height || gl.isContextLost()) return;
-    const scale = Math.min(width / 4.08, height / 2.55);
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.uniform2f(u.scale, (2 * scale) / width, (2 * scale) / height);
-    gl.uniform1f(u.floor, 1);
-    gl.drawArrays(gl.TRIANGLES, mesh.vertices.length / 7, 3);
-    gl.uniform1f(u.floor, 0);
-    const entry = sequence === "entry" ? 1 - Math.pow(1 - phase, 3) : 1;
-    const pulse = sequence === "change" ? Math.sin(phase * Math.PI) ** 2 : 0;
-    const yawByGroup = focus.reduce(
-      (sum, amount, index) => sum + amount * (0.07 - index * 0.047),
-      0,
-    );
-    gl.uniform3f(
-      u.camera,
-      0.3 + pointer.y * 0.085,
-      -0.77 +
-        pointer.x * 0.1 +
-        yawByGroup +
-        (1 - entry) * 0.065 -
-        pulse * 0.045,
-      -0.08 + pointer.x * 0.019,
-    );
-    for (let i = 0; i < mesh.sections.length; i++) {
-      const section = mesh.sections[i];
-      const rank = 1.5 - i,
-        selected = focus[i];
-      const neighbors = focus.reduce(
-        (sum, amount, other) => sum + Math.sign(other - i) * amount,
-        0,
-      );
-      const spacing = 0.274 * entry - 0.187 * pulse;
-      gl.uniform1f(u.index, i);
-      gl.uniform1f(
-        u.focus,
-        Math.max(0, focus.reduce((sum, f) => sum + f, 0) - selected),
-      );
-      gl.uniform1f(u.pivot, section.center);
-      gl.uniform3f(
-        u.translation,
-        -0.076 * rank * entry + selected * 0.025,
-        -rank * 0.028 * entry + selected * 0.25 + (1 - entry) * 0.045,
-        rank * spacing + neighbors * 0.14 + selected * 0.045,
-      );
-      gl.uniform3f(
-        u.rotation,
-        rank * 0.035 * entry - selected * 0.09,
-        0.155 * rank * entry + selected * 0.13,
-        rank * 0.074 * entry + selected * 0.078,
-      );
-      gl.drawArrays(gl.TRIANGLES, section.first, section.count);
-    }
-    if (!ready) {
-      ready = true;
-      onReady();
-    }
-  }
-
+    first = true;
+  let drag: {
+    id: number;
+    object: ObjectName;
+    startX: number;
+    startY: number;
+    x: number;
+    y: number;
+    last: number;
+    hit: number;
+    moved: boolean;
+  } | null = null;
+  const cap = (v: number, max: number) => Math.min(max, Math.max(-max, v));
   function canDraw() {
-    return shown && !disposed && !document.hidden && !gl.isContextLost();
+    return !disposed && shown && width > 0 && height > 0 && !document.hidden;
   }
   function schedule() {
-    if (!frame && canDraw()) frame = requestAnimationFrame(tick);
+    if (!request && canDraw()) request = requestAnimationFrame(tick);
+  }
+  function draw() {
+    const poses = modelPoses(
+      hero,
+      phase,
+      rotations.fruit,
+      rotations.frame,
+      focus,
+      loads,
+      occupied,
+      scene.centers,
+    );
+    // Keep the outermost section in view even when two independent manual turns
+    // bring a rear cut toward the lens. The gauge and floor stay at the same scale.
+    let reachX = 0,
+      reachY = 0;
+    const measure = (p: Vec) => {
+      const k = 8 / (8 - p[2]);
+      reachX = Math.max(reachX, Math.abs(p[0]) * k);
+      reachY = Math.max(reachY, Math.abs(p[1]) * k);
+    };
+    samples.forEach((points, i) =>
+      points.forEach((p) => measure(world(p, poses.fruit[i]))),
+    );
+    framePoints.forEach((p) => measure(world(p, poses.frame)));
+    scene.resize(
+      backingWidth,
+      backingHeight,
+      Math.min(
+        baseScale,
+        (backingWidth * 0.485) / Math.max(0.1, reachX),
+        (backingHeight * 0.475) / Math.max(0.1, reachY),
+      ),
+    );
+    pickFrame = { ...poses, focus, loads, occupied };
+    scene.draw(pickFrame);
+    if (first) {
+      first = false;
+      events.ready(hardware ? "webgl" : "canvas");
+    }
   }
   function tick(time: number) {
-    frame = 0;
+    request = 0;
     if (!canDraw()) return;
-    const dt = lastTime ? Math.min((time - lastTime) / 1000, 0.065) : 1 / 60;
-    lastTime = time;
-    const ease = reduced.matches ? 1 : 1 - Math.exp(-dt * 8.4);
-    phase = reduced.matches
-      ? 1
-      : Math.min(1, phase + dt / (sequence === "entry" ? 1.25 : 0.84));
-    const approach = (value: number, goal: number) =>
-      Math.abs(value - goal) < 0.0008 ? goal : value + (goal - value) * ease;
-    for (let i = 0; i < 4; i++) focus[i] = approach(focus[i], target[i]);
-    pointer.x = approach(pointer.x, pointer.targetX);
-    pointer.y = approach(pointer.y, pointer.targetY);
-    render();
-    if (
-      phase < 1 ||
-      focus.some((f, i) => Math.abs(f - target[i]) > 0.0001) ||
-      pointer.x !== pointer.targetX ||
-      pointer.y !== pointer.targetY
-    )
+    // A floating instrument has no high-frequency detail at rest. Direct manipulation
+    // still draws at the refresh rate when the renderer supports it.
+    const interval = drag && hardware ? 0 : hardware ? 1000 / 30 : 1000 / 24;
+    if (lastDraw && time - lastDraw < interval - 0.8) {
       schedule();
-    else lastTime = 0;
-  }
-  function resize() {
-    const rect = canvas.getBoundingClientRect();
-    width = rect.width;
-    height = rect.height;
-    const dpr = Math.min(window.devicePixelRatio || 1, compact ? 1.65 : 2);
-    const w = Math.max(1, Math.round(width * dpr)),
-      h = Math.max(1, Math.round(height * dpr));
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
+      return;
     }
-    schedule();
+    const dt = lastTick ? Math.min((time - lastTick) / 1000, 0.08) : 1 / 30;
+    lastDraw = time;
+    lastTick = time;
+    if (!paused) phase += dt;
+    let moving = false;
+    for (const key of ["fruit", "frame"] as const) {
+      const a = rotations[key];
+      if (
+        drag?.object !== key &&
+        !paused &&
+        Math.abs(a.vx) + Math.abs(a.vy) > 0.015
+      ) {
+        a.yaw += a.vx * dt;
+        a.pitch += a.vy * dt;
+        const friction = Math.exp(-3.2 * dt);
+        a.vx *= friction;
+        a.vy *= friction;
+        moving = true;
+      }
+    }
+    const ease = paused ? 1 : 1 - Math.exp(-8 * dt);
+    const newLoads = groupLoads(model);
+    melonGroups.forEach((group, i) => {
+      const active = Number(group === model.active);
+      const hasIncidents = Number((model.counts?.[group] ?? 0) > 0);
+      occupied[i] += (hasIncidents - occupied[i]) * ease;
+      focus[i] += (active - focus[i]) * ease;
+      loads[i] += (newLoads[i] - loads[i]) * ease;
+      if (
+        Math.abs(active - focus[i]) +
+          Math.abs(newLoads[i] - loads[i]) +
+          Math.abs(hasIncidents - occupied[i]) >
+        0.001
+      )
+        moving = true;
+    });
+    draw();
+    if (moving || !paused) schedule();
+    else {
+      lastTick = 0;
+      lastDraw = 0;
+    }
   }
   function visibility() {
     if (canDraw()) schedule();
     else {
-      cancelAnimationFrame(frame);
-      frame = 0;
-      lastTime = 0;
+      cancelAnimationFrame(request);
+      request = 0;
+      lastTick = 0;
+      lastDraw = 0;
     }
   }
-  function resetPointer() {
-    pointer.targetX = 0;
-    pointer.targetY = 0;
+  function resize() {
+    const rect = surface.getBoundingClientRect();
+    width = rect.width;
+    height = rect.height;
+    const maxPixels = hero ? 830 : 560;
+    const ratio = Math.min(
+      devicePixelRatio || 1,
+      compact ? 1.6 : 2,
+      maxPixels / Math.max(1, width),
+    );
+    const w = Math.max(1, Math.round(width * ratio)),
+      h = Math.max(1, Math.round(height * ratio));
+    backingWidth = w;
+    backingHeight = h;
+    baseScale = hero
+      ? Math.min(w / 4.12, h / 2.83)
+      : Math.min(w / 3.74, h / 2.42);
     schedule();
   }
-  function movePointer(event: PointerEvent) {
-    if (compact || event.pointerType !== "mouse" || reduced.matches) return;
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    pointer.targetX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointer.targetY = ((event.clientY - rect.top) / rect.height) * 2 - 1;
+  function choose(name: ObjectName) {
+    target = name;
+    events.target(name);
+  }
+  function setPaused(value: boolean) {
+    paused = value;
+    if (value)
+      for (const a of Object.values(rotations)) {
+        a.vx = 0;
+        a.vy = 0;
+      }
+    events.paused(value);
     schedule();
   }
-  const resizeObserver = new ResizeObserver(resize);
-  resizeObserver.observe(canvas);
-  const observer = new IntersectionObserver(([entry]) => {
+  function reset() {
+    Object.assign(rotations.fruit, orbit());
+    Object.assign(rotations.frame, orbit());
+    phase = 0;
+    schedule();
+  }
+  function down(e: PointerEvent) {
+    if (e.button !== 0 || drag || !pickFrame) return;
+    const rect = surface.getBoundingClientRect();
+    const hit = scene.pick(
+      pickFrame,
+      (e.clientX - rect.left) / rect.width,
+      (e.clientY - rect.top) / rect.height,
+    );
+    if (!hit && e.pointerType === "touch") return;
+    const selected = hit === 5 ? "frame" : hit > 0 ? "fruit" : target;
+    choose(selected);
+    const a = rotations[selected];
+    a.vx = 0;
+    a.vy = 0;
+    drag = {
+      id: e.pointerId,
+      object: selected,
+      startX: e.clientX,
+      startY: e.clientY,
+      x: e.clientX,
+      y: e.clientY,
+      last: e.timeStamp,
+      hit,
+      moved: false,
+    };
+    surface.setPointerCapture(e.pointerId);
+    surface.dataset.dragging = "true";
+    surface.focus({ preventScroll: true });
+  }
+  function move(e: PointerEvent) {
+    if (!drag || drag.id !== e.pointerId) return;
+    const dx = e.clientX - drag.x,
+      dy = e.clientY - drag.y;
+    if (
+      !drag.moved &&
+      Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 4
+    )
+      return;
+    drag.moved = true;
+    const a = rotations[drag.object];
+    const angle = 3.6 / Math.max(165, Math.min(width, height * 1.5));
+    a.yaw += dx * angle;
+    a.pitch += dy * angle;
+    const elapsed = Math.max(12, e.timeStamp - drag.last) / 1000;
+    a.vx = cap((dx * angle) / elapsed, 4.2);
+    a.vy = cap((dy * angle) / elapsed, 4.2);
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    drag.last = e.timeStamp;
+    schedule();
+  }
+  function end(e: PointerEvent) {
+    if (!drag || drag.id !== e.pointerId) return;
+    const prev = drag;
+    drag = null;
+    if (surface.hasPointerCapture(e.pointerId))
+      surface.releasePointerCapture(e.pointerId);
+    delete surface.dataset.dragging;
+    if (e.type !== "pointerup" || e.timeStamp - prev.last > 110) {
+      rotations[prev.object].vx = 0;
+      rotations[prev.object].vy = 0;
+    }
+    if (
+      e.type === "pointerup" &&
+      !prev.moved &&
+      !hero &&
+      prev.hit >= 1 &&
+      prev.hit <= 4
+    ) {
+      const g = melonGroups[prev.hit - 1];
+      events.select(g === model.active ? "all" : g);
+    }
+    schedule();
+  }
+  function keyboard(e: KeyboardEvent) {
+    const a = rotations[target],
+      step = e.shiftKey ? 0.42 : 0.14;
+    switch (e.key) {
+      case "ArrowLeft":
+        a.yaw -= step;
+        break;
+      case "ArrowRight":
+        a.yaw += step;
+        break;
+      case "ArrowUp":
+        a.pitch -= step;
+        break;
+      case "ArrowDown":
+        a.pitch += step;
+        break;
+      case "Home":
+        reset();
+        break;
+      case " ":
+        setPaused(!paused);
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    schedule();
+  }
+  const motionChange = () => setPaused(reduced.matches);
+  const obs = new ResizeObserver(resize);
+  obs.observe(surface);
+  const intersect = new IntersectionObserver(([entry]) => {
     shown = entry.isIntersecting;
     visibility();
   });
-  observer.observe(canvas);
-  canvas.addEventListener("pointermove", movePointer);
-  canvas.addEventListener("pointerleave", resetPointer);
-  document.addEventListener("visibilitychange", visibility);
-  reduced.addEventListener("change", resetPointer);
+  intersect.observe(surface);
+  const abort = new AbortController();
+  const listener = { signal: abort.signal };
+  surface.addEventListener("pointerdown", down, listener);
+  surface.addEventListener("pointermove", move, listener);
+  surface.addEventListener("pointerup", end, listener);
+  surface.addEventListener("pointercancel", end, listener);
+  surface.addEventListener("lostpointercapture", end, listener);
+  surface.addEventListener("dblclick", reset, listener);
+  surface.addEventListener("keydown", keyboard, listener);
+  document.addEventListener("visibilitychange", visibility, listener);
+  reduced.addEventListener("change", motionChange, listener);
+  events.paused(paused);
   resize();
   return {
-    select(filter: MelonFilter) {
-      group = groups.indexOf(filter);
-      for (let i = 0; i < 4; i++) target[i] = i === group ? 1 : 0;
-      phase = reduced.matches ? 1 : 0;
-      sequence = "change";
+    select(data: ModelState) {
+      model = data;
       schedule();
     },
+    target: choose,
+    toggle() {
+      setPaused(!paused);
+    },
+    reset,
     dispose() {
       disposed = true;
-      cancelAnimationFrame(frame);
-      resizeObserver.disconnect();
-      observer.disconnect();
-      document.removeEventListener("visibilitychange", visibility);
-      reduced.removeEventListener("change", resetPointer);
-      canvas.removeEventListener("pointermove", movePointer);
-      canvas.removeEventListener("pointerleave", resetPointer);
-      gl.deleteBuffer(buffer);
-      gl.deleteProgram(program);
+      cancelAnimationFrame(request);
+      abort.abort();
+      intersect.disconnect();
+      obs.disconnect();
+      scene.dispose();
     },
   };
 }

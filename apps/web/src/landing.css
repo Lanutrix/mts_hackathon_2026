@@ -1,5 +1,4 @@
 .landing {
-  --case-paper: #e2e0ee;
   --case-ink: #221e29;
   --case-action: #29232e;
   --case-red: #e80033;
@@ -207,24 +206,6 @@
   width: 112%;
   justify-self: center;
   align-self: center;
-}
-.optic-scene {
-  display: block;
-  width: 100%;
-  aspect-ratio: 3/2;
-  overflow: visible;
-  user-select: none;
-  animation: optic-arrival 1.35s cubic-bezier(0.17, 0.74, 0.19, 1) both;
-  transform-origin: 57% 55%;
-}
-@keyframes optic-arrival {
-  from {
-    transform: perspective(850px) translate3d(14px, 12px, -46px) rotateY(-6deg)
-      rotateZ(-2deg);
-  }
-  to {
-    transform: perspective(850px) translate3d(0, 0, 0);
-  }
 }
 @media (max-width: 1050px) {
   .landing {

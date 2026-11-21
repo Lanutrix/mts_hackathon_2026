@@ -14,7 +14,8 @@ import "@fontsource/golos-text/latin-400.css";
 import "@fontsource/golos-text/latin-600.css";
 import "./style.css";
 import Landing from "./Landing";
-import JuryBroadcast from "./JuryBroadcast";
+import { isTrainingPath, screenLink, screenPath } from "./routes";
+import Loader from "./Loader";
 import {
   IncidentNotice,
   signalTitle,
@@ -66,11 +67,30 @@ const legacyFilters = ["q", "ns", "sort", "service", "up", ...groups];
 function readRoute() {
   const url = new URL(location.href);
   if (
+    url.pathname === "/simulation/login" ||
+    (url.pathname === "/login" && url.searchParams.get("ns") === "simulation")
+  ) {
+    url.pathname = "/login";
+    url.searchParams.delete("ns");
+    history.replaceState(history.state, "", url);
+  }
+  if (
     url.pathname === "/" &&
     legacyFilters.some((key) => url.searchParams.has(key))
   ) {
     url.pathname = "/live";
     history.replaceState(history.state, "", url);
+  }
+  if (
+    url.searchParams.get("ns") === "simulation" &&
+    !isTrainingPath(url.pathname)
+  ) {
+    history.replaceState(
+      history.state,
+      "",
+      screenLink(url.pathname + url.search + url.hash, "simulation"),
+    );
+    return new URL(location.href);
   }
   return url;
 }
@@ -78,7 +98,7 @@ function App({ initialRoute }: { initialRoute: URL }) {
   const [route, setRoute] = useState(initialRoute);
   const [visit, setVisit] = useState(0);
   useEffect(() => {
-    const path = route.pathname;
+    const path = screenPath(route.pathname);
     const names: Record<string, string> = {
       "/": "Инциденты в фокусе",
       "/live": "Эфир смены",
@@ -87,7 +107,10 @@ function App({ initialRoute }: { initialRoute: URL }) {
       "/simulation": "Учебный эфир",
       "/login": "Вход",
     };
-    document.title = (names[path] ?? "Дашборд координатора") + " · Watermelon";
+    document.title =
+      (names[path] ?? "Дашборд координатора") +
+      (isTrainingPath(route.pathname) ? " · Учебный эфир" : "") +
+      " · Watermelon";
   }, [route.pathname]);
   useEffect(() => {
     const update = () => setRoute(readRoute());
@@ -111,20 +134,28 @@ function App({ initialRoute }: { initialRoute: URL }) {
   };
   return route.pathname === "/" ? (
     <Landing go={go} />
-  ) : route.pathname === "/simulation" ? (
-    <JuryBroadcast key={visit} />
   ) : (
     <Dashboard
-      key={visit + ":" + (route.searchParams.get("ns") || "demo")}
+      key={
+        visit +
+        ":" +
+        (isTrainingPath(route.pathname)
+          ? "simulation"
+          : route.searchParams.get("ns") || "demo")
+      }
       route={route}
       go={go}
     />
   );
 }
 function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
-  const { pathname: path, searchParams: params } = route,
+  const path = screenPath(route.pathname),
+    training = isTrainingPath(route.pathname),
+    params = route.searchParams,
     query = route.search.slice(1),
-    ns = params.get("ns") ?? "demo";
+    ns = training ? "simulation" : (params.get("ns") ?? "demo");
+  const link = (to: string) => screenLink(to, ns);
+  const detailKey = path + route.search;
   const [user, setUser] = useState<User | null>(null),
     [sources, setSources] = useState<string[]>(["demo"]),
     [ready, setReady] = useState(false),
@@ -132,7 +163,9 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     [error, setError] = useState(""),
     [signals, setSignals] = useState<IncidentSignal[]>([]),
     [connection, setConnection] = useState("Подключение…"),
-    [extra, setExtra] = useState<any>(null),
+    [detailPage, setDetailPage] = useState<{ key: string; value: any } | null>(
+      null,
+    ),
     [prefs, setPrefs] = useState({
       sound: false,
       notifications: false,
@@ -142,13 +175,17 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     lastRevision = useRef(0),
     lastNotified = useRef(0),
     generation = useRef(0),
+    run = useRef(""),
+    receipt = useRef({ key: "", revision: 0 }),
     pending = useRef<AbortController | null>(null),
     detailCache = useRef<{ key: string; value: any } | null>(null),
+    serverClockOffset = useRef(0),
     streamReceivedAt = useRef(0),
     eventStream = useRef<EventSource | null>(null),
     liveStatus = useRef(""),
     prefsRef = useRef(prefs);
   prefsRef.current = prefs;
+  const extra = detailPage?.key === detailKey ? detailPage.value : null;
   const zone = prefs.zone,
     wall = path === "/wallboard",
     write = user?.role === "coordinator" || user?.role === "demo-admin";
@@ -173,16 +210,47 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
         for (const group of groups) q.delete(group);
       const dashboard = await read("/dashboard?" + q);
       if (gen !== generation.current) return;
-      setData(dashboard);
+      const serverTime = Date.parse(dashboard.serverTime);
+      if (Number.isFinite(serverTime)) {
+        serverClockOffset.current = serverTime - Date.now();
+        setTick(serverTime);
+      }
+      setData({ ...dashboard, filterQuery: query });
       lastRevision.current = dashboard.revision;
       setError("");
-      if (dashboard.revision < lastNotified.current) setSignals([]);
+      const simulation = dashboard.simulation;
+      const firstInRun = simulation && run.current !== simulation.runId;
+      if (firstInRun) {
+        run.current = simulation.runId;
+        receipt.current = { key: "", revision: 0 };
+        try {
+          const saved = JSON.parse(
+            sessionStorage.getItem("watermelon:training:receipt") || "null",
+          );
+          if (saved?.run === simulation.runId) receipt.current = saved;
+        } catch {
+          /* Storage is optional. */
+        }
+      }
+      if (firstInRun || dashboard.revision < lastNotified.current)
+        setSignals([]);
+      if (simulation)
+        setSignals((items) =>
+          items.every((item) => item.id === simulation.currentId)
+            ? items
+            : items.filter((item) => item.id === simulation.currentId),
+        );
       if (
-        lastNotified.current > 0 &&
-        dashboard.revision > lastNotified.current
+        firstInRun ||
+        (lastNotified.current > 0 && dashboard.revision > lastNotified.current)
       ) {
         const fresh: IncidentSignal[] = dashboard.events.filter(
-          (n: IncidentSignal) => n.revision > lastNotified.current,
+          (n: IncidentSignal) =>
+            (!simulation || n.id === simulation.currentId) &&
+            (firstInRun || n.revision > lastNotified.current) &&
+            (!simulation ||
+              n.key !== receipt.current.key ||
+              n.revision > receipt.current.revision),
         );
         if (fresh.length) {
           setSignals((previous) => mergeSignals(previous, fresh));
@@ -205,7 +273,12 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       lastNotified.current = dashboard.revision;
       let e: any = null;
       if (path.startsWith("/incident/") || path.startsWith("/itsm/")) {
-        const key = [ns, path.split("/")[2], dashboard.revision].join(":");
+        const key = [
+          ns,
+          run.current,
+          path.split("/")[2],
+          dashboard.revision,
+        ].join(":");
         if (detailCache.current?.key === key) e = detailCache.current.value;
         else {
           e = await read(
@@ -232,9 +305,12 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
         );
       else if (path === "/demo" && user?.role === "demo-admin")
         e = await read("/demo");
-      if (gen === generation.current) setExtra(e);
+      if (gen === generation.current)
+        setDetailPage({ key: detailKey, value: e });
     } catch (e) {
       if (gen === generation.current) setError((e as Error).message);
+    } finally {
+      if (pending.current === controller) pending.current = null;
     }
   }, [query, ns, path, user?.role]);
   useLayoutEffect(() => {
@@ -257,7 +333,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     };
   }, [data?.revision]);
   useEffect(() => {
-    api("/me")
+    api(training ? "/me?ns=simulation" : "/me")
       .then((m) => {
         setUser(m.user);
         setSources(m.sources);
@@ -267,16 +343,22 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
         setError(e.message);
         setReady(true);
       });
-  }, []);
+  }, [training]);
   useEffect(() => {
     if (user && user.role !== "viewer")
       api("/preferences")
         .then(setPrefs)
         .catch((e) => setError(e.message));
   }, [user?.username]);
+  const latestLoad = useRef(load);
+  useLayoutEffect(() => {
+    latestLoad.current = load;
+  }, [load]);
+  useEffect(() => {
+    if (ready) void load();
+  }, [load, ready]);
   useEffect(() => {
     if (!ready) return;
-    void load();
     let disposed = false;
     const es = new EventSource(
       "/api/stream?ns=" +
@@ -290,7 +372,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
         streamReceivedAt.current = Date.now();
         setConnection("На связи");
         liveStatus.current = "На связи";
-        void load();
+        void latestLoad.current();
       }
     };
     es.addEventListener("ready", update);
@@ -306,10 +388,13 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       liveStatus.current = "offline";
     };
     const poll = setInterval(() => {
-      if (!document.hidden) void load();
+      if (!document.hidden && !pending.current) void latestLoad.current();
     }, 5000);
-    const clock = setInterval(() => setTick(Date.now()), 1000);
-    const online = () => void load();
+    const clock = setInterval(
+      () => setTick(Date.now() + serverClockOffset.current),
+      1000,
+    );
+    const online = () => void latestLoad.current();
     const offline = () => setConnection("Нет сети — показаны последние данные");
     const unload = () => {
       generation.current++;
@@ -331,9 +416,23 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       generation.current++;
       pending.current?.abort();
     };
-  }, [load, ready]);
-  const link = (to: string) =>
-    to + (ns !== "demo" ? "?ns=" + encodeURIComponent(ns) : "");
+  }, [ns, ready]);
+  const dismiss = () => {
+    const note = signals[0];
+    if (!note) return;
+    if (training) {
+      receipt.current = { key: note.key, revision: note.revision };
+      try {
+        sessionStorage.setItem(
+          "watermelon:training:receipt",
+          JSON.stringify({ run: run.current, ...receipt.current }),
+        );
+      } catch {
+        /* Dismissal still applies in memory. */
+      }
+    }
+    setSignals((items) => items.filter((item) => item !== note));
+  };
   const nav = (
     to: string,
     label: string,
@@ -343,7 +442,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
   ) => (
     <a
       tabIndex={0}
-      href={link(to)}
+      href={to === "/login" ? "/login" : link(to)}
       aria-current={
         path === to || (wall && to === "/live") ? "page" : undefined
       }
@@ -351,8 +450,9 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       title={compact ? label : undefined}
       aria-label={compact || short ? label : undefined}
       onClick={(e) => {
+        if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
-        go(link(to));
+        go(to === "/login" ? "/login" : link(to));
       }}
     >
       {icon && <Icon name={icon} size={18} />}
@@ -364,7 +464,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     const p = new URLSearchParams(query);
     value ? p.set(key, value) : p.delete(key);
     for (const g of groups) if (g !== key) p.delete(g);
-    go(p.size ? path + "?" + p : path);
+    go(link(p.size ? path + "?" + p : path));
   };
   const call = async (f: () => Promise<unknown>) => {
     try {
@@ -422,9 +522,9 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                   {nav("/history", "История", "history")}
                   {nav("/quality", "Качество данных", "quality")}
                   {nav("/wallboard", "Общий экран", "expand")}
-                  <a href="/simulation">
+                  <a href={training ? "/live" : "/simulation"}>
                     <Icon name="live" size={16} />
-                    Учебный эфир
+                    {training ? "Рабочий эфир" : "Учебный эфир"}
                   </a>
                 </div>
               </>
@@ -474,11 +574,13 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
           </span>
           <span data-testid="revision">Версия {data?.revision ?? 0}</span>
           <span>
-            {ns === "demo"
-              ? "Демо-данные"
-              : ns === "original"
-                ? "Оригинал · только чтение"
-                : "Рабочая копия"}
+            {training
+              ? "Учебный эфир"
+              : ns === "demo"
+                ? "Демо-данные"
+                : ns === "original"
+                  ? "Оригинал · только чтение"
+                  : "Рабочая копия"}
           </span>
           {data?.status.state === "error" && (
             <strong>{data.status.error}</strong>
@@ -499,13 +601,11 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
               : (signals[0] ?? null)
           }
           pendingCount={signals.length}
-          onDismiss={() =>
-            setSignals((items) => items.filter((item) => item !== signals[0]))
-          }
+          onDismiss={dismiss}
           onOpen={() => {
             const current = signals[0];
             if (current) {
-              setSignals((items) => items.filter((item) => item !== current));
+              dismiss();
               open(current.id);
             }
           }}
@@ -526,14 +626,27 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
               }}
             />
           ) : !data || data.namespace !== ns ? (
-            <div className="empty" aria-busy={!error}>
-              Загрузка данных…
-            </div>
+            error ? null : (
+              <Loader label="Загрузка данных…" stage />
+            )
+          ) : (path.startsWith("/incident/") ||
+              path.startsWith("/itsm/") ||
+              ["/notifications", "/history", "/quality"].includes(path)) &&
+            !extra ? (
+            error ? null : (
+              <Loader label="Загрузка раздела…" stage />
+            )
           ) : path === "/workspace" ? (
             <Workspace
               data={data.namespace === ns ? data : null}
               ns={ns}
-              userKey={user ? "user:" + user.username : "public"}
+              userKey={
+                training
+                  ? data.simulation.runId
+                  : user
+                    ? "user:" + user.username
+                    : "public"
+              }
               write={!!write}
               zone={zone}
               open={open}
@@ -552,6 +665,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
           ) : path === "/live" || wall ? (
             <LiveBoard
               data={data}
+              filtering={data.filterQuery !== query && !error}
               params={params}
               ns={ns}
               now={tick}
@@ -600,6 +714,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                 onAnalyze={() =>
                   post("/analysis/" + encodeURIComponent(extra.incident.id), {})
                 }
+                itsmHref={extra.itsmMock ? link(extra.itsm) : extra.itsm}
                 onNavigate={go}
               />
             )
@@ -637,6 +752,18 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                         {formatDate(n.at, zone)} · версия {n.revision}
                       </p>
                     </div>
+                    {n.snapshot && (
+                      <details className="event-facts">
+                        <summary>На момент сигнала</summary>
+                        <p>
+                          {n.snapshot.state} · {n.snapshot.team}
+                        </p>
+                        <p>{n.snapshot.description}</p>
+                        {n.snapshot.deadline && (
+                          <p>Срок {formatDate(n.snapshot.deadline, zone)}</p>
+                        )}
+                      </details>
+                    )}
                     {write && (
                       <button
                         tabIndex={0}
@@ -819,6 +946,7 @@ function Detail({
   item,
   zone,
   mock,
+  itsmHref,
   write,
   onAnalyze,
   onNavigate,
@@ -826,6 +954,7 @@ function Detail({
   item: any;
   zone: string;
   mock: boolean;
+  itsmHref: string;
   write: boolean;
   onAnalyze: () => Promise<Analysis>;
   onNavigate: (p: string) => void;
@@ -847,13 +976,15 @@ function Detail({
           <a
             tabIndex={0}
             className="button"
-            href={item.itsm}
+            href={itsmHref}
             rel="noopener noreferrer"
             onClick={
               item.itsmMock
                 ? (e) => {
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)
+                      return;
                     e.preventDefault();
-                    onNavigate(item.itsm + location.search);
+                    onNavigate(itsmHref);
                   }
                 : undefined
             }
@@ -877,6 +1008,20 @@ function Detail({
           сохранены.
         </p>
       )}
+      <aside className="detail-guidance" aria-label="Рекомендация координатору">
+        <strong>Рекомендация координатору</strong>
+        <p>
+          {i.stateId === 7 || i.stateId === 10
+            ? "Сверьте результат восстановления с текстом решения."
+            : i.groups.includes("coordinators")
+              ? "Проверьте исполнителя и ближайший срок ответа."
+              : i.groups.includes("critical")
+                ? "Уточните у ответственной команды масштаб сбоя и срок восстановления."
+                : i.groups.includes("research")
+                  ? "Сверьте симптомы с описанием и уточните, какие данные нужны для исследования."
+                  : "Сверьте описание инцидента и ответственного исполнителя."}
+        </p>
+      </aside>
       <dl className="facts">
         {[
           ["Статус", i.stateLabel],
@@ -960,7 +1105,7 @@ function Detail({
               }
             }}
           >
-            {busy ? "Анализ выполняется…" : "Составить сводку"}
+            {busy ? <Loader label="Анализ выполняется…" /> : "Составить сводку"}
           </button>
         ) : (
           <p>Войдите как координатор для анализа.</p>
@@ -1092,7 +1237,7 @@ function Login({
         />
       </label>
       <button tabIndex={0} disabled={busy}>
-        {busy ? "Вход…" : "Войти"}
+        {busy ? <Loader label="Вход…" /> : "Войти"}
       </button>
       {error && <p role="alert">{error}</p>}
     </form>
@@ -1155,7 +1300,9 @@ function ImportPanel({
           }}
         />
       </label>
-      {busy && <p role="status">Проверка…</p>}
+      {busy && (
+        <Loader label={preview ? "Сохранение снимка…" : "Проверка снимка…"} />
+      )}
       {error && <p role="alert">{error}</p>}
       {preview && (
         <div>
@@ -1209,6 +1356,7 @@ function Preferences({
   prefs: { sound: boolean; notifications: boolean; zone: string };
   onSave: (p: any) => Promise<void>;
 }) {
+  const [saving, setSaving] = useState(false);
   const [p, setP] = useState(prefs),
     [status, setStatus] = useState("");
   useEffect(() => setP(prefs), [prefs]);
@@ -1217,6 +1365,7 @@ function Preferences({
       className="content login"
       onSubmit={async (e) => {
         e.preventDefault();
+        setSaving(true);
         try {
           if (p.notifications && "Notification" in window) {
             const permission = await Notification.requestPermission();
@@ -1234,6 +1383,8 @@ function Preferences({
           if (p.sound) beep();
         } catch (e) {
           setStatus((e as Error).message);
+        } finally {
+          setSaving(false);
         }
       }}
     >
@@ -1265,7 +1416,13 @@ function Preferences({
         />
         Уведомления браузера
       </label>
-      <button tabIndex={0}>Сохранить настройки</button>
+      <button tabIndex={0} disabled={saving}>
+        {saving ? (
+          <Loader label="Сохранение настроек…" />
+        ) : (
+          "Сохранить настройки"
+        )}
+      </button>
       <p role="status">{status}</p>
     </form>
   );

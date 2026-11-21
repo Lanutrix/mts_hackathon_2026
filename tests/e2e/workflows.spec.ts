@@ -121,7 +121,6 @@ test("public landing shows only the hero and opens either screen", async ({
   const main = page.getByRole("main");
   await expect(main.getByRole("heading")).toHaveCount(1);
   await expect(main.getByRole("link")).toHaveCount(2);
-  await expect(main.getByRole("button")).toHaveCount(0);
   await expect(main.getByText("Сигналы эфира")).toHaveCount(0);
   await expect(page).toHaveURL("/");
   expect(
@@ -155,10 +154,13 @@ test("jury viewers receive the same observed events and dismiss them independent
     if (r.method() !== "GET") writes.push(r.method() + " " + r.url());
   });
   await page.goto("/simulation");
-  const current = page.getByRole("region", { name: "Инцидент в эфире" });
+  const current = page.getByTestId("live-register");
   const banner = page.getByRole("region", { name: "Уведомление об инциденте" });
-  const journal = page.getByRole("region", { name: "Журнал сигналов" });
-  await expect(current).toContainText("SIM-001");
+  await expect(page.getByRole("heading", { name: "Эфир смены" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Рабочая очередь" }),
+  ).toHaveAttribute("href", "/simulation/workspace");
+  await expect(current).toBeVisible();
   await expect(banner).toContainText("Новый критический инцидент", {
     timeout: 12000,
   });
@@ -184,26 +186,112 @@ test("jury viewers receive the same observed events and dismiss them independent
       timeout: 16000,
     });
     await banner.getByRole("button", { name: "Открыть инцидент" }).click();
-    const detail = page.getByRole("region", { name: "Сведения об инциденте" });
+    await expect(page).toHaveURL("/simulation/incident/SIM-001");
+    const detail = page.locator("main .detail");
     await expect(detail).toContainText("Рекомендация координатору");
     await expect(banner).toHaveCount(0);
-    await expect(current).toContainText("У координаторов");
+    await expect(detail.getByText("Команда", { exact: true })).toBeVisible();
     await expect(banner).toContainText("Критический инцидент завершён", {
       timeout: 27000,
     });
-    await expect(journal.locator("li")).toHaveCount(3);
-    await journal
-      .getByRole("button")
-      .filter({ hasText: "Новый критический инцидент" })
-      .click();
-    await expect(detail).toContainText("Снимок события, версия 2");
-    await expect(detail).toContainText("Сопровождение платежей");
+    await page.getByRole("link", { name: "Уведомления", exact: true }).click();
+    await expect(page).toHaveURL("/simulation/notifications");
+    const events = page.locator("main .notification");
+    await expect(events).toHaveCount(3);
+    const critical = events.filter({
+      has: page.getByRole("heading", {
+        name: "Критический инцидент",
+        exact: true,
+      }),
+    });
+    await critical.getByText("На момент сигнала").click();
+    await expect(critical).toContainText("Сопровождение платежей");
+    await page.getByRole("link", { name: "Рабочая очередь" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Рабочая очередь" }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId("source-status")).toContainText(
+      "Учебный эфир",
+    );
+    await page.getByRole("button", { name: "Дополнительные разделы" }).click();
+    await page.getByRole("link", { name: "История", exact: true }).click();
+    await expect(page).toHaveURL("/simulation/history");
+    await expect(page.locator("main")).toContainText("SIM-001");
+    await page.goBack();
+    await expect(page).toHaveURL("/simulation/workspace");
     expect(writes).toEqual([]);
   } finally {
     await guest.close();
   }
 });
 
+test("the 3D surface rotates the chosen object with reduced motion and follows incident filters", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/live");
+  const scene = page.locator(".melon-scene");
+  await expect(scene).toHaveAttribute("data-mode", /^(webgl|canvas)$/);
+  await expect(
+    scene.getByRole("button", { name: "Включить движение" }),
+  ).toBeVisible();
+  const surface = scene.locator(".melon-view");
+  for (const [label, target] of [
+    ["Вращать рамку", "frame"],
+    ["Вращать арбуз", "fruit"],
+  ]) {
+    await scene.getByRole("button", { name: label, exact: true }).click();
+    await expect(scene).toHaveAttribute("data-object", target);
+    await surface.press("Home");
+    const before = await surface.screenshot();
+    await surface.press("Shift+ArrowRight");
+    await expect
+      .poll(async () => !(await surface.screenshot()).equals(before))
+      .toBe(true);
+  }
+  await page.getByTestId("group-critical").click();
+  await expect(scene).toHaveAttribute("data-active", "critical");
+  await expect(scene).toHaveAccessibleName(/Критические/);
+  await page.locator(".shift-focus").click();
+  await expect(page.locator(".detail-guidance")).toBeVisible();
+});
+
+test("search and ticket loading keep focus and remove their indicators when data arrives", async ({
+  page,
+}) => {
+  await page.goto("/live");
+  await expect(page.getByTestId("live-register")).toBeVisible();
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/dashboard?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("q")) await hold;
+    await route.continue().catch(() => {});
+  });
+  const search = page.getByRole("searchbox");
+  await search.fill("DEMO-42-00019");
+  await expect(page.getByText("Поиск инцидентов…")).toBeVisible();
+  await expect(search).toBeFocused();
+  release();
+  const ticket = page.getByTestId("card-DEMO-42-00019");
+  await expect(ticket).toBeVisible();
+  await expect(page.getByText("Поиск инцидентов…")).toHaveCount(0);
+  let showDetail!: () => void;
+  const waitDetail = new Promise<void>((resolve) => {
+    showDetail = resolve;
+  });
+  await page.route("**/api/incident/*", async (route) => {
+    await waitDetail;
+    await route.continue().catch(() => {});
+  });
+  await ticket.getByRole("button").click();
+  await expect(page.getByText("Загрузка раздела…")).toBeVisible();
+  showDetail();
+  await expect(page.getByRole("heading", { name: "Описание" })).toBeVisible();
+  await expect(page.getByText("Загрузка раздела…")).toHaveCount(0);
+});
 test("legacy live bookmarks keep filters, fragments and browser history", async ({
   page,
 }) => {

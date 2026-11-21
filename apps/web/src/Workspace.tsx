@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -9,6 +8,9 @@ import {
 import type { Incident, Group } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
 import "./workspace.css";
+import MelonScene from "./MelonScene";
+import Loader from "./Loader";
+import { screenLink } from "./routes";
 
 export interface WorkspaceAnalysis {
   items: { id: string; analysis: Analysis }[];
@@ -16,48 +18,6 @@ export interface WorkspaceAnalysis {
 }
 const groups: Group[] = ["critical", "coordinators", "high", "research"];
 
-function QueueOptic({ count }: { count: number }) {
-  const id = useId();
-  const pane = "M-37-51H37Q51-51 51-37V37Q51 51 37 51H-37Q-51 51-51 37V-37Q-51-51-37-51ZM-20-27Q-27-27-27-20V20Q-27 27-20 27H20Q27 27 27 20V-20Q27-27 20-27Z";
-  return (
-    <svg className="wq-optic" viewBox="0 0 390 194" fill="none" aria-hidden="true">
-      <defs>
-        <linearGradient id={id + "-glass"} x1="0" y1="0" x2="1" y2=".86" gradientUnits="objectBoundingBox">
-          <stop stopColor="#fcfbff" />
-          <stop offset=".44" stopColor="#dcd4ee" />
-          <stop offset=".69" stopColor="#c4b0de" />
-          <stop offset="1" stopColor="#9687ad" />
-        </linearGradient>
-        <radialGradient id={id + "-shadow"}>
-          <stop stopColor="#5b456d" stopOpacity=".27" />
-          <stop offset="1" stopColor="#5b456d" stopOpacity="0" />
-        </radialGradient>
-        <path id={id + "-pane"} d={pane} fillRule="evenodd" />
-      </defs>
-      <g className="wq-optic-motion">
-        <ellipse cx="200" cy="149" rx="101" ry="13" fill={`url(#${id}-shadow)`} />
-        <g transform="rotate(-14 195 100)" strokeWidth=".85">
-          <ellipse cx="195" cy="100" rx="165" ry="53" stroke="#a99cba" />
-          <path d="M85 60a165 53 0 0 1 109-13m155 72a165 53 0 0 1-58 26" stroke="white" />
-          <path d="M25 100h10m320 0h10M195 43v9m0 97v9" stroke="#81738e" />
-        </g>
-        {[2, 1, 0].map((index) => (
-          <g key={index} className="wq-lens" style={{ transform: `translate(${143 + index * (43 + count * .85)}px,${110 - index * (11 + count * .35)}px)` }}>
-            <g transform="matrix(.72 -.35 .39 .82 0 0)">
-              <use href={`#${id}-pane`} transform="translate(5 5)" fill="#a797bd" stroke="#9988ad" strokeWidth="1.4" />
-              <use href={`#${id}-pane`} fill={`url(#${id}-glass)`} stroke="#f5f1fe" strokeWidth="1.2" />
-              <path d="M-36-47H34M-47-33V22" stroke="white" strokeOpacity=".76" strokeWidth=".8" />
-            </g>
-          </g>
-        ))}
-        <g transform="translate(143 110)">
-          <path d="M-11-5v-6h6M5 11h6V5" stroke="#786989" />
-          <rect x="-3.3" y="-3.3" width="6.6" height="6.6" fill="#c50032" />
-        </g>
-      </g>
-    </svg>
-  );
-}
 const reasonLabels: Record<Group, string> = {
   critical: "Критический приоритет",
   coordinators: "У координаторов",
@@ -86,7 +46,7 @@ type Snapshot = {
   items: Map<string, Incident>;
   hasMore: boolean;
 };
-type Selection = { id: string; incident?: Incident };
+type Selection = { id: string; incident?: Incident; unavailable?: boolean };
 type Props = {
   data: Dashboard | null;
   ns: string;
@@ -203,14 +163,17 @@ function SelectedTicket({
   ns,
   open,
   remove,
+  onRestore,
+  onMissing,
 }: {
   id: string;
   incident?: Incident;
   ns: string;
   open: () => void;
   remove: () => void;
+  onRestore: (row: Incident) => void;
+  onMissing: (id: string) => void;
 }) {
-  const [restored, setRestored] = useState<Incident>();
   const [unavailable, setUnavailable] = useState(false);
   useEffect(() => {
     if (incident) return;
@@ -225,14 +188,17 @@ function SelectedTicket({
       .then(async (response) => {
         if (!response.ok) throw new Error();
         const result = await response.json();
-        if (!controller.signal.aborted) setRestored(result.incident);
+        if (!controller.signal.aborted) onRestore(result.incident);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setUnavailable(true);
+        if (!controller.signal.aborted) {
+          setUnavailable(true);
+          onMissing(id);
+        }
       });
     return () => controller.abort();
-  }, [id, ns, incident]);
-  const row = incident ?? restored;
+  }, [id, ns, incident, onRestore, onMissing]);
+  const row = incident;
   return (
     <li className="wq-selected">
       <button className="wq-selected-ticket" type="button" onClick={open}>
@@ -242,7 +208,7 @@ function SelectedTicket({
             ? String(row.raw.header || "Без заголовка")
             : unavailable
               ? "Карточка недоступна"
-              : "Загрузка карточки…"}
+              : <Loader label="Загрузка карточки…" />}
         </strong>
       </button>
       <button
@@ -344,6 +310,30 @@ function WorkspaceScreen({
     [zone],
   );
   const selectedIds = useMemo(() => selected.map((s) => s.id), [selected]);
+  const restoreIncident = useCallback((row: Incident) => {
+    setSelected((items) =>
+      items.map((item) => item.id === row.id ? { id: row.id, incident: row } : item),
+    );
+  }, []);
+  const markUnavailable = useCallback((id: string) => {
+    setSelected((items) =>
+      items.map((item) => item.id === id ? { ...item, unavailable: true } : item),
+    );
+  }, []);
+  const modelData = useMemo(() => {
+    if (!listReady) return null;
+    const counts = { critical: 0, coordinators: 0, high: 0, research: 0 };
+    if (selected.length) {
+      for (const choice of selected) {
+        const ticket = queue.items.get(choice.id) ?? choice.incident;
+        if (!ticket) return choice.unavailable ? "unavailable" : null;
+        for (const group of ticket.groups) counts[group]++;
+      }
+    } else {
+      for (const group of groups) counts[group] = queue.page.groups[group].count;
+    }
+    return { counts, unique: selected.length || queue.page.unique };
+  }, [listReady, queue, selected]);
   const nextDeadline = earliestDeadline(selected, queue?.items);
   const tray = useRef<HTMLDivElement>(null);
   const flight = useRef<HTMLSpanElement>(null);
@@ -498,7 +488,15 @@ function WorkspaceScreen({
             {zone === "Europe/Moscow" ? "МСК" : zone}
           </time>
         )}
-        <QueueOptic count={selectedIds.length} />
+        <div className="wq-optic">
+          {modelData === "unavailable" ? (
+            <span className="wq-model-unavailable">Нет данных для среза</span>
+          ) : modelData ? (
+            <MelonScene active="all" counts={modelData.counts} unique={modelData.unique} />
+          ) : listError ? null : (
+            <Loader label="Загрузка среза…" />
+          )}
+        </div>
       </header>
       <a
         ref={shortcut}
@@ -570,7 +568,7 @@ function WorkspaceScreen({
                 disabled={loading}
                 onClick={() => void load(query, undefined, true)}
               >
-                Обновить очередь
+                {loading ? <Loader label="Обновление…" /> : "Обновить очередь"}
               </button>
             </div>
           )}
@@ -588,8 +586,8 @@ function WorkspaceScreen({
             </div>
           )}
           {!listReady && !listError && (
-            <p className="wq-message" role="status">
-              Загрузка очереди…
+            <p className="wq-message">
+              <Loader label="Загрузка очереди…" />
             </p>
           )}
           {listReady && !queue.items.size && (
@@ -633,12 +631,7 @@ function WorkspaceScreen({
                         </div>
                         <a
                           className="wq-ticket-link"
-                          href={
-                            "/incident/" +
-                            encodeURIComponent(ticket.id) +
-                            "?ns=" +
-                            encodeURIComponent(ns)
-                          }
+                          href={screenLink("/incident/" + encodeURIComponent(ticket.id), ns)}
                           onClick={(event) => {
                             if (
                               !event.ctrlKey &&
@@ -694,7 +687,7 @@ function WorkspaceScreen({
                       : void load(query, queue)
                   }
                 >
-                  Показать ещё <Arrow direction="down" />
+                  {loading ? <Loader label="Загрузка…" /> : <>Показать ещё <Arrow direction="down" /></>}
                 </button>
               )}
             </div>
@@ -735,6 +728,8 @@ function WorkspaceScreen({
                   key={item.id}
                   id={item.id}
                   ns={ns}
+                  onRestore={restoreIncident}
+                  onMissing={markUnavailable}
                   incident={queue?.items.get(item.id) ?? item.incident}
                   open={() => open(item.id)}
                   remove={() =>
@@ -782,7 +777,7 @@ function WorkspaceScreen({
               type="submit"
               disabled={!write || busy || !selected.length || !question.trim()}
             >
-              {busy ? "Готовим сводку…" : "Сформировать сводку"}{" "}
+              {busy ? <Loader label="Готовим сводку…" /> : "Сформировать сводку"}{" "}
               <Arrow direction="right" />
             </button>
             {!write && (

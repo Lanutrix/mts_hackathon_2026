@@ -1,96 +1,278 @@
-import { useEffect, useRef, useState } from "react";
-import { mountMelon, type MelonFilter } from "./melonRender";
+import { useEffect, useId, useRef, useState } from "react";
+import {
+  groupColors,
+  groupNames,
+  melonGroups,
+  type Counts,
+  type MelonFilter,
+  type ModelState,
+  type ObjectName,
+} from "./melonModel";
+import { mountMelon } from "./melonRender";
 import "./melonRender.css";
 
-type Props = { active: MelonFilter; compact?: boolean; revision?: number };
-const still = new URL("./assets/melon-studio-focus.webp", import.meta.url).href;
-const targets: Record<MelonFilter, [number, number]> = {
-  all: [308, 58],
-  critical: [114, 121],
-  coordinators: [156, 63],
-  high: [277, 43],
-  research: [323, 102],
+type Props = {
+  active: MelonFilter;
+  counts?: Counts;
+  unique?: number;
+  compact?: boolean;
+  hero?: boolean;
+  showMeters?: boolean;
+  onGroupSelect?: (group: MelonFilter) => void;
 };
-
+const still = new URL("./assets/melon-studio-focus.webp", import.meta.url).href;
+const poster = new URL("./assets/focus-optic.webp", import.meta.url).href;
+function InstrumentIcon({
+  name,
+}: {
+  name: "fruit" | "frame" | "pause" | "play";
+}) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.45"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {name === "fruit" ? (
+        <g transform="rotate(-22 10 10)">
+          <path d="M2.5 7h15a7.5 7.5 0 0 1-15 0Z" />
+          <path d="M3.8 9.4a6.8 6.8 0 0 0 12.4 0M8 9l.4 1m3.4-1-.3 1" />
+        </g>
+      ) : name === "frame" ? (
+        <>
+          <path d="m4.5 5 9.5-2 2 1.8v11l-9.7 2-1.8-1.6z" />
+          <path d="m6.3 6.6 9.3-1.8M6.3 6.6v10.8m2-9.1 5.7-1.1v6.9l-5.7 1.2z" />
+        </>
+      ) : name === "pause" ? (
+        <path strokeWidth="2.5" d="M7 4.8v10.4M13 4.8v10.4" />
+      ) : (
+        <path d="m7 4 9 6-9 6z" />
+      )}
+    </svg>
+  );
+}
 export default function MelonScene({
   active,
+  counts,
+  unique,
   compact = false,
-  revision = 0,
+  hero = false,
+  showMeters = true,
+  onGroupSelect,
 }: Props) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const renderer = useRef<ReturnType<typeof mountMelon>>(null);
-  const latest = useRef({ active, revision });
-  const [ready, setReady] = useState(false);
+  const canvas = useRef<HTMLCanvasElement>(null),
+    fallback = useRef<HTMLCanvasElement>(null),
+    surface = useRef<HTMLDivElement>(null);
+  const engine = useRef<ReturnType<typeof mountMelon>>(null);
+  const [localGroup, setLocalGroup] = useState<MelonFilter>("all");
+  const selected = onGroupSelect
+    ? active
+    : active === "all"
+      ? localGroup
+      : active;
+  const select = onGroupSelect ?? setLocalGroup;
+  const callback = useRef(select);
+  callback.current = select;
+  const snapshot = useRef<ModelState>({ active: selected, counts, unique });
+  snapshot.current = { active: selected, counts, unique };
+  const [mode, setMode] = useState<"waiting" | "webgl" | "canvas" | "poster">(
+    "waiting",
+  );
+  const [target, setTarget] = useState<ObjectName>("fruit"),
+    [paused, setPaused] = useState(false);
+  const help = useId();
 
   useEffect(() => {
-    const element = canvas.current;
-    if (!element) return;
-    let mounted = true;
-    function start() {
-      if (!element || !mounted) return;
-      renderer.current?.dispose();
-      renderer.current = mountMelon(
-        element,
-        latest.current.active,
+    const gl = canvas.current,
+      paper = fallback.current,
+      box = surface.current;
+    if (!gl || !paper || !box) return;
+    function start(software = false) {
+      engine.current?.dispose();
+      setMode("waiting");
+      engine.current = mountMelon(
+        gl!,
+        paper!,
+        box!,
+        snapshot.current,
+        hero,
         compact,
-        () => {
-          if (mounted) setReady(true);
+        {
+          ready: setMode,
+          target: setTarget,
+          paused: setPaused,
+          select: (g) => callback.current?.(g),
         },
+        software,
       );
     }
-    function lost(event: Event) {
-      event.preventDefault();
-      renderer.current?.dispose();
-      renderer.current = null;
-      setReady(false);
+    function lost(e: Event) {
+      e.preventDefault();
+      start(true);
     }
-    element.addEventListener("webglcontextlost", lost);
-    element.addEventListener("webglcontextrestored", start);
+    function restored() {
+      start();
+    }
+    gl.addEventListener("webglcontextlost", lost);
+    gl.addEventListener("webglcontextrestored", restored);
     start();
     return () => {
-      mounted = false;
-      element.removeEventListener("webglcontextlost", lost);
-      element.removeEventListener("webglcontextrestored", start);
-      renderer.current?.dispose();
-      renderer.current = null;
+      gl.removeEventListener("webglcontextlost", lost);
+      gl.removeEventListener("webglcontextrestored", restored);
+      engine.current?.dispose();
+      engine.current = null;
     };
-  }, [compact]);
-
+  }, [hero, compact]);
   useEffect(() => {
-    if (
-      active !== latest.current.active ||
-      revision !== latest.current.revision
-    )
-      renderer.current?.select(active);
-    latest.current = { active, revision };
-  }, [active, revision]);
-
+    engine.current?.select(snapshot.current);
+  }, [
+    selected,
+    counts?.critical,
+    counts?.coordinators,
+    counts?.high,
+    counts?.research,
+    unique,
+  ]);
+  const amounts = melonGroups
+    .map((g) => groupNames[g] + " — " + (counts?.[g] ?? 0))
+    .join(". ");
+  const title = hero
+    ? "Арбуз и оптическая рамка"
+    : selected === "all"
+      ? "Срезы инцидентов"
+      : groupNames[selected] + " — " + (counts?.[selected] ?? 0);
+  function choose(name: ObjectName) {
+    engine.current?.target(name);
+    surface.current?.focus({ preventScroll: true });
+  }
   return (
-    <div className="melon-scene" aria-hidden="true" data-ready={ready}>
-      <svg className="melon-orbit" viewBox="0 0 432 270" fill="none">
-        <g transform="rotate(-16 216 139)">
-          <ellipse cx="215" cy="139" rx="192" ry="84" stroke="#9d91b8" strokeWidth=".85" />
-          <path d="M24 129a192 84 0 0 1 173-74m80 163a192 84 0 0 1-125 0" stroke="#fff" />
-          <path d="M18 139h12m371 0h12M215 50v10m0 157v10" stroke="#847597" />
-          <rect x="21" y="136.5" width="5" height="5" fill="#9b88b6" />
-        </g>
-      </svg>
-      <img
-        className="melon-scene__still"
-        src={still}
-        alt=""
-        width="864"
-        height="540"
-        draggable="false"
-      />
-      <canvas className="melon-scene__canvas" ref={canvas} />
-      <svg className="melon-sight" viewBox="0 0 432 270" fill="none">
-        <g className="melon-focus" style={{ transform: `translate(${targets[active][0]}px, ${targets[active][1]}px)` }}>
-          <rect x="-9" y="-9" width="18" height="18" rx="2" fill="#f4f0fa" fillOpacity=".64" stroke="#fff" strokeOpacity=".85" />
-          <path d="M-12-4v-8h8M4 12h8V4" stroke="#574860" strokeWidth="1.2" />
-          <rect x="-2.6" y="-2.6" width="5.2" height="5.2" fill="#c50032" />
-        </g>
-      </svg>
+    <div
+      className={"melon-scene" + (hero ? " melon-scene--hero" : "")}
+      data-mode={mode}
+      data-ready={mode !== "waiting"}
+      data-active={selected}
+      data-object={target}
+      role="group"
+      aria-label={title}
+    >
+      <div
+        ref={surface}
+        className="melon-view"
+        tabIndex={mode === "poster" ? -1 : 0}
+        aria-label={
+          "Вращать 3D-объект: " + (target === "fruit" ? "арбуз" : "рамка")
+        }
+        aria-describedby={help}
+        role="group"
+      >
+        <canvas
+          className="melon-scene__canvas"
+          ref={canvas}
+          aria-hidden="true"
+        />
+        <canvas
+          className="melon-scene__paper"
+          ref={fallback}
+          aria-hidden="true"
+        />
+        {mode === "poster" && (
+          <img
+            src={hero ? poster : still}
+            alt=""
+            draggable="false"
+            className="melon-scene__still"
+          />
+        )}
+        {mode === "waiting" && (
+          <span role="status" className="melon-wait">
+            <i />
+            <i />
+            <i />
+            <span className="melon-sr">Загружается 3D-модель</span>
+          </span>
+        )}
+      </div>
+      <span id={help} className="melon-sr">
+        Перетаскивайте объект или вращайте стрелками. Home возвращает исходный
+        ракурс, пробел управляет движением.
+        {!hero &&
+          counts &&
+          " От переднего среза к заднему: " +
+            amounts +
+            ". Заполнение каждой шкалы показывает долю среди инцидентов в выборке."}
+      </span>
+      {!hero && counts && showMeters && (
+        <div className="melon-meters" role="group" aria-label="Значения срезов">
+          {melonGroups.map((g, i) => {
+            const count = counts[g] ?? 0;
+            const short = ["Крит.", "Коорд.", "Выс.", "Иссл."];
+            return (
+              <button
+                type="button"
+                key={g}
+                aria-pressed={selected === g}
+                onClick={() => select(selected === g ? "all" : g)}
+                title={groupNames[g] + " — " + count + " из " + (unique ?? 0)}
+                aria-label={
+                  groupNames[g] + " — " + count + " из " + (unique ?? 0)
+                }
+              >
+                <span className="melon-meter__name">{groupNames[g]}</span>
+                <span className="melon-meter__short" aria-hidden="true">
+                  {short[i]}
+                </span>
+                <strong>{count}</strong>
+                <i aria-hidden="true">
+                  <b
+                    style={{
+                      width:
+                        Math.min(
+                          100,
+                          (count / Math.max(1, unique ?? 0)) * 100,
+                        ) + "%",
+                      backgroundColor: groupColors[i],
+                    }}
+                  />
+                </i>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {mode !== "poster" && mode !== "waiting" && (
+        <div
+          className="melon-tools"
+          role="group"
+          aria-label="Управление 3D-моделью"
+        >
+          {(["fruit", "frame"] as const).map((name) => (
+            <button
+              key={name}
+              type="button"
+              aria-pressed={target === name}
+              title={name === "fruit" ? "Вращать арбуз" : "Вращать рамку"}
+              aria-label={name === "fruit" ? "Вращать арбуз" : "Вращать рамку"}
+              onClick={() => choose(name)}
+            >
+              <InstrumentIcon name={name} />
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-label={paused ? "Включить движение" : "Приостановить движение"}
+            title={paused ? "Включить движение" : "Приостановить движение"}
+            onClick={() => engine.current?.toggle()}
+          >
+            <InstrumentIcon name={paused ? "play" : "pause"} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

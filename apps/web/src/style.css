@@ -2,13 +2,14 @@
   font-family: "Golos Text", sans-serif;
   color: var(--text);
   background: var(--background);
-  --background: #faf9fd;
+  --case-paper: #e2e0ee;
+  --background: var(--case-paper);
   --surface: #fff;
-  --stage: #e2e0ee;
+  --stage: var(--case-paper);
   --tint: #eeebf4;
   --text: #211d2c;
   --muted: #5d5868;
-  --border: #d5d0de;
+  --border: #bfb8cc;
   --control-border: #817b8b;
   --critical: #c50032;
   --warning: #664693;

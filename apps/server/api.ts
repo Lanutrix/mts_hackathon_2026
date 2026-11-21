@@ -17,7 +17,10 @@ import {
 import { Auth, type Role } from "./auth.ts";
 import { Store, FileSource } from "../worker/ingestion.ts";
 import { Demo, atomicWrite } from "./demo.ts";
-import { registerJurySimulation } from "./jurySimulation.ts";
+import {
+  registerJurySimulation,
+  type SimulationOptions,
+} from "./jurySimulation.ts";
 import type { AnalysisService } from "./analysis.ts";
 export interface AppOptions {
   stores: Map<string, Store>;
@@ -29,6 +32,7 @@ export interface AppOptions {
   ai?: AnalysisService;
   staticDir?: string;
   itsmUrl?: string;
+  jurySimulation?: SimulationOptions;
 }
 export async function createApp(o: AppOptions) {
   const app = Fastify({
@@ -65,6 +69,7 @@ export async function createApp(o: AppOptions) {
     { username: string; ns: string; text: string; expires: number }
   >();
   const identity = (req: any) => o.auth.get(req.cookies.wm_session);
+  const jury = registerJurySimulation(app, o.publicDemo, o.jurySimulation);
   const db = [...o.stores.values()][0].db;
   const audit = (
     actor: string,
@@ -106,8 +111,37 @@ export async function createApp(o: AppOptions) {
     }
     return o.stores.get(ns)!;
   };
+  const readStoreFor = async (req: any, reply: any) =>
+    req.query?.ns === "simulation" ? jury.read(reply) : storeFor(req, reply);
+  const juryReadRoutes = new Set([
+    "/api/me",
+    "/api/health",
+    "/api/dashboard",
+    "/api/incidents",
+    "/api/incident/:id",
+    "/api/notifications",
+    "/api/export",
+    "/api/stream",
+    "/api/simulation/stream",
+  ]);
   app.addHook("onRequest", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
+    const ns = req.url.startsWith("/api/") ? (req.query as { ns?: unknown }).ns : undefined;
+    if (ns !== undefined && typeof ns !== "string")
+      return reply.code(400).send({ message: "Укажите один источник" });
+    if (ns === "simulation") {
+      if (!o.publicDemo)
+        return reply.code(404).send({ message: "Учебный эфир отключён" });
+      if (
+        !["GET", "HEAD"].includes(req.method) ||
+        !juryReadRoutes.has(req.routeOptions.url ?? "")
+      )
+        return reply
+          .code(403)
+          .send({ message: "Учебный источник доступен только для просмотра" });
+      if (req.method === "HEAD" && req.routeOptions.url?.endsWith("/stream"))
+        return reply.code(405).send();
+    }
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
       if (req.headers.origin && req.headers.origin !== o.origin) {
         reply.code(403).send({ message: "Недопустимый источник запроса" });
@@ -143,14 +177,31 @@ export async function createApp(o: AppOptions) {
             : e.message.slice(0, 500),
     });
   });
-  app.get("/api/health", async () => ({
-    status: "ok",
-    sources: [...o.stores].map(([namespace, s]) => ({
-      namespace,
-      revision: s.revision,
-      state: s.status.state,
-    })),
-  }));
+  app.get("/api/health", async (req, reply) => {
+    if ((req.query as any).ns === "simulation") {
+      const s = await jury.read(reply);
+      if (s)
+        return {
+          status: "ok",
+          sources: [
+            {
+              namespace: s.namespace,
+              revision: s.revision,
+              state: s.status.state,
+            },
+          ],
+        };
+      return;
+    }
+    return {
+      status: "ok",
+      sources: [...o.stores].map(([namespace, s]) => ({
+        namespace,
+        revision: s.revision,
+        state: s.status.state,
+      })),
+    };
+  });
   app.get("/health/live", async () => ({ status: "ok" }));
   app.get("/health/ready", async (req, reply) => {
     let database = true;
@@ -170,6 +221,8 @@ export async function createApp(o: AppOptions) {
       .send({ status: ready ? "ready" : "degraded", database, sources });
   });
   app.get("/api/me", async (req) => {
+    if ((req.query as any).ns === "simulation")
+      return { user: null, publicDemo: o.publicDemo, sources: ["simulation"] };
     const u = identity(req);
     return {
       user: u ? { username: u.username, role: u.role, csrf: u.csrf } : null,
@@ -209,7 +262,7 @@ export async function createApp(o: AppOptions) {
     return { ok: true };
   });
   app.get("/api/dashboard", async (req, reply) => {
-    const s = storeFor(req, reply);
+    const s = await readStoreFor(req, reply);
     if (!s) return;
     const q = req.query as Record<string, string>;
     const now = Date.now();
@@ -280,6 +333,7 @@ export async function createApp(o: AppOptions) {
       status,
       serverTime: new Date(now).toISOString(),
       namespace: s.namespace,
+      ...("simulation" in s ? { simulation: s.simulation } : {}),
       unique: new Set(relevant.map((r) => r.key)).size,
       total: all.length,
       groups,
@@ -299,7 +353,7 @@ export async function createApp(o: AppOptions) {
     };
   });
   app.get("/api/incidents", async (req, reply) => {
-    const s = storeFor(req, reply);
+    const s = await readStoreFor(req, reply);
     if (!s) return;
     const q = req.query as any;
     const rows = [...s.rows.values()].filter((r) =>
@@ -317,20 +371,21 @@ export async function createApp(o: AppOptions) {
     };
   });
   app.get("/api/incident/:id", async (req, reply) => {
-    const s = storeFor(req, reply);
+    const s = await readStoreFor(req, reply);
     if (!s) return;
     const id = (req.params as any).id;
     const r = [...s.rows.values()].find((r) => r.id === id);
     if (!r) return reply.code(404).send({ message: "Инцидент не найден" });
+    const itsmUrl = s.namespace === "simulation" ? undefined : o.itsmUrl;
     return {
       incident: r,
       history: await s.history(r.key, r.revision),
-      itsm: safeItsm(r.id, o.itsmUrl),
-      itsmMock: !o.itsmUrl,
+      itsm: safeItsm(r.id, itsmUrl),
+      itsmMock: !itsmUrl,
     };
   });
   app.get("/api/notifications", async (req, reply) => {
-    const s = storeFor(req, reply);
+    const s = await readStoreFor(req, reply);
     if (!s) return;
     const revision = s.revision,
       offset = Math.max(0, Math.floor(Number((req.query as any).offset) || 0));
@@ -482,7 +537,7 @@ export async function createApp(o: AppOptions) {
     return { ok: true, revision: s.revision };
   });
   app.get("/api/export", async (req, reply) => {
-    const s = storeFor(req, reply);
+    const s = await readStoreFor(req, reply);
     if (!s) return;
     const normalized = (req.query as any).mode === "normalized";
     reply
@@ -550,8 +605,9 @@ export async function createApp(o: AppOptions) {
       );
     },
   );
-  registerJurySimulation(app, o.publicDemo);
   app.get("/api/stream", async (req, reply) => {
+    if ((req.query as any).ns === "simulation")
+      return jury.stream(req, reply, "dashboard");
     const s = storeFor(req, reply);
     if (!s) return;
     if (clients.size >= 100)

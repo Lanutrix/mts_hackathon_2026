@@ -8,7 +8,7 @@
 .ops-shell :is(.shift-stage, .wq-intro) {
   isolation: isolate;
   position: relative;
-  background: var(--stage);
+  background: transparent;
   margin-inline: calc(-1 * var(--gutter));
   padding-inline: var(--gutter);
 }
@@ -20,7 +20,7 @@
   min-height: 66px;
   margin: 0 calc(-1 * var(--gutter));
   padding: 8px var(--gutter);
-  background: var(--stage);
+  background: transparent;
   border-bottom: 1px solid #c6c2d2;
 }
 .ops-brand {
@@ -133,7 +133,7 @@
   width: 200px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--case-paper);
   box-shadow: 0 8px 35px #211d2c21;
   color: var(--text);
   z-index: 12;
@@ -158,7 +158,7 @@
   padding: 8px 0;
 }
 .ops-shell > .role-nav {
-  background: var(--stage);
+  background: transparent;
   margin-inline: calc(-1 * var(--gutter));
   padding-inline: var(--gutter);
 }
@@ -183,6 +183,32 @@
 .ops-shell > .source-banner span {
   flex-basis: auto;
 }
+.ops-shell :is(.content, .notice, .empty, .recent, .error) {
+  background: transparent;
+  border-inline: 0;
+  border-radius: 0;
+}
+.ops-shell .content {
+  border: 0;
+  padding-inline: 0;
+  --content-pad: 0px;
+  padding-block: 0;
+}
+.ops-shell .content > :is(h1, .section-heading):first-child {
+  margin: 0 0 1.25rem;
+  background: transparent;
+}
+.ops-shell :is(.empty, .notice, .recent, .error) { padding-inline: 0; }
+.ops-shell .badge { background: transparent; padding-inline: 0; }
+.ops-shell .flags { gap: .5rem 1.2rem; }
+.ops-shell :is(input:not([type="checkbox"]), textarea, select) { background-color: transparent; }
+.ops-shell option { background: var(--case-paper); }
+.ops-shell .event-facts summary { color: var(--accent); cursor: pointer; }
+.ops-shell .event-facts { max-width: 32rem; font-size: .88rem; }
+.ops-shell .event-facts p { margin: .4rem 0; }
+@media (max-width: 680px) {
+  .ops-shell .notification { align-items: start; flex-direction: column; gap: .7rem; }
+}
 .ops-shell main {
   min-width: 0;
 }
@@ -204,6 +230,26 @@
   pointer-events: none;
   padding: 22px 0 24px;
 }
+.shift-focus {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  max-width: 100%;
+  min-height: 34px;
+  margin-top: .45rem;
+  padding: .3rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: .78rem;
+}
+.shift-focus span:first-child { color: var(--critical); white-space: nowrap; }
+.shift-focus strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+.shift-focus:hover { background: transparent; text-decoration: underline; }
+.detail-guidance { margin-block: 1.2rem; padding-left: .9rem; border-left: 2px solid var(--resolved); }
+.detail-guidance p { margin: .3rem 0 0; }
 .shift-type h1 {
   margin: 0 0 12px;
   font-size: clamp(37px, 4vw, 70px);
@@ -323,6 +369,22 @@
   font-weight: 400;
   color: var(--muted);
 }
+.signal-short { display: none; }
+.signal-tabs .signal-meter {
+  position: absolute;
+  inset: auto 0 11px;
+  height: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--border);
+}
+.signal-meter b { display: block; height: 100%; background: var(--research); }
+.tab-critical .signal-meter b { background: var(--critical); }
+.tab-coordinators .signal-meter b { background: var(--resolved); }
+.tab-high .signal-meter b { background: var(--warning); }
+@media (prefers-reduced-motion: no-preference) {
+  .signal-meter b { transition: width .4s ease; }
+}
 .signal-tabs i {
   height: 3px;
   position: absolute;
@@ -417,7 +479,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 12px 40px #211d2c21;
-  background: var(--surface);
+  background: var(--case-paper);
   display: grid;
   gap: 15px;
 }
@@ -469,9 +531,7 @@
   border-bottom: 1px solid var(--hair);
   transition: background 0.18s;
 }
-.feed-table tbody tr:hover {
-  background: var(--tint);
-}
+.feed-table tbody tr:hover .feed-subject button { text-decoration: underline; text-decoration-thickness: 1px; }
 .feed-table td {
   vertical-align: middle;
   padding: 12px 17px 12px 0;
@@ -722,7 +782,7 @@
     font-size: inherit;
   }
   .shift-object {
-    inset: 16px 0 0 44%;
+    inset: 30px 0 0 44%;
   }
   .shift-clock {
     font-size: 9px;
@@ -755,21 +815,27 @@
     height: 32px;
   }
   .signal-tabs {
-    grid-column: 1/-1;
+    grid-column: 1 / -1;
     grid-row: 2;
-    display: flex;
-    justify-content: flex-start;
-    gap: 18px;
-    overflow: auto;
-    scrollbar-width: thin;
-    scroll-snap-type: x proximity;
+    display: grid;
+    grid-template-columns: .72fr repeat(4, minmax(0, 1fr));
+    gap: clamp(5px, 1.8vw, 12px);
   }
   .signal-tabs button {
-    scroll-snap-align: start;
-    flex: none;
-    min-height: 38px;
-    font-size: 12px;
+    min-height: 54px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: 16px auto;
+    align-content: center;
+    justify-items: start;
+    gap: 1px 4px;
+    font-size: .73rem;
+    padding: 4px 0 10px;
   }
+  .signal-tabs .signal-long { display: none; }
+  .signal-tabs .signal-short { display: block; grid-row: 2; grid-column: 1/-1; }
+  .signal-tabs .signal-meter { bottom: 6px; }
+  .signal-tabs button small { grid-column: 2; grid-row: 1; }
   .signal-tabs button i {
     bottom: 0;
   }

@@ -12,6 +12,9 @@ import {
   type JurySnapshot,
 } from "../apps/server/jurySimulation.ts";
 import { TEAM } from "../packages/domain/index.ts";
+import { createApp } from "../apps/server/api.ts";
+import { Auth } from "../apps/server/auth.ts";
+import { Store } from "../apps/worker/ingestion.ts";
 
 async function view(url: string, lastEventId?: string) {
   const req = get(url, {
@@ -25,19 +28,24 @@ async function view(url: string, lastEventId?: string) {
   assert.equal(res.statusCode, 200);
   assert.match(res.headers["content-type"]!, /text\/event-stream/);
   const lines = createInterface({ input: res })[Symbol.asyncIterator]();
+  async function frame() {
+    let event = "";
+    for (;;) {
+      const line = await lines.next();
+      assert.ok(!line.done, "expected another snapshot");
+      if (line.value.startsWith("event: ")) event = line.value.slice(7);
+      if (line.value.startsWith("data: ")) {
+        return { event, data: JSON.parse(line.value.slice(6)) };
+      }
+    }
+  }
   return {
     close: () => res.destroy(),
+    frame,
     async next(): Promise<JurySnapshot> {
-      let event = "";
-      for (;;) {
-        const line = await lines.next();
-        assert.ok(!line.done, "expected another snapshot");
-        if (line.value.startsWith("event: ")) event = line.value.slice(7);
-        if (line.value.startsWith("data: ")) {
-          assert.equal(event, "snapshot");
-          return JSON.parse(line.value.slice(6));
-        }
-      }
+      const { event, data } = await frame();
+      assert.equal(event, "snapshot");
+      return data;
     },
   };
 }
@@ -145,6 +153,132 @@ test("disabling the public demo also disables the jury stream", async () => {
     await app.close();
   }
 });
+
+test(
+  "standard dashboard APIs and both stream protocols share a read-only simulation without touching the workspace database",
+  { timeout: 15_000 },
+  async () => {
+    let queries = 0;
+    const blocked = async () => {
+      queries++;
+      throw new Error("workspace DB accessed");
+    };
+    const workspace = new Store(
+      { query: blocked, transaction: blocked, close: blocked },
+      "workspace",
+    );
+    const auth = new Auth();
+    auth.sessions.set(auth.digest("test-cookie"), {
+      username: "owner",
+      role: "demo-admin",
+      csrf: "test-csrf",
+      expires: Date.now() + 60_000,
+    });
+    const app = await createApp({
+      auth,
+      publicDemo: true,
+      secure: false,
+      origin: "http://localhost",
+      stores: new Map([["workspace", workspace]]),
+      sources: new Map(),
+      itsmUrl: "https://system.invalid/workspace",
+      jurySimulation: { stepDelays: [400, 200, 200, 200, 200], graceMs: 150 },
+    });
+    const base = await app.listen({ host: "127.0.0.1", port: 0 });
+    const headers = {
+      cookie: "wm_session=test-cookie",
+      "x-csrf-token": "test-csrf",
+    };
+    const read = async (path: string) => {
+      const response = await app.inject({
+        url:
+          "/api/" + path + (path.includes("?") ? "&" : "?") + "ns=simulation",
+        headers,
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      return response.json();
+    };
+    try {
+      const [a, b] = await Promise.all([read("dashboard"), read("dashboard")]);
+      assert.equal(a.simulation.runId, b.simulation.runId);
+      assert.equal(a.simulation.currentId, "SIM-001");
+      assert.equal(a.namespace, "simulation");
+      assert.equal(a.revision, 1);
+      assert.equal(a.status.state, "live");
+      assert.equal(a.unique, 0);
+      assert.equal(a.total, 1);
+      assert.deepEqual((await read("me")).sources, ["simulation"]);
+      assert.equal((await read("me")).user, null);
+      assert.deepEqual(
+        (await read("health")).sources.map((s: any) => s.namespace),
+        ["simulation"],
+      );
+      const legacy = await view(base + "/api/simulation/stream");
+      const stream = await view(base + "/api/stream?ns=simulation&cursor=1");
+      assert.equal((await legacy.next()).runId, a.simulation.runId);
+      assert.equal((await stream.frame()).event, "ready");
+      legacy.close();
+      const frame = await stream.frame();
+      assert.equal(frame.event, "revision");
+      assert.equal(frame.data.revision, 2);
+      const critical = await read("dashboard?q=платежей");
+      assert.equal(critical.groups.critical.count, 1);
+      assert.equal(critical.groups.critical.items[0].revision, 2);
+      assert.deepEqual(critical.events[0].reasons, ["critical"]);
+      await stream.frame();
+      const assigned = await read("dashboard");
+      assert.equal(assigned.unique, 1);
+      assert.equal(assigned.groups.coordinators.items[0].id, "SIM-001");
+      assert.equal(
+        (await read("dashboard?coordinators=1")).groups.coordinators.items
+          .length,
+        0,
+      );
+      const detail = await read("incident/SIM-001");
+      assert.ok(detail.itsmMock);
+      assert.equal(detail.itsm, "/itsm/SIM-001");
+      assert.equal(detail.history[0].kind, "updated");
+      assert.ok(detail.history[0].changed.includes("assignedGroupName"));
+      const oldNotification = (await read("notifications?offset=1")).items[0];
+      assert.equal(oldNotification.snapshot.team, "Сопровождение платежей");
+      assert.equal(oldNotification.read, false);
+      for (const path of [
+        "demo",
+        "analysis/SIM-001",
+        "notifications/read",
+        "import/preview",
+        "import/commit",
+        "preferences",
+      ]) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/" + path + "?ns=simulation",
+          headers,
+          payload: {},
+        });
+        assert.equal(response.statusCode, 403, path);
+      }
+      while ((await stream.frame()).data.revision < 6) {}
+      assert.equal((await read("dashboard")).simulation.currentId, "SIM-002");
+      const archive = await read("incidents?history=1");
+      assert.equal(archive.items[0].id, "SIM-001");
+      const archived = await read("incident/SIM-001");
+      assert.equal(archived.incident.stateId, 7);
+      assert.deepEqual(
+        archived.history.map((h: any) => h.revision),
+        [5, 4, 3, 2, 1],
+      );
+      assert.equal((await read("export")).length, 2);
+      const reconnected = await view(
+        base + "/api/stream?ns=simulation&cursor=0",
+      );
+      assert.equal((await reconnected.frame()).event, "resync");
+      assert.equal(queries, 0);
+    } finally {
+      await app.close();
+    }
+  },
+);
 
 test(
   "a long-running stream keeps 24 frozen event records while ticket identities advance",

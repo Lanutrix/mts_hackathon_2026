@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Group, Incident } from "../../../packages/domain/index.ts";
+import Loader from "./Loader";
 import MelonScene from "./MelonScene";
 import {
   duration,
@@ -17,6 +18,13 @@ const label: Record<Signal, string> = {
   coordinators: "Координаторы",
   high: "Высокие",
   research: "Исследование",
+};
+const shortLabel: Record<Signal, string> = {
+  all: "Все",
+  critical: "Критич.",
+  coordinators: "Коорд.",
+  high: "Высокие",
+  research: "Исслед.",
 };
 const reasons: Record<Group, string> = {
   critical: "Критический",
@@ -255,6 +263,7 @@ function SearchFilters({
 }
 type Props = SelectionProps & {
   data: Dashboard;
+  filtering: boolean;
   now: number;
   zone: string;
   wall: boolean;
@@ -264,6 +273,7 @@ type Props = SelectionProps & {
 };
 export default function LiveBoard({
   data,
+  filtering,
   now,
   zone,
   wall,
@@ -274,6 +284,7 @@ export default function LiveBoard({
 }: Props) {
   const [signal, setSignal] = useState<Signal>("all");
   const amount = signal === "all" ? data.unique : data.groups[signal].count;
+  const focus = signal === "all" ? null : data.groups[signal].items[0];
   const context =
     signal === "all"
       ? "в поле внимания"
@@ -300,9 +311,28 @@ export default function LiveBoard({
               <small>из {data.total.toLocaleString("ru-RU")} в источнике</small>
             </div>
           </div>
+          {!filtering && focus && (
+            <button
+              className="shift-focus"
+              onClick={() => open(focus.id)}
+              title={String(focus.raw.header || focus.id)}
+            >
+              <span>{focus.id}</span>
+              <strong>{String(focus.raw.header || "Без заголовка")}</strong>
+              <span aria-hidden="true">↗</span>
+            </button>
+          )}
         </div>
         <div className="shift-object">
-          <MelonScene active={signal} revision={data.revision} />
+          <MelonScene
+            active={signal}
+            counts={Object.fromEntries(
+              groups.map((group) => [group, data.groups[group].count]),
+            )}
+            unique={data.unique}
+            showMeters={false}
+            onGroupSelect={setSignal}
+          />
         </div>
         <div
           className="shift-clock"
@@ -324,13 +354,33 @@ export default function LiveBoard({
               key={g}
               data-testid={"group-" + g}
               aria-pressed={signal === g}
+              aria-label={
+                g === "all" ? label[g] : label[g] + ", " + data.groups[g].count
+              }
               className={"tab-" + g}
               onClick={() => setSignal(g)}
             >
               <SignalMark signal={g} />
-              <span>{label[g]}</span>
+              <span className="signal-long">{label[g]}</span>
+              <span className="signal-short" aria-hidden="true">
+                {shortLabel[g]}
+              </span>
               {g !== "all" && (
-                <small data-testid={"count-" + g}>{data.groups[g].count}</small>
+                <>
+                  <small data-testid={"count-" + g}>
+                    {data.groups[g].count}
+                  </small>
+                  <span className="signal-meter" aria-hidden="true">
+                    <b
+                      style={{
+                        width:
+                          (data.unique
+                            ? (100 * data.groups[g].count) / data.unique
+                            : 0) + "%",
+                      }}
+                    />
+                  </span>
+                </>
               )}
               {signal === g && (
                 <motion.i
@@ -344,16 +394,20 @@ export default function LiveBoard({
         {!wall && <SearchFilters {...search} />}
       </div>
       {children}
-      <Ledger
-        key={search.ns + "?" + search.params.toString() + "/" + signal}
-        data={data}
-        signal={signal}
-        sort={search.params.get("sort") || "deadline"}
-        query={search.params.toString()}
-        now={now}
-        zone={zone}
-        open={open}
-      />
+      {filtering ? (
+        <Loader label="Поиск инцидентов…" stage />
+      ) : (
+        <Ledger
+          key={search.ns + "?" + search.params.toString() + "/" + signal}
+          data={data}
+          signal={signal}
+          sort={search.params.get("sort") || "deadline"}
+          query={search.params.toString()}
+          now={now}
+          zone={zone}
+          open={open}
+        />
+      )}
     </section>
   );
 }
@@ -560,9 +614,7 @@ function Ledger({
           <button onClick={() => setRetry((r) => r + 1)}>Повторить</button>
         </div>
       ) : loading ? (
-        <p className="feed-empty" role="status">
-          Загрузка…
-        </p>
+        <Loader label="Загрузка страницы…" />
       ) : total === 0 ? (
         <p className="feed-empty">Инцидентов по этому фильтру нет.</p>
       ) : null}
