@@ -107,14 +107,13 @@ test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers wit
   await expect(page.getByTestId("count-critical")).toHaveText("13");
   await expect(other.getByTestId("count-critical")).toHaveText("13");
   await mutate("coordinator");
-  await expect(
-    page.getByTestId("group-coordinators").getByTestId("card-DEMO-42-00001"),
-  ).toBeVisible();
-  await page
-    .getByTestId("group-critical")
-    .getByTestId("card-DEMO-42-00001")
-    .getByRole("button")
-    .click();
+  const ticket = page.getByTestId("card-DEMO-42-00001");
+  await expect(ticket).toHaveCount(1);
+  await expect(ticket).toContainText("У координаторов");
+  await page.getByTestId("group-coordinators").click();
+  await expect(ticket).toContainText("Критический");
+  await page.getByTestId("group-critical").click();
+  await page.getByTestId("card-DEMO-42-00001").getByRole("button").click();
   await expect(
     page.getByRole("heading", { name: "Описание", exact: true }),
   ).toBeVisible();
@@ -142,7 +141,8 @@ test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers wit
   );
   await mutate("header", "Восстановление связи");
   await other.context().setOffline(false);
-  await expect(other.getByTestId("group-research")).toContainText(
+  await other.getByTestId("group-research").click();
+  await expect(other.getByTestId("live-register")).toContainText(
     "Восстановление связи",
   );
   await second.close();
@@ -153,7 +153,7 @@ test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", 
   await reset();
   await page.goto("/");
   await page.getByRole("searchbox").fill("DEMO-42-00019");
-  await expect(page.getByTestId("unique")).toHaveText("1 уникальный инцидент");
+  await expect(page.getByTestId("live-count")).toHaveText("1");
   await expect(page).toHaveURL(/q=DEMO/);
   await page
     .getByTestId("card-DEMO-42-00019")

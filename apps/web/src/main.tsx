@@ -15,15 +15,9 @@ import "@fontsource/golos-text/latin-600.css";
 import "./style.css";
 import Workspace from "./Workspace";
 import { analyzeContext } from "./contextAnalysis";
-import {
-  LiveIntro,
-  incidentCount,
-  IncidentLane,
-  Mark,
-  Icon,
-  lanes as groups,
-  type IconName,
-} from "./LiveBoard";
+import LiveBoard from "./LiveBoard";
+import { groups } from "./liveFeed";
+import { Mark, Icon, type IconName } from "./Brand";
 import "./ops.css";
 import type { Incident } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
@@ -68,9 +62,10 @@ function useRoute() {
     return () => window.removeEventListener("popstate", update);
   }, []);
   const go = (path: string) => {
+    const changedPage = location.pathname !== path.split("?")[0];
     history.pushState(null, "", path);
     setRoute(path);
-    window.scrollTo(0, 0);
+    if (changedPage) window.scrollTo(0, 0);
   };
   return [route, go] as const;
 }
@@ -123,6 +118,8 @@ function App() {
     try {
       const q = new URLSearchParams(query);
       q.set("ns", ns);
+      if (path === "/" || path === "/wallboard")
+        for (const group of groups) q.delete(group);
       const dashboard = await read("/dashboard?" + q);
       if (gen !== generation.current) return;
       setData(dashboard);
@@ -283,20 +280,27 @@ function App() {
   }, [load, ready]);
   const link = (to: string) =>
     to + (ns !== "demo" ? "?ns=" + encodeURIComponent(ns) : "");
-  const nav = (to: string, label: string, icon?: IconName, compact = false) => (
+  const nav = (
+    to: string,
+    label: string,
+    icon?: IconName,
+    compact = false,
+    short?: string,
+  ) => (
     <a
       tabIndex={0}
       href={link(to)}
       aria-current={path === to || (wall && to === "/") ? "page" : undefined}
       className={compact ? "icon-link" : undefined}
       title={compact ? label : undefined}
+      aria-label={compact || short ? label : undefined}
       onClick={(e) => {
         e.preventDefault();
         go(link(to));
       }}
     >
       {icon && <Icon name={icon} size={18} />}
-      <span className={compact ? "sr-only" : undefined}>{label}</span>
+      <span className={compact ? "sr-only" : undefined}>{short ?? label}</span>
     </a>
   );
   const open = (id: string) => go(link("/incident/" + encodeURIComponent(id)));
@@ -335,18 +339,35 @@ function App() {
             <small>МТС</small>
           </a>
           <nav className="primary-switch" aria-label="Основная навигация">
-            {nav("/", "Эфир смены", "live")}
-            {nav("/workspace", "Рабочая очередь", "queue")}
+            {nav("/", "Эфир смены", "live", false, "Эфир")}
+            {nav("/workspace", "Рабочая очередь", "queue", false, "Очередь")}
           </nav>
           <nav className="ops-actions" aria-label="Сервисы">
             {!wall && nav("/notifications", "Уведомления", "bell", true)}
-            {!wall && nav("/history", "История", "history", true)}
-            {!wall && nav("/quality", "Качество данных", "quality", true)}
-            {nav(
-              wall ? "/" : "/wallboard",
-              wall ? "Обычный режим" : "Общий экран",
-              "expand",
-              true,
+            {wall ? (
+              nav("/", "Обычный режим", "expand", true)
+            ) : (
+              <>
+                <button
+                  className="ops-more"
+                  type="button"
+                  aria-label="Дополнительные разделы"
+                  title="Дополнительные разделы"
+                  popoverTarget="service-menu"
+                >
+                  <Icon name="more" size={19} />
+                </button>
+                <div
+                  className="service-menu"
+                  id="service-menu"
+                  popover="auto"
+                  key={path}
+                >
+                  {nav("/history", "История", "history")}
+                  {nav("/quality", "Качество данных", "quality")}
+                  {nav("/wallboard", "Общий экран", "expand")}
+                </div>
+              </>
             )}
             {!wall &&
               (user ? (
@@ -429,7 +450,7 @@ function App() {
                 go("/");
               }}
             />
-          ) : !data ? (
+          ) : !data || data.namespace !== ns ? (
             <div className="empty" aria-busy={!error}>
               Загрузка данных…
             </div>
@@ -454,95 +475,19 @@ function App() {
               }
             />
           ) : path === "/" || wall ? (
-            <>
-              <LiveIntro
-                data={data}
-                now={tick}
-                zone={zone}
-                ns={ns}
-                online={connection === "На связи"}
-              />
-              <div className="flow-heading">
-                <h2>Поток инцидентов</h2>
-                <span data-testid="unique">{incidentCount(data.unique)}</span>
-              </div>
-              {!wall && (
-                <form className="toolbar" onSubmit={(e) => e.preventDefault()}>
-                  <label className="search">
-                    <span className="sr-only">
-                      Поиск по ID, продукту, команде
-                    </span>
-                    <input
-                      type="search"
-                      placeholder="Поиск по ID, продукту, команде"
-                      value={params.get("q") ?? ""}
-                      onChange={(e) => updateParam("q", e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span className="sr-only">Тип сервиса</span>
-                    <select
-                      value={params.get("service") ?? ""}
-                      onChange={(e) => updateParam("service", e.target.value)}
-                    >
-                      <option value="">Все сервисы</option>
-                      <option value="1">Технический</option>
-                      <option value="2">Клиентский</option>
-                      <option value="3">Внутренний</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span className="sr-only">Сортировка</span>
-                    <select
-                      value={params.get("sort") ?? "deadline"}
-                      onChange={(e) => updateParam("sort", e.target.value)}
-                    >
-                      <option value="deadline">По сроку</option>
-                      <option value="registered">По регистрации</option>
-                      <option value="id">По номеру</option>
-                    </select>
-                  </label>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={params.has("up")}
-                      onChange={(e) =>
-                        updateParam("up", e.target.checked ? "1" : "")
-                      }
-                    />
-                    Требует эскалации
-                  </label>
-                  {sources.length > 1 && (
-                    <label>
-                      <span className="sr-only">Источник</span>
-                      <select
-                        value={ns}
-                        onChange={(e) => go("/?ns=" + e.target.value)}
-                      >
-                        {sources.map((n) => (
-                          <option key={n} value={n}>
-                            {n === "demo"
-                              ? "Демо"
-                              : n === "original"
-                                ? "Оригинал"
-                                : "Рабочая копия"}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {["q", "service", "up"].some((k) => params.has(k)) && (
-                    <button
-                      tabIndex={0}
-                      type="button"
-                      className="link"
-                      onClick={() => go(link("/"))}
-                    >
-                      Сбросить фильтры
-                    </button>
-                  )}
-                </form>
-              )}
+            <LiveBoard
+              data={data}
+              params={params}
+              ns={ns}
+              now={tick}
+              zone={zone}
+              wall={wall}
+              online={connection === "На связи"}
+              sources={sources}
+              open={open}
+              setParam={updateParam}
+              switchSource={(source) => go("/?ns=" + encodeURIComponent(source))}
+            >
               {(data.quality.quarantined > 0 || data.quality.missing > 0) && (
                 <div className="warning notice">
                   Требуется сверка: {data.quality.quarantined} с конфликтами,{" "}
@@ -570,22 +515,7 @@ function App() {
                   ))}
                 </section>
               )}
-              <div className="board">
-                {groups.map((g) => (
-                  <IncidentLane
-                    key={g}
-                    g={g}
-                    bucket={data.groups[g]}
-                    now={tick}
-                    zone={zone}
-                    open={open}
-                    page={(offset) => updateParam(g, String(offset))}
-                    scope={ns + "?" + query}
-                    revision={data.revision}
-                  />
-                ))}
-              </div>
-            </>
+            </LiveBoard>
           ) : path.startsWith("/incident/") || path.startsWith("/itsm/") ? (
             extra?.incident &&
             extra.incident.id === decodeURIComponent(path.split("/")[2]) && (
@@ -808,10 +738,6 @@ function App() {
             </section>
           )}
         </main>
-        <footer>
-          Демонстрационный стенд команды Watermelon · Часовой пояс: {zone} · Не
-          является продуктивной системой МТС
-        </footer>
       </div>
     </MotionConfig>
   );

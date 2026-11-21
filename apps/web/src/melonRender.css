@@ -1,0 +1,32 @@
+.melon-scene {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  contain: layout paint;
+  isolation: isolate;
+}
+.melon-scene > .melon-scene__still,
+.melon-scene > .melon-scene__canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+.melon-scene > .melon-scene__still {
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+.melon-scene > .melon-scene__canvas {
+  opacity: 0;
+}
+.melon-scene[data-ready="true"] > .melon-scene__canvas {
+  opacity: 1;
+}
+.melon-scene[data-ready="true"] > .melon-scene__still {
+  visibility: hidden;
+}

@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import type { Incident, Group } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
@@ -96,14 +95,55 @@ function restoreSelection(key: string): Selection[] {
   return [];
 }
 
-function SeedRing() {
+function earliestDeadline(selected: Selection[], loaded?: Map<string, Incident>) {
+  let earliest: number | null = null;
+  for (const { id, incident } of selected) {
+    const row = loaded?.get(id) ?? incident;
+    if (!row) return null;
+    if (!row.dates.deadline) continue;
+    const time = Date.parse(row.dates.deadline);
+    if (earliest === null || time < earliest) earliest = time;
+  }
+  return earliest;
+}
+
+function SeedTray({ count }: { count: number }) {
   return (
-    <div className="wq-seed-ring" aria-hidden="true">
-      {Array.from({ length: 18 }, (_, n) => (
-        <i key={n} style={{ "--i": n } as CSSProperties} />
-      ))}
-      <span />
+    <div className="wq-tray" aria-hidden="true">
+      <div className="wq-slice">
+        {Array.from({ length: contextLimit }, (_, index) => (
+          <i key={index} className="wq-slot" data-filled={index < count} />
+        ))}
+      </div>
     </div>
+  );
+}
+
+function transferSeed(
+  from: HTMLElement,
+  to: HTMLElement | null,
+  seed: HTMLElement | null,
+) {
+  if (!seed || !to || matchMedia("(prefers-reduced-motion: reduce)").matches)
+    return;
+  const start = from.getBoundingClientRect();
+  const end = to.getBoundingClientRect();
+  if (!end.width || end.top < 0 || end.bottom > window.innerHeight) return;
+  const x = start.left + start.width / 2 - 4;
+  const y = start.top + start.height / 2 - 7;
+  const dx = end.left + end.width / 2 - 4 - x;
+  const dy = end.top + end.height / 2 - 7 - y;
+  const position = (ratio: number, lift: number, angle: number, scale: number) =>
+    `translate(${x + dx * ratio}px, ${y + dy * ratio + lift}px) rotate(${angle}deg) scale(${scale})`;
+  seed.getAnimations().forEach((flight) => flight.cancel());
+  seed.animate(
+    [
+      { transform: position(0, 0, -32, 0.7), opacity: 0 },
+      { transform: position(0.12, -24, -8, 1.2), opacity: 1, offset: 0.14 },
+      { transform: position(0.66, -32, 55, 1), opacity: 1, offset: 0.55 },
+      { transform: position(1, 0, 18, 0.75), opacity: 0 },
+    ],
+    { duration: 510, easing: "cubic-bezier(.2,.65,.25,1)" },
   );
 }
 
@@ -260,6 +300,21 @@ function WorkspaceScreen({
     [zone],
   );
   const selectedIds = useMemo(() => selected.map((s) => s.id), [selected]);
+  const nextDeadline = earliestDeadline(selected, queue?.items);
+  const tray = useRef<HTMLDivElement>(null);
+  const flight = useRef<HTMLSpanElement>(null);
+  const shortcut = useRef<HTMLAnchorElement>(null);
+  const contextPanel = useRef<HTMLElement>(null);
+  const [inContext, setInContext] = useState(false);
+  useEffect(() => {
+    if (!contextPanel.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setInContext(entry.isIntersecting),
+      { rootMargin: "0px 0px -20% 0px" },
+    );
+    observer.observe(contextPanel.current);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     try {
       sessionStorage.setItem(storageKey, JSON.stringify(selectedIds));
@@ -348,7 +403,15 @@ function WorkspaceScreen({
   } | null>(null);
   const signature = JSON.stringify([selectedIds, question.trim()]);
   const currentAnswer = answer?.signature === signature ? answer : null;
-  const toggle = (incident: Incident) => {
+  const toggle = (incident: Incident, checkbox: HTMLInputElement) => {
+    if (checkbox.checked && selectedIds.length < contextLimit) {
+      const target = matchMedia("(max-width: 820px)").matches
+        ? shortcut.current
+        : tray.current?.querySelector<HTMLElement>(
+            '.wq-slot[data-filled="false"]',
+          );
+      transferSeed(checkbox, target ?? null, flight.current);
+    }
     setSelected((current) =>
       current.some((s) => s.id === incident.id)
         ? current.filter((s) => s.id !== incident.id)
@@ -378,15 +441,34 @@ function WorkspaceScreen({
 
   return (
     <div className="wq">
+      <span className="wq-flight" aria-hidden="true" ref={flight} />
       <header className="wq-intro">
-        <div>
-          <h1>Рабочая очередь</h1>
-          <p>Выберите инциденты для совместного разбора.</p>
-        </div>
-        <a href="#workspace-context" className="wq-jump">
-          К контексту <span>{selected.length}</span> <Arrow direction="down" />
-        </a>
+        <h1>Рабочая очередь</h1>
+        {listReady && queue.page.acceptedAt && (
+          <time
+            className="wq-snapshot"
+            dateTime={queue.page.acceptedAt}
+            title={"Время принятия среза · " + zone}
+          >
+            Срез {date.format(new Date(queue.page.acceptedAt))} ·{" "}
+            {zone === "Europe/Moscow" ? "МСК" : zone}
+          </time>
+        )}
       </header>
+      <a
+        ref={shortcut}
+        href={inContext ? "#workspace-incidents" : "#workspace-context"}
+        className="wq-jump"
+        aria-label={
+          inContext
+            ? "К списку инцидентов"
+            : "К контексту, выбрано " + selectedIds.length
+        }
+      >
+        {inContext ? "К очереди" : "К контексту"}{" "}
+        <span>{selectedIds.length} / {contextLimit}</span>
+        <Arrow direction={inContext ? "up" : "down"} />
+      </a>
       <div className="wq-layout">
         <section
           className="wq-list"
@@ -399,15 +481,6 @@ function WorkspaceScreen({
               <h2>Инциденты</h2>
               {listReady && (
                 <span className="wq-count">{queue.page.unique}</span>
-              )}
-              {listReady && queue.page.acceptedAt && (
-                <time
-                  className="wq-snapshot"
-                  dateTime={queue.page.acceptedAt}
-                  title={"Время принятия среза · " + zone}
-                >
-                  Срез {date.format(new Date(queue.page.acceptedAt))}
-                </time>
               )}
             </div>
             <label className="wq-search">
@@ -482,7 +555,7 @@ function WorkspaceScreen({
             </p>
           )}
           {[...buckets].map(([name, tickets]) => (
-            <div key={name} className="wq-bucket">
+            <div key={grouping + name} className="wq-bucket">
               {name && <h3>{name}</h3>}
               <ul>
                 {tickets.map((ticket) => {
@@ -499,7 +572,7 @@ function WorkspaceScreen({
                           !selected && selectedIds.length >= contextLimit
                         }
                         aria-label={"Выбрать " + ticket.id}
-                        onChange={() => toggle(ticket)}
+                        onChange={(event) => toggle(ticket, event.currentTarget)}
                       />
                       <div className="wq-row-body">
                         <div className="wq-row-meta">
@@ -583,6 +656,7 @@ function WorkspaceScreen({
           )}
         </section>
         <aside
+          ref={contextPanel}
           className="wq-context"
           id="workspace-context"
           aria-labelledby="workspace-context-heading"
@@ -591,12 +665,25 @@ function WorkspaceScreen({
           <div className="wq-context-heading">
             <h2 id="workspace-context-heading">Контекст разбора</h2>
             <span
+              role="status"
               aria-label={"Выбрано " + selected.length + " из " + contextLimit}
             >
               {selected.length} / {contextLimit}
             </span>
           </div>
-          {selected.length ? (
+          <div className="wq-tray-area" ref={tray}>
+            <SeedTray count={selected.length} />
+            {!selected.length && <p>Отметьте инциденты в очереди.</p>}
+            {nextDeadline !== null && (
+              <p className="wq-next-deadline">
+                Самый ранний срок
+                <time dateTime={new Date(nextDeadline).toISOString()}>
+                  {date.format(nextDeadline)}
+                </time>
+              </p>
+            )}
+          </div>
+          {selected.length > 0 && (
             <ul className="wq-selected-list">
               {selected.map((item) => (
                 <SelectedTicket
@@ -613,15 +700,6 @@ function WorkspaceScreen({
                 />
               ))}
             </ul>
-          ) : (
-            <div className="wq-context-empty">
-              <SeedRing />
-              <h3>Выберите инциденты</h3>
-              <p>
-                Отметьте в очереди до шести карточек, которые хотите разобрать
-                вместе.
-              </p>
-            </div>
           )}
           <form
             className="wq-question"
@@ -631,13 +709,6 @@ function WorkspaceScreen({
             }}
           >
             <label htmlFor="workspace-question">Вопрос по выборке</label>
-            <textarea
-              id="workspace-question"
-              maxLength={500}
-              rows={3}
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-            />
             <div
               className="wq-prompts"
               role="group"
@@ -654,6 +725,13 @@ function WorkspaceScreen({
                 </button>
               ))}
             </div>
+            <textarea
+              id="workspace-question"
+              maxLength={500}
+              rows={2}
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+            />
             <button
               className="wq-submit"
               type="submit"
@@ -721,9 +799,6 @@ function WorkspaceScreen({
               })}
             </section>
           )}
-          <a href="#workspace-incidents" className="wq-jump wq-return">
-            К списку инцидентов <Arrow />
-          </a>
         </aside>
       </div>
     </div>
