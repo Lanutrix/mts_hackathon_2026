@@ -1,8 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Group, Incident } from "../../../packages/domain/index.ts";
 import Loader from "./Loader";
 import MelonScene from "./MelonScene";
+import TriageCases, { caseRequest } from "./TriageCases";
+import type { TriageCase, Triage } from "../../../packages/domain/triage";
+import "./triage.css";
 import {
   duration,
   groups,
@@ -19,6 +29,13 @@ const label: Record<Signal, string> = {
   high: "Высокие",
   research: "Исследование",
 };
+const shortLabel: Record<Signal, string> = {
+  all: "Все",
+  critical: "Критич.",
+  coordinators: "Коорд.",
+  high: "Высокие",
+  research: "Исслед.",
+};
 const reasons: Record<Group, string> = {
   critical: "Критический",
   coordinators: "У координаторов",
@@ -31,7 +48,6 @@ const descriptions: Record<Group, string> = {
   high: "Активный инцидент высокого приоритета",
   research: "Уточняются причины инцидента",
 };
-const pageSize = 12;
 const signals: Signal[] = ["all", ...groups];
 const seedPath =
   "M14.8 2.7c.1 3.5-.2 9.1-3.6 12.1-1.8 1.6-4.6 1.4-6-.6-1.4-2.1-.7-4.8 1.4-6.4 2.9-2.3 5.4-3.5 8.2-5.1Z";
@@ -205,9 +221,12 @@ function SearchFilters({
           <label>
             Сортировка
             <select
-              value={params.get("sort") || "deadline"}
+              value={
+                params.get("sort") || (params.has("case") ? "" : "deadline")
+              }
               onChange={(e) => setParam("sort", e.target.value)}
             >
+              {params.has("case") && <option value="">По срочности</option>}
               <option value="deadline">По сроку</option>
               <option value="registered">По регистрации</option>
               <option value="id">По номеру</option>
@@ -255,7 +274,9 @@ function SearchFilters({
   );
 }
 type Props = SelectionProps & {
-  data: Dashboard;
+  data: Dashboard & { triage: Triage };
+  csrf?: string;
+  canAnalyze: boolean;
   filtering: boolean;
   now: number;
   zone: string;
@@ -267,6 +288,8 @@ type Props = SelectionProps & {
 export default function LiveBoard({
   data,
   filtering,
+  csrf,
+  canAnalyze,
   now,
   zone,
   wall,
@@ -275,18 +298,25 @@ export default function LiveBoard({
   children,
   ...search
 }: Props) {
-  const [signal, setSignal] = useState<Signal>("all");
+  const requested = search.params.get("signal") as Signal | null;
+  const signal = requested && signals.includes(requested) ? requested : "all";
+  const setSignal = (next: Signal) =>
+    search.setParam("signal", next === "all" ? "" : next);
+  const triage = data.triage;
+  const chosen = triage.cases.find(
+    (item) => item.id === search.params.get("case"),
+  );
+  const lead = chosen?.lead ?? triage.tracking ?? triage.cases[0]?.lead;
+  const group =
+    lead &&
+    (signal !== "all" && lead.groups.includes(signal)
+      ? signal
+      : lead.groups[0]);
+  const tracking =
+    !filtering && lead && group
+      ? { id: lead.id, group, header: lead.header, revision: lead.revision }
+      : null;
   const amount = signal === "all" ? data.unique : data.groups[signal].count;
-  const focus = signal === "all" ? null : data.groups[signal].items[0];
-  const context =
-    signal === "all"
-      ? "в поле внимания"
-      : {
-          critical: "критических",
-          coordinators: "у координаторов",
-          high: "высокого приоритета",
-          research: "на исследовании",
-        }[signal];
   const time = new Intl.DateTimeFormat("ru-RU", {
     timeZone: zone,
     hour: "2-digit",
@@ -294,47 +324,45 @@ export default function LiveBoard({
   }).format(now);
   return (
     <section className="broadcast" aria-labelledby="shift-name">
-      <div className="shift-stage">
-        <div className="shift-type">
-          <h1 id="shift-name">Эфир смены</h1>
-          <div className="shift-metric">
-            <Count value={amount} />
-            <div>
-              <span>{context}</span>
-              <small>из {data.total.toLocaleString("ru-RU")} в источнике</small>
-            </div>
+      <header className="triage-header">
+        <div className="triage-headline">
+          <div className="triage-clock">
+            <i data-online={online} />
+            {time} {zone === "UTC" ? "UTC" : "МСК"}
           </div>
-          {!filtering && focus && (
-            <button
-              className="shift-focus"
-              onClick={() => open(focus.id)}
-              title={String(focus.raw.header || focus.id)}
-            >
-              <span>{focus.id}</span>
-              <strong>{String(focus.raw.header || "Без заголовка")}</strong>
-              <span aria-hidden="true">↗</span>
-            </button>
-          )}
+          <h1 id="shift-name">Эфир смены</h1>
         </div>
-        <div className="shift-object">
+        <dl className="triage-indices">
+          <div className="triage-total">
+            <dt>В поле внимания</dt>
+            <dd>
+              <Count value={amount} />
+            </dd>
+          </div>
+          <div>
+            <dt>Срок прошёл</dt>
+            <dd className={triage.overdue ? "past-due" : ""}>
+              {triage.overdue}
+            </dd>
+          </div>
+          <div>
+            <dt>К эскалации</dt>
+            <dd>{triage.escalations}</dd>
+          </div>
+        </dl>
+        <div className="triage-object">
           <MelonScene
             active={signal}
             counts={Object.fromEntries(
-              groups.map((group) => [group, data.groups[group].count]),
+              groups.map((g) => [g, data.groups[g].count]),
             )}
             unique={data.unique}
             showMeters={false}
             onGroupSelect={setSignal}
+            tracking={tracking}
           />
         </div>
-        <div
-          className="shift-clock"
-          title={online ? "На связи" : "Состояние соединения"}
-        >
-          <span className={online ? "online" : ""} />
-          {time} {zone === "UTC" ? "UTC" : "МСК"}
-        </div>
-      </div>
+      </header>
       <div className="feed-tools">
         <div
           className="signal-tabs"
@@ -353,6 +381,7 @@ export default function LiveBoard({
             >
               <SignalMark signal={g} />
               <span className="signal-long">{label[g]}</span>
+              <span className="signal-short">{shortLabel[g]}</span>
               {g !== "all" && (
                 <>
                   <small data-testid={"count-" + g}>
@@ -381,27 +410,46 @@ export default function LiveBoard({
         </div>
         {!wall && <SearchFilters {...search} />}
       </div>
-      {children}
-      {filtering ? (
-        <Loader label="Поиск инцидентов…" stage />
-      ) : (
-        <Ledger
-          key={search.ns + "?" + search.params.toString() + "/" + signal}
-          data={data}
-          signal={signal}
-          sort={search.params.get("sort") || "deadline"}
+      <div className="triage-layout">
+        <TriageCases
+          cases={triage.cases}
+          chosen={chosen}
+          dimension={triage.groupBy}
+          amount={amount}
+          revision={data.revision}
           query={search.params.toString()}
-          now={now}
-          zone={zone}
+          ns={search.ns}
+          csrf={csrf}
+          canAnalyze={canAnalyze}
           open={open}
+          setParam={search.setParam}
         />
-      )}
+        <section className="triage-register" aria-label="Тикеты в эфире">
+          {filtering ? (
+            <Loader label="Поиск инцидентов…" stage />
+          ) : (
+            <Ledger
+              key={search.ns + "?" + search.params.toString()}
+              data={data}
+              signal={signal}
+              chosen={chosen}
+              sort={search.params.get("sort") || "deadline"}
+              query={search.params.toString()}
+              now={now}
+              zone={zone}
+              open={open}
+            />
+          )}
+        </section>
+      </div>
+      {children}
     </section>
   );
 }
 function Ledger({
   data,
   signal,
+  chosen,
   sort,
   query,
   now,
@@ -410,12 +458,73 @@ function Ledger({
 }: {
   data: Dashboard;
   signal: Signal;
+  chosen?: TriageCase;
   sort: string;
   query: string;
   now: number;
   zone: string;
   open: (id: string) => void;
 }) {
+  const register = useRef<HTMLDivElement>(null);
+  const [pageSize, setPageSize] = useState(4);
+  useLayoutEffect(() => {
+    const el = register.current;
+    if (!el) return;
+    const media = matchMedia("(max-width: 740px)");
+    let lastGeometry = "";
+    const fit = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const reserved = media.matches ? 57 : 91;
+      const rowHeight = media.matches
+        ? 86
+        : window.innerWidth <= 950
+          ? 104
+          : 73;
+      const geometry = [
+        Math.round(top),
+        window.innerWidth,
+        window.innerHeight,
+      ].join("/");
+      if (geometry === lastGeometry) return;
+      lastGeometry = geometry;
+      const capacity = Math.max(
+        1,
+        Math.min(
+          8,
+          Math.floor((window.innerHeight - top - reserved) / rowHeight),
+        ),
+      );
+      setPageSize(capacity);
+    };
+    const trim = () => {
+      const rows = Array.from(el.querySelectorAll("tbody tr"));
+      const clipped = rows.findIndex(
+        (row) =>
+          row.getBoundingClientRect().bottom + window.scrollY >
+          window.innerHeight - 4,
+      );
+      if (clipped > 0) setPageSize((size) => Math.min(size, clipped));
+    };
+    const tableObserver = new ResizeObserver(trim);
+    const table = el.querySelector("table");
+    if (table) tableObserver.observe(table);
+    fit();
+    const observer = new ResizeObserver(fit);
+    for (const node of document.querySelectorAll(
+      ".ops-header,.incident-notice,.triage-header,.feed-tools,.case-lens,.role-nav",
+    ))
+      observer.observe(node);
+    const alerts = new MutationObserver(fit);
+    const shell = el.closest(".ops-shell");
+    if (shell) alerts.observe(shell, { childList: true });
+    window.addEventListener("resize", fit);
+    return () => {
+      tableObserver.disconnect();
+      observer.disconnect();
+      alerts.disconnect();
+      window.removeEventListener("resize", fit);
+    };
+  }, []);
   const [page, setPage] = useState(0),
     [extra, setExtra] = useState<{ rev: number; pages: Dashboard[] }>({
       rev: data.revision,
@@ -424,10 +533,40 @@ function Ledger({
   const [error, setError] = useState(""),
     [retry, setRetry] = useState(0);
   const reduced = useReducedMotion();
-  const total = signal === "all" ? data.unique : data.groups[signal].count;
+  const total =
+    chosen?.count ??
+    (signal === "all" ? data.unique : data.groups[signal].count);
   const current = Math.min(page, Math.max(0, Math.ceil(total / pageSize) - 1)),
     target = Math.min((current + 1) * pageSize, total);
-  const records = useMemo(
+  const [casePage, setCasePage] = useState<{
+    request: string;
+    items: Incident[];
+  } | null>(null);
+  const scoped = chosen
+    ? caseRequest(chosen, query, data.namespace, data.revision) +
+      "&offset=" +
+      current * pageSize +
+      "&limit=" +
+      pageSize
+    : "";
+  useEffect(() => {
+    if (!scoped) return;
+    const ac = new AbortController();
+    setError("");
+    void fetch(scoped, { signal: ac.signal })
+      .then(async (r) => {
+        const body = await r.json();
+        if (!r.ok)
+          throw new Error(body.message || "Не удалось загрузить тикеты кейса.");
+        if (!ac.signal.aborted)
+          setCasePage({ request: scoped, items: body.items });
+      })
+      .catch((e) => {
+        if (!ac.signal.aborted) setError(e.message);
+      });
+    return () => ac.abort();
+  }, [scoped, retry]);
+  const allRecords = useMemo(
     () =>
       mergeStreams(
         data,
@@ -439,9 +578,16 @@ function Ledger({
     [data, extra, signal, sort, target],
   );
   const depth = extra.rev === data.revision ? extra.pages.length : 0,
-    loading = records.length < target;
+    loading = chosen
+      ? casePage?.request !== scoped
+      : allRecords.length < target;
+  const records = chosen
+    ? casePage?.request === scoped
+      ? casePage.items
+      : []
+    : allRecords;
   useEffect(() => {
-    if (!loading) return;
+    if (!loading || scoped) return;
     const ctl = new AbortController(),
       rev = data.revision,
       next = new URLSearchParams(query);
@@ -464,7 +610,7 @@ function Ledger({
         if (!ctl.signal.aborted) setError(e.message);
       });
     return () => ctl.abort();
-  }, [loading, data.revision, data.namespace, depth, query, retry]);
+  }, [loading, scoped, data.revision, data.namespace, depth, query, retry]);
   const timeFormat = useMemo(
     () =>
       new Intl.DateTimeFormat("ru-RU", {
@@ -499,12 +645,12 @@ function Ledger({
     const timer = setTimeout(() => setFresh([]), 4000);
     return () => clearTimeout(timer);
   }, [fresh]);
-  const visible = records.slice(current * pageSize, target);
-  const register = useRef<HTMLDivElement>(null);
+  const visible = chosen
+    ? records.slice(0, pageSize)
+    : records.slice(current * pageSize, target);
   function turnPage(next: number) {
     setPage(next);
     register.current?.focus({ preventScroll: true });
-    register.current?.scrollIntoView({ block: "start" });
   }
   return (
     <div
@@ -514,6 +660,33 @@ function Ledger({
       aria-busy={loading && !error}
       data-testid="live-register"
     >
+      <div className="triage-ledger-title">
+        <div>
+          <h2>Тикеты</h2>
+          {chosen && <small>{chosen.label}</small>}
+        </div>
+        {total > 0 && (
+          <nav className="feed-pages" aria-label="Страницы инцидентов">
+            <span>
+              {current * pageSize + 1}–{target} из {total}
+            </span>
+            <button
+              aria-label="Предыдущая страница"
+              disabled={!current}
+              onClick={() => turnPage(current - 1)}
+            >
+              ←
+            </button>
+            <button
+              aria-label="Следующая страница"
+              disabled={target >= total || loading}
+              onClick={() => turnPage(current + 1)}
+            >
+              →
+            </button>
+          </nav>
+        )}
+      </div>
       <table className="feed-table">
         <caption className="sr-only">Инциденты в эфире</caption>
         <thead>
@@ -606,27 +779,6 @@ function Ledger({
       ) : total === 0 ? (
         <p className="feed-empty">Инцидентов по этому фильтру нет.</p>
       ) : null}
-      {total > pageSize && (
-        <nav className="feed-pages" aria-label="Страницы инцидентов">
-          <span>
-            {current * pageSize + 1}–{target} из {total}
-          </span>
-          <button
-            aria-label="Предыдущая страница"
-            disabled={!current}
-            onClick={() => turnPage(current - 1)}
-          >
-            ←
-          </button>
-          <button
-            aria-label="Следующая страница"
-            disabled={target === total || loading}
-            onClick={() => turnPage(current + 1)}
-          >
-            →
-          </button>
-        </nav>
-      )}
     </div>
   );
 }

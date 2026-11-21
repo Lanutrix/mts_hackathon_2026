@@ -1,6 +1,7 @@
 import { Worker } from "node:worker_threads";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { hash, type Incident } from "../../packages/domain/index.ts";
 import type { DB } from "./db.ts";
 export const MODEL =
@@ -40,7 +41,7 @@ export class AnalysisService {
     public timeout = 60_000,
     private runner?: Runner,
   ) {}
-  async run(sentences: string[], query: string) {
+  async run(sentences: string[], query: string, localFilesOnly = false) {
     if (this.runner) return this.runner(sentences, query);
     // On the VDS, loading a new ONNX session killed the web process in
     // both a 430 MiB and a 466 MiB cgroup. Keep serving the dashboard
@@ -85,9 +86,56 @@ export class AnalysisService {
         };
         w.once("message", onMessage);
         w.once("error", onError);
-        w.postMessage({ sentences, query });
+        w.postMessage({ sentences, query, localFilesOnly });
       },
     );
+  }
+  // Public case requests may reuse installed weights. They never download a
+  // model on demand, persist incident text, or interrupt an existing job.
+  async rankCase(sentences: string[], query: string): Promise<number[] | null> {
+    if (this.busy || !sentences.length) return null;
+    const directory = resolve(
+      this.cacheDir,
+      "Xenova/multilingual-e5-small/761b726dd34fb83930e26aab4e9ac3899aa1fa78",
+    );
+    if (
+      !this.runner &&
+      ![
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "onnx/model_quantized.onnx",
+      ].every((name) => existsSync(resolve(directory, name)))
+    )
+      return null;
+    this.busy = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        this.run(sentences, query, true),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("timeout")),
+            this.timeout + 100,
+          );
+        }),
+      ]);
+      const indices = result.indices;
+      return result.dimensions === 384 &&
+        Array.isArray(indices) &&
+        indices.length &&
+        indices.length <= 2 &&
+        indices.every(
+          (i) => Number.isInteger(i) && i >= 0 && i < sentences.length,
+        )
+        ? [...new Set(indices)]
+        : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+      this.busy = false;
+    }
   }
   async analyze(
     incident: Incident,

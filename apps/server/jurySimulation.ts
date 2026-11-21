@@ -59,6 +59,107 @@ const defaultDelays = [5_000, 9_000, 10_000, 9_000, 9_000] as const;
 const maxEvents = 24;
 const maxViewers = 80;
 
+// These six synthetic tickets stay unchanged throughout one rehearsal. They
+// enter through the same JSON export as the moving ticket. The initial import
+// is a baseline, so it does not emit notifications for pre-existing incidents.
+function backgroundTickets(identity: string, now: number): Raw[] {
+  const seeds = [
+    [
+      "AUTH-01",
+      "Личный кабинет",
+      "Ошибки авторизации",
+      "При вводе верного пароля форма входа снова запрашивает пароль.",
+      "Команда идентификации",
+      4,
+      -8,
+      true,
+      2,
+    ],
+    [
+      "AUTH-02",
+      "Мобильное приложение",
+      "Ошибка входа в приложение",
+      "Вход по коду возвращает ошибку при обмене токена.",
+      "Мобильная платформа",
+      3,
+      12,
+      false,
+      2,
+    ],
+    [
+      "AUTH-03",
+      "Личный кабинет",
+      "Не удаётся войти в кабинет",
+      "После подтверждения кода клиент снова видит экран входа.",
+      "Команда идентификации",
+      3,
+      45,
+      null,
+      2,
+    ],
+    [
+      "NET-01",
+      "Домашний интернет",
+      "Рост времени ответа",
+      "Замеры из двух точек показывают задержку ответа узла доступа.",
+      "Транспортная сеть",
+      3,
+      9,
+      true,
+      2,
+    ],
+    [
+      "NET-02",
+      "Домашний интернет",
+      "Задержка ответа узла",
+      "Во время проверки узел доступа отвечал медленнее обычного.",
+      "Транспортная сеть",
+      2,
+      null,
+      false,
+      20,
+    ],
+    [
+      "PAY-01",
+      "Платёжный шлюз",
+      "Ошибка при оплате",
+      "При подтверждении оплаты шлюз возвращает отказ. Идентификаторы операций переданы на проверку.",
+      "Сопровождение платежей",
+      3,
+      55,
+      false,
+      0,
+    ],
+  ] as const;
+  return seeds.map(
+    (
+      [id, product, header, description, team, priority, minutes, up, state],
+      index,
+    ) => ({
+      ...Object.fromEntries(FIELDS.map((field) => [field, null])),
+      sysId: identity + "-bg-" + id,
+      id: "SIM-" + id,
+      productName: product,
+      header,
+      description,
+      assignedGroupName: team,
+      stateId: state,
+      stateEnum: STATES[state].enum,
+      state: STATES[state].label,
+      priorityId: priority,
+      priority: PRIORITIES[priority],
+      isNeedUp: up,
+      serviceTypeId: index < 3 ? 2 : 1,
+      serviceType: index < 3 ? "Клиентский" : "Технический",
+      submitDate: new Date(now - (62 - index) * 60_000).toISOString(),
+      deadline:
+        minutes === null
+          ? null
+          : new Date(now + minutes * 60_000).toISOString(),
+    }),
+  );
+}
+
 // The synthetic exporter changes only raw ITSM fields. It has no access to the
 // observer's normalized incidents, group membership or notification journal.
 function sourceRow(
@@ -174,6 +275,7 @@ function accept(
   revision: number,
   step: number,
   stepDelay: number,
+  currentId: string,
 ) {
   const now = Date.now();
   const time = new Date(now).toISOString();
@@ -205,14 +307,14 @@ function accept(
       after_doc: incident,
     };
     versions.set(incident.key, [entry, ...history].slice(0, 50));
-    if (reasons.length) {
+    if (previous && reasons.length) {
       events = [
         { ...forViewer(incident), reasons, revision, at: time },
         ...events,
       ].slice(0, maxEvents);
     }
   }
-  const active = rows.get(candidates.at(-1)!.key)!;
+  const active = [...rows.values()].find((r) => r.id === currentId)!;
   const nextAt = new Date(now + stepDelay).toISOString();
   const snapshot: JurySnapshot = {
     runId,
@@ -277,6 +379,7 @@ async function runSimulation(
   const delays = options.stepDelays ?? defaultDelays;
   const runId = randomUUID();
   const records: Raw[] = [];
+  const background = backgroundTickets(runId, Date.now());
   let previous: Accepted | undefined;
   try {
     for (let revision = 1; !signal.aborted; revision++) {
@@ -292,12 +395,20 @@ async function runSimulation(
       if (step === 0) records.push(raw);
       else records[records.length - 1] = raw;
       if (records.length > maxTickets) records.shift();
-      await atomicWrite(file, JSON.stringify(records));
+      await atomicWrite(file, JSON.stringify([...records, ...background]));
       const { rows } = parseSnapshot(
         await readFile(file, "utf8"),
         "simulation",
       );
-      const view = accept(previous, rows, runId, revision, step, delays[step]);
+      const view = accept(
+        previous,
+        rows,
+        runId,
+        revision,
+        step,
+        delays[step],
+        String(raw.id),
+      );
       previous = view;
       if (signal.aborted) break;
       publish(view);
@@ -535,5 +646,5 @@ export function registerJurySimulation(
     endViewers();
     await current?.done;
   });
-  return { read, stream };
+  return { read, stream, latest: () => latest };
 }

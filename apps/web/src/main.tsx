@@ -157,6 +157,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
   const link = (to: string) => screenLink(to, ns);
   const detailKey = path + route.search;
   const [user, setUser] = useState<User | null>(null),
+    [publicDemo, setPublicDemo] = useState(false),
     [sources, setSources] = useState<string[]>(["demo"]),
     [ready, setReady] = useState(false),
     [data, setData] = useState<any>(null),
@@ -337,6 +338,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       .then((m) => {
         setUser(m.user);
         setSources(m.sources);
+        setPublicDemo(m.publicDemo === true);
         setReady(true);
       })
       .catch((e) => {
@@ -463,6 +465,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
   const updateParam = (key: string, value: string) => {
     const p = new URLSearchParams(query);
     value ? p.set(key, value) : p.delete(key);
+    if (["signal", "groupBy", "q", "service", "up"].includes(key)) p.delete("case");
     for (const g of groups) if (g !== key) p.delete(g);
     go(link(p.size ? path + "?" + p : path));
   };
@@ -621,6 +624,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                 });
                 const m = await api("/me");
                 setSources(m.sources);
+                setPublicDemo(m.publicDemo === true);
                 setUser(u);
                 go("/live");
               }}
@@ -665,6 +669,8 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
           ) : path === "/live" || wall ? (
             <LiveBoard
               data={data}
+              csrf={user?.csrf}
+              canAnalyze={!!write || (publicDemo && (ns === "demo" || training))}
               filtering={data.filterQuery !== query && !error}
               params={params}
               ns={ns}

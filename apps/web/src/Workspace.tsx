@@ -9,6 +9,8 @@ import type { Incident, Group } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
 import "./workspace.css";
 import MelonScene from "./MelonScene";
+import type { MelonTracking } from "./melonModel";
+import type { Triage } from "../../../packages/domain/triage";
 import Loader from "./Loader";
 import { screenLink } from "./routes";
 
@@ -38,6 +40,7 @@ type Dashboard = {
   revision: number;
   acceptedAt: string | null;
   unique: number;
+  triage?: Triage;
   groups: Record<Group, GroupPage>;
 };
 type Snapshot = {
@@ -323,16 +326,34 @@ function WorkspaceScreen({
   const modelData = useMemo(() => {
     if (!listReady) return null;
     const counts = { critical: 0, coordinators: 0, high: 0, research: 0 };
+    let tracking: MelonTracking | null = null;
     if (selected.length) {
       for (const choice of selected) {
         const ticket = queue.items.get(choice.id) ?? choice.incident;
         if (!ticket) return choice.unavailable ? "unavailable" : null;
         for (const group of ticket.groups) counts[group]++;
+        if (!tracking && ticket.groups.length) {
+          tracking = {
+            id: ticket.id,
+            header: String(ticket.raw.header || ticket.id),
+            group: ticket.groups[0],
+            revision: ticket.revision,
+          };
+        }
       }
     } else {
       for (const group of groups) counts[group] = queue.page.groups[group].count;
+      const lead = queue.page.triage?.tracking;
+      if (lead?.groups.length) {
+        tracking = {
+          id: lead.id,
+          header: lead.header,
+          group: lead.groups[0],
+          revision: lead.revision,
+        };
+      }
     }
-    return { counts, unique: selected.length || queue.page.unique };
+    return { counts, tracking, unique: selected.length || queue.page.unique };
   }, [listReady, queue, selected]);
   const nextDeadline = earliestDeadline(selected, queue?.items);
   const tray = useRef<HTMLDivElement>(null);
@@ -492,7 +513,7 @@ function WorkspaceScreen({
           {modelData === "unavailable" ? (
             <span className="wq-model-unavailable">Нет данных для среза</span>
           ) : modelData ? (
-            <MelonScene active="all" counts={modelData.counts} unique={modelData.unique} />
+            <MelonScene active="all" counts={modelData.counts} unique={modelData.unique} tracking={modelData.tracking} />
           ) : listError ? null : (
             <Loader label="Загрузка среза…" />
           )}

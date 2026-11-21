@@ -4,20 +4,24 @@ import {
   melonGroups,
   modelPoses,
   orbit,
+  pixels,
+  trackingAnchor,
   world,
   type Vec,
   type MelonFilter,
   type ModelState,
   type ObjectName,
 } from "./melonModel";
+import { glassHalfDepth, radii, sectionCuts } from "./melonRenderGeometry";
 import { webGLRenderer, type SceneFrame } from "./melonWebGL";
 export type { MelonFilter } from "./melonModel";
 
 type Events = {
   ready: (mode: "webgl" | "canvas" | "poster") => void;
   target: (name: ObjectName) => void;
-  select: (filter: MelonFilter) => void;
+  select?: (filter: MelonFilter) => void;
   paused: (value: boolean) => void;
+  track: (x: number, y: number) => void;
 };
 export function mountMelon(
   glCanvas: HTMLCanvasElement,
@@ -49,24 +53,26 @@ export function mountMelon(
     loads = groupLoads(model),
     focus = melonGroups.map((g) => Number(model.active === g));
   const occupied = melonGroups.map((g) => Number((model.counts?.[g] ?? 0) > 0));
-  const depths = hero ? [0.16, -0.12] : [0.16, -0.13, -0.425, -0.7, -0.984];
+  let anchor = trackingAnchor(hero, initial.tracking);
+  const depths = sectionCuts(hero);
   const samples: Vec[][] = scene.centers.map((_, i) =>
     [depths[i], depths[i + 1]].flatMap((z) =>
       Array.from(
         { length: 7 },
         (_, j) =>
           [
-            1.16 * Math.sqrt(1 - z * z) * Math.cos((j * Math.PI) / 6),
-            -1.08 * Math.sqrt(1 - z * z) * Math.sin((j * Math.PI) / 6),
-            1.82 * z,
+            radii[0] * Math.sqrt(1 - z * z) * Math.cos((j * Math.PI) / 6),
+            -radii[1] * Math.sqrt(1 - z * z) * Math.sin((j * Math.PI) / 6),
+            radii[2] * z,
           ] as Vec,
       ),
     ),
   );
   const framePoints: Vec[] = [];
-  for (const x of [-0.83, 0.83])
-    for (const y of [-0.9, 0.9])
-      for (const z of [-0.11, 0.11]) framePoints.push([x, y, z]);
+  for (const x of [-0.836, 0.836])
+    for (const y of [-0.906, 0.906])
+      for (const z of [-glassHalfDepth, glassHalfDepth])
+        framePoints.push([x, y, z]);
   let backingWidth = 1,
     backingHeight = 1,
     baseScale = 1;
@@ -122,17 +128,23 @@ export function mountMelon(
       points.forEach((p) => measure(world(p, poses.fruit[i]))),
     );
     framePoints.forEach((p) => measure(world(p, poses.frame)));
-    scene.resize(
-      backingWidth,
-      backingHeight,
-      Math.min(
-        baseScale,
-        (backingWidth * 0.485) / Math.max(0.1, reachX),
-        (backingHeight * 0.475) / Math.max(0.1, reachY),
-      ),
+    const scale = Math.min(
+      baseScale,
+      (backingWidth * 0.485) / Math.max(0.1, reachX),
+      (backingHeight * 0.475) / Math.max(0.1, reachY),
     );
+    scene.resize(backingWidth, backingHeight, scale);
     pickFrame = { ...poses, focus, loads, occupied };
     scene.draw(pickFrame);
+    if (anchor) {
+      const [x, y] = pixels(
+        world(anchor.point, poses.fruit[anchor.index]),
+        backingWidth,
+        backingHeight,
+        scale,
+      );
+      events.track((x / backingWidth) * width, (y / backingHeight) * height);
+    }
     if (first) {
       first = false;
       events.ready(hardware ? "webgl" : "canvas");
@@ -309,7 +321,7 @@ export function mountMelon(
       prev.hit <= 4
     ) {
       const g = melonGroups[prev.hit - 1];
-      events.select(g === model.active ? "all" : g);
+      events.select?.(g === model.active ? "all" : g);
     }
     schedule();
   }
@@ -317,6 +329,19 @@ export function mountMelon(
     const a = rotations[target],
       step = e.shiftKey ? 0.42 : 0.14;
     switch (e.key) {
+      case "1":
+        choose("fruit");
+        break;
+      case "2":
+        choose("frame");
+        break;
+      case "Enter": {
+        if (!events.select) return;
+        const index =
+          model.active === "all" ? -1 : melonGroups.indexOf(model.active);
+        if (!e.repeat) events.select(melonGroups[index + 1] ?? "all");
+        break;
+      }
       case "ArrowLeft":
         a.yaw -= step;
         break;
@@ -333,7 +358,7 @@ export function mountMelon(
         reset();
         break;
       case " ":
-        setPaused(!paused);
+        if (!e.repeat) setPaused(!paused);
         break;
       default:
         return;
@@ -365,13 +390,9 @@ export function mountMelon(
   return {
     select(data: ModelState) {
       model = data;
+      anchor = trackingAnchor(hero, data.tracking);
       schedule();
     },
-    target: choose,
-    toggle() {
-      setPaused(!paused);
-    },
-    reset,
     dispose() {
       disposed = true;
       cancelAnimationFrame(request);

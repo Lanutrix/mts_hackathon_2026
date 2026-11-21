@@ -1,4 +1,4 @@
-import { glassMesh, radii } from "./melonRenderGeometry";
+import { glassMesh, radii, sectionCuts } from "./melonRenderGeometry";
 import {
   groupColors,
   pixels,
@@ -78,7 +78,7 @@ function fleshTexture() {
   return sheet;
 }
 function fallbackMesh(hero: boolean) {
-  const cuts = hero ? [0.16, -0.12] : [0.16, -0.13, -0.425, -0.7, -0.984];
+  const cuts = sectionCuts(hero);
   const faces: Face[] = [];
   const centers: number[] = [];
   for (let index = 0; index < cuts.length - 1; index++) {

@@ -114,6 +114,54 @@
     }
   },
   "paths": {
+    "/api/public/focus": {
+      "get": {
+        "summary": "Один актуальный открытый сигнал из публичного демонстрационного источника",
+        "responses": {
+          "200": { "description": "tracking содержит id, header, revision и group или null" }
+        }
+      }
+    },
+    "/api/triage/{id}": {
+      "parameters": [
+        { "in":"path", "name":"id", "required":true, "schema":{"type":"string"} },
+        { "in":"query", "name":"revision", "required":true, "schema":{"type":"integer"} },
+        { "in":"query", "name":"hash", "required":true, "schema":{"type":"string"} }
+      ],
+      "get": {
+        "summary": "Страница заявок выбранного кейса и версии",
+        "description": "Повторите ns, groupBy, signal, q, service и up из запроса очереди.",
+        "parameters": [
+          {"in":"query","name":"offset","schema":{"type":"integer","minimum":0,"default":0}},
+          {"in":"query","name":"limit","schema":{"type":"integer","minimum":1,"maximum":100,"default":30}},
+          {"in":"query","name":"sort","schema":{"enum":["id","registered","deadline"]}}
+        ],
+        "responses": {
+          "200":{"description":"revision, hash, total, offset, items и nextOffset"},
+          "400":{"description":"Некорректные параметры запроса"},
+          "401":{"description":"Для закрытого источника требуется вход"},
+          "409":{"description":"Версия недоступна или хэш выборки не совпал"}
+        }
+      }
+    },
+    "/api/triage/{id}/analysis": {
+      "parameters": [
+        { "in":"path", "name":"id", "required":true, "schema":{"type":"string"} },
+        { "in":"query", "name":"revision", "required":true, "schema":{"type":"integer"} },
+        { "in":"query", "name":"hash", "required":true, "schema":{"type":"string"} }
+      ],
+      "post": {
+        "summary": "Локальный экстрактивный разбор кейса по запросу",
+        "description": "Фильтры и источник совпадают с запросом очереди. Публичный разбор разрешён для demo и simulation при включённой демонстрации. Остальные источники требуют роли координатора или demo-admin и CSRF.",
+        "responses": {
+          "200":{"description":"Режим, модель, текст, цитаты с ID и полем, ограничения, хэш и версия"},
+          "401":{"description":"Требуется вход"},
+          "403":{"description":"Недостаточно прав или неверный источник запроса"},
+          "409":{"description":"Версия недоступна или хэш выборки не совпал"},
+          "429":{"description":"Достигнут лимит разборов"}
+        }
+      }
+    },
     "/health/live": {
       "get": {
         "summary": "Liveness; не проверяет БД",
@@ -281,7 +329,7 @@
     },
     "/api/dashboard": {
       "get": {
-        "summary": "Согласованная revision: четыре группы по 30, count, unique, quality, notifications",
+        "summary": "Четыре исходные выборки, их объединение и triage по полной отфильтрованной очереди",
         "responses": {
           "200": {
             "description": "Успешный результат"
@@ -300,6 +348,8 @@
           }
         },
         "parameters": [
+          { "in":"query", "name":"groupBy", "schema":{"enum":["symptom","priority","product","team"],"default":"symptom"} },
+          { "in":"query", "name":"signal", "schema":{"enum":["all","critical","coordinators","high","research"],"default":"all"} },
           {
             "in": "query",
             "name": "ns",
@@ -308,7 +358,8 @@
               "enum": [
                 "demo",
                 "workspace",
-                "original"
+                "original",
+                "simulation"
               ],
               "default": "demo"
             }

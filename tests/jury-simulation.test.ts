@@ -205,8 +205,32 @@ test(
       assert.equal(a.namespace, "simulation");
       assert.equal(a.revision, 1);
       assert.equal(a.status.state, "live");
-      assert.equal(a.unique, 0);
-      assert.equal(a.total, 1);
+      assert.equal(a.unique, 6);
+      assert.equal(a.total, 7);
+      assert.equal(a.triage.overdue, 1);
+      assert.equal(a.triage.escalations, 2);
+      assert.deepEqual(
+        a.triage.cases.map((item: { count: number }) => item.count),
+        [3, 2, 1],
+      );
+      const firstCase = a.triage.cases[0];
+      const analysis = await app.inject({
+        method: "POST",
+        url:
+          "/api/triage/" +
+          firstCase.id +
+          "/analysis?ns=simulation&revision=" +
+          a.revision +
+          "&hash=" +
+          firstCase.hash,
+      });
+      assert.equal(analysis.statusCode, 200, analysis.body);
+      assert.equal(analysis.json().model, "TF-IDF · TextRank");
+      assert.ok(
+        analysis
+          .json()
+          .evidence.every((e: { id: string }) => e.id.startsWith("SIM-AUTH-")),
+      );
       assert.deepEqual((await read("me")).sources, ["simulation"]);
       assert.equal((await read("me")).user, null);
       assert.deepEqual(
@@ -227,7 +251,7 @@ test(
       assert.deepEqual(critical.events[0].reasons, ["critical"]);
       await stream.frame();
       const assigned = await read("dashboard");
-      assert.equal(assigned.unique, 1);
+      assert.equal(assigned.unique, 7);
       assert.equal(assigned.groups.coordinators.items[0].id, "SIM-001");
       assert.equal(
         (await read("dashboard?coordinators=1")).groups.coordinators.items
@@ -268,7 +292,7 @@ test(
         archived.history.map((h: any) => h.revision),
         [5, 4, 3, 2, 1],
       );
-      assert.equal((await read("export")).length, 2);
+      assert.equal((await read("export")).length, 8);
       const reconnected = await view(
         base + "/api/stream?ns=simulation&cursor=0",
       );

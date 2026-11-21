@@ -127,15 +127,16 @@ test("public landing shows only the hero and opens either screen", async ({
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
   await page.clock.fastForward(6000);
-  expect(apiCalls).toEqual([]);
+  expect(apiCalls.length).toBeGreaterThan(0);
+  expect(apiCalls.every((path) => path === "/api/public/focus")).toBe(true);
   await page.getByRole("link", { name: "Открыть эфир" }).click();
   await expect(page).toHaveURL("/live");
   await expect(page.getByTestId("live-register")).toBeVisible();
   await page.goBack();
   await expect(title).toBeVisible();
   apiCalls.length = 0;
-  await page.clock.fastForward(6000);
-  expect(apiCalls).toEqual([]);
+  await page.clock.fastForward(16000);
+  expect(apiCalls.every((path) => path === "/api/public/focus")).toBe(true);
   await page.getByRole("link", { name: "Рабочая очередь" }).click();
   await expect(page).toHaveURL("/workspace");
   await expect(page.getByRole("region", { name: "Инциденты" })).toBeVisible();
@@ -180,7 +181,10 @@ test("jury viewers receive the same observed events and dismiss them independent
     await expect(banner).toHaveCount(0);
     await expect(secondNotice).toBeVisible();
     await page.reload();
-    await expect(current).toContainText("SIM-001");
+    await expect(page.locator(".melon-tracker")).toHaveAttribute(
+      "data-ticket",
+      "SIM-001",
+    );
     await expect(banner).toHaveCount(0);
     await expect(banner).toContainText("Назначен группе координаторов", {
       timeout: 16000,
@@ -233,15 +237,14 @@ test("the 3D surface rotates the chosen object with reduced motion and follows i
   await page.goto("/live");
   const scene = page.locator(".melon-scene");
   await expect(scene).toHaveAttribute("data-mode", /^(webgl|canvas)$/);
-  await expect(
-    scene.getByRole("button", { name: "Включить движение" }),
-  ).toBeVisible();
+  await expect(scene.getByRole("button")).toHaveCount(0);
+  await expect(scene).toHaveAttribute("data-paused", "true");
   const surface = scene.locator(".melon-view");
-  for (const [label, target] of [
-    ["Вращать рамку", "frame"],
-    ["Вращать арбуз", "fruit"],
+  for (const [key, target] of [
+    ["2", "frame"],
+    ["1", "fruit"],
   ]) {
-    await scene.getByRole("button", { name: label, exact: true }).click();
+    await surface.press(key);
     await expect(scene).toHaveAttribute("data-object", target);
     await surface.press("Home");
     const before = await surface.screenshot();
@@ -253,8 +256,99 @@ test("the 3D surface rotates the chosen object with reduced motion and follows i
   await page.getByTestId("group-critical").click();
   await expect(scene).toHaveAttribute("data-active", "critical");
   await expect(scene).toHaveAccessibleName(/Критические/);
-  await page.locator(".shift-focus").click();
+  await expect(scene.locator(".melon-tracker")).toHaveAttribute(
+    "data-group",
+    "critical",
+  );
+  await page.locator(".case-insight .case-source").click();
   await expect(page.locator(".detail-guidance")).toBeVisible();
+});
+
+test("cases rank the filtered queue, explain the source tickets and fit the viewport", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto("/live");
+  const register = page.getByTestId("live-register"),
+    rows = register.locator("tbody tr");
+  const ids = () =>
+    rows.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-testid")),
+    );
+  await expect(rows.first()).toBeVisible();
+  for (const viewport of [
+    { width: 1366, height: 768 },
+    { width: 768, height: 820 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect
+      .poll(() =>
+        rows
+          .last()
+          .evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY),
+      )
+      .toBeLessThanOrEqual(viewport.height);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual(viewport.width);
+  }
+  const before = await ids();
+  await page
+    .getByRole("button", { name: "Следующая страница", exact: true })
+    .click();
+  await expect.poll(ids).not.toEqual(before);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  const dimension = page.getByLabel("Группировка кейсов"),
+    pick = page.getByLabel("Выбрать кейс");
+  for (const value of ["team", "product", "priority", "symptom"]) {
+    const load = page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/dashboard?") &&
+        new URL(r.url()).searchParams.get("groupBy") === value,
+    );
+    await dimension.selectOption(value);
+    await load;
+    await expect(dimension).toHaveValue(value);
+  }
+  await pick.selectOption({ index: 1 });
+  await expect(register.locator(".triage-ledger-title small")).toBeVisible();
+  const caseId = await pick.inputValue();
+  const board = await (
+    await page.request.get("/api/dashboard?ns=demo&groupBy=symptom")
+  ).json();
+  const c = board.triage.cases.find(
+    (record: { id: string }) => record.id === caseId,
+  );
+  const detail = await (
+    await page.request.get(
+      "/api/triage/" +
+        encodeURIComponent(c.id) +
+        "?ns=demo&revision=" +
+        board.revision +
+        "&hash=" +
+        c.hash +
+        "&limit=1",
+    )
+  ).json();
+  await expect(rows.first()).toHaveAttribute(
+    "data-testid",
+    "card-" + detail.items[0].id,
+  );
+  await expect(page.locator(".melon-tracker")).toHaveAttribute(
+    "data-ticket",
+    c.lead.id,
+  );
+  await page.goto("/simulation");
+  await expect(rows.first()).toBeVisible();
+  await page.locator(".case-analyze").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator(".case-result")).toBeVisible({ timeout: 25000 });
+  const evidence = dialog.locator(".case-evidence button").first();
+  await expect(evidence).toHaveText(/SIM-/);
+  await evidence.click();
+  await expect(page).toHaveURL(/\/simulation\/incident\/SIM-/);
 });
 
 test("search and ticket loading keep focus and remove their indicators when data arrives", async ({

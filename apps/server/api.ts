@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -22,6 +22,15 @@ import {
   type SimulationOptions,
 } from "./jurySimulation.ts";
 import type { AnalysisService } from "./analysis.ts";
+import { analyzeCase } from "./caseAnalysis.ts";
+import {
+  buildTriage,
+  filterDashboard,
+  grouping,
+  sortTickets,
+  urgent,
+  type CaseAnalysis,
+} from "../../packages/domain/triage.ts";
 export interface AppOptions {
   stores: Map<string, Store>;
   sources: Map<string, FileSource>;
@@ -113,10 +122,77 @@ export async function createApp(o: AppOptions) {
   };
   const readStoreFor = async (req: any, reply: any) =>
     req.query?.ns === "simulation" ? jury.read(reply) : storeFor(req, reply);
+  type ReadStore = NonNullable<Awaited<ReturnType<typeof readStoreFor>>>;
+  type TriageSnapshot = {
+    revision: number;
+    rows: Map<string, Incident>;
+    run: string;
+  };
+  const snapshots = new Map<string, TriageSnapshot[]>();
+  // Pin at most two previous displayed snapshots per source, sharing immutable
+  // row objects with the store. Discard old runs on reset or simulation restart.
+  function remember(s: ReadStore) {
+    const run = "simulation" in s ? s.simulation.runId : "";
+    let previous = snapshots.get(s.namespace) ?? [];
+    if (
+      previous[0] &&
+      (previous[0].run !== run || previous[0].revision > s.revision)
+    )
+      previous = [];
+    if (previous[0]?.rows !== s.rows)
+      snapshots.set(s.namespace, [
+        { revision: s.revision, rows: s.rows, run },
+        ...previous.filter((p) => p.revision !== s.revision).slice(0, 2),
+      ]);
+  }
+  for (const s of o.stores.values())
+    s.on("reset", () => snapshots.delete(s.namespace));
+  function publicCase(req: FastifyRequest) {
+    const ns = (req.query as Record<string, string>).ns ?? "demo";
+    return (
+      o.publicDemo &&
+      (ns === "simulation" || ns === "demo") &&
+      req.method === "POST" &&
+      req.routeOptions.url === "/api/triage/:id/analysis"
+    );
+  }
+  async function readCase(req: FastifyRequest, reply: FastifyReply) {
+    const s = await readStoreFor(req, reply);
+    if (!s) return;
+    const q = req.query as Record<string, string>;
+    const id = (req.params as { id: string }).id;
+    const { groupBy, signal } = grouping(q);
+    if (!/^\d+$/.test(q.revision ?? "") || !/^[a-f0-9]{64}$/.test(q.hash ?? ""))
+      return void reply
+        .code(400)
+        .send({ message: "Для разбора укажите версию и хэш подборки." });
+    remember(s);
+    const version = snapshots
+      .get(s.namespace)!
+      .find((item) => item.revision === Number(q.revision));
+    if (version) {
+      const triage = buildTriage(
+        filterDashboard([...version.rows.values()], q),
+        groupBy,
+        version.revision,
+        Date.now(),
+        signal,
+      );
+      const detail = triage.cases.find((c) => c.id === id && c.hash === q.hash);
+      if (detail) return { s, detail, rows: triage.members.get(id)! };
+    }
+    reply
+      .code(409)
+      .send({
+        message: "Подборка изменилась. Откройте её из обновлённой очереди.",
+        revision: s.revision,
+      });
+  }
   const juryReadRoutes = new Set([
     "/api/me",
     "/api/health",
     "/api/dashboard",
+    "/api/triage/:id",
     "/api/incidents",
     "/api/incident/:id",
     "/api/notifications",
@@ -126,15 +202,18 @@ export async function createApp(o: AppOptions) {
   ]);
   app.addHook("onRequest", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
-    const ns = req.url.startsWith("/api/") ? (req.query as { ns?: unknown }).ns : undefined;
+    const ns = req.url.startsWith("/api/")
+      ? (req.query as { ns?: unknown }).ns
+      : undefined;
     if (ns !== undefined && typeof ns !== "string")
       return reply.code(400).send({ message: "Укажите один источник" });
     if (ns === "simulation") {
       if (!o.publicDemo)
         return reply.code(404).send({ message: "Учебный эфир отключён" });
       if (
-        !["GET", "HEAD"].includes(req.method) ||
-        !juryReadRoutes.has(req.routeOptions.url ?? "")
+        !publicCase(req) &&
+        (!["GET", "HEAD"].includes(req.method) ||
+          !juryReadRoutes.has(req.routeOptions.url ?? ""))
       )
         return reply
           .code(403)
@@ -151,7 +230,7 @@ export async function createApp(o: AppOptions) {
         reply.code(403).send({ message: "Межсайтовый запрос запрещён" });
         return;
       }
-      if (req.url.split("?")[0] !== "/api/login") {
+      if (req.url.split("?")[0] !== "/api/login" && !publicCase(req)) {
         const user = identity(req);
         if (!user) {
           reply.code(401).send({ message: "Требуется вход" });
@@ -261,6 +340,24 @@ export async function createApp(o: AppOptions) {
     reply.clearCookie("wm_session", { path: "/" });
     return { ok: true };
   });
+  app.get("/api/public/focus", async () => {
+    const s = o.publicDemo ? o.stores.get("demo") : null;
+    if (!s) return { tracking: null };
+    let lead: Incident | undefined;
+    for (const r of s.rows.values())
+      if (r.sourcePresent && r.groups.length && (!lead || urgent(r, lead) < 0))
+        lead = r;
+    return {
+      tracking: lead
+        ? {
+            id: lead.id,
+            header: String(lead.raw.header ?? ""),
+            revision: lead.revision,
+            group: lead.groups[0],
+          }
+        : null,
+    };
+  });
   app.get("/api/dashboard", async (req, reply) => {
     const s = await readStoreFor(req, reply);
     if (!s) return;
@@ -269,33 +366,10 @@ export async function createApp(o: AppOptions) {
     const revision = s.revision,
       acceptedAt = s.acceptedAt;
     let status = structuredClone(s.status);
-    const all = [...s.rows.values()],
-      search = (q.q ?? "").toLocaleLowerCase("ru").slice(0, 300);
-    const filtered = all.filter(
-      (r) =>
-        (!search ||
-          [
-            r.id,
-            r.raw.header,
-            r.raw.productName,
-            r.team,
-            r.raw.assignedEmployee,
-          ]
-            .join(" ")
-            .toLocaleLowerCase("ru")
-            .includes(search)) &&
-        (!q.service || String(r.raw.serviceTypeId) === q.service) &&
-        (!q.up || r.raw.isNeedUp === true),
-    );
-    filtered.sort((a, b) =>
-      q.sort === "registered"
-        ? String(b.dates.submitDate).localeCompare(String(a.dates.submitDate))
-        : q.sort === "id"
-          ? a.id.localeCompare(b.id)
-          : (Date.parse(a.dates.deadline ?? "") || Infinity) -
-              (Date.parse(b.dates.deadline ?? "") || Infinity) ||
-            a.id.localeCompare(b.id),
-    );
+    const all = [...s.rows.values()];
+    const filtered = sortTickets(filterDashboard(all, q), q.sort);
+    remember(s);
+    const { groupBy, signal } = grouping(q);
     const groups = Object.fromEntries(
       GROUPS.map((g) => {
         const rows = filtered.filter((r) => r.groups.includes(g));
@@ -312,6 +386,13 @@ export async function createApp(o: AppOptions) {
       }),
     );
     const relevant = filtered.filter((r) => r.groups.length);
+    const { members, ...triage } = buildTriage(
+      relevant,
+      groupBy,
+      revision,
+      now,
+      signal,
+    );
     let notifications: any[] = [];
     try {
       notifications = await s.notifications(
@@ -327,6 +408,13 @@ export async function createApp(o: AppOptions) {
           "База данных недоступна. Показан последний снимок; уведомления временно недоступны.",
       };
     }
+    const eligible = new Map<string, Incident>();
+    for (const tickets of members.values())
+      for (const ticket of tickets)
+        if (ticket.sourcePresent) eligible.set(ticket.id, ticket);
+    const tracking =
+      ("simulation" in s ? eligible.get(s.simulation.currentId) : undefined) ??
+      notifications.map((n) => eligible.get(n.id)).find(Boolean);
     return {
       revision,
       acceptedAt,
@@ -337,6 +425,17 @@ export async function createApp(o: AppOptions) {
       unique: new Set(relevant.map((r) => r.key)).size,
       total: all.length,
       groups,
+      triage: {
+        ...triage,
+        tracking: tracking
+          ? {
+              id: tracking.id,
+              header: String(tracking.raw.header ?? ""),
+              groups: tracking.groups,
+              revision: tracking.revision,
+            }
+          : (triage.cases[0]?.lead ?? null),
+      },
       quality: {
         quarantined: all.filter((r) => r.quarantined).length,
         warnings: all.filter((r) => r.issues.length).length,
@@ -352,6 +451,71 @@ export async function createApp(o: AppOptions) {
         .slice(0, 20),
     };
   });
+  app.get("/api/triage/:id", async (req, reply) => {
+    const selection = await readCase(req, reply);
+    if (!selection) return;
+    const { detail, rows } = selection;
+    const q = req.query as Record<string, string>;
+    if (q.sort) sortTickets(rows, q.sort);
+    const offset = Math.max(0, Math.floor(Number(q.offset) || 0));
+    const limit = Math.max(1, Math.min(100, Math.floor(Number(q.limit) || 30)));
+    return {
+      revision: detail.revision,
+      hash: detail.hash,
+      total: rows.length,
+      offset,
+      items: rows.slice(offset, offset + limit).map(summarize),
+      nextOffset: offset + limit < rows.length ? offset + limit : null,
+    };
+  });
+  const analyses = new Map<string, CaseAnalysis>();
+  app.post(
+    "/api/triage/:id/analysis",
+    { config: { rateLimit: { max: 12, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      if (
+        !publicCase(req) &&
+        !requireRole(req, reply, ["coordinator", "demo-admin"])
+      )
+        return;
+      const selection = await readCase(req, reply);
+      if (!selection) return;
+      const { s, detail, rows } = selection;
+      const key = s.namespace + "/" + detail.id + "/" + detail.hash;
+      let result = analyses.get(key);
+      if (!result) {
+        result = await analyzeCase(detail, rows, o.ai);
+        if (result.mode === "model") {
+          analyses.set(key, result);
+          if (analyses.size > 96)
+            analyses.delete(analyses.keys().next().value!);
+        }
+      }
+      const current = s.namespace === "simulation" ? jury.latest() : s;
+      let stale = !current;
+      if (
+        current &&
+        (current.revision !== detail.revision ||
+          ("simulation" in s &&
+            "simulation" in current &&
+            s.simulation.runId !== current.simulation.runId))
+      ) {
+        const q = req.query as Record<string, string>;
+        const { groupBy, signal } = grouping(q);
+        const live = buildTriage(
+          filterDashboard([...current.rows.values()], q),
+          groupBy,
+          current.revision,
+          Date.now(),
+          signal,
+        );
+        stale = !live.cases.some(
+          (c) => c.id === detail.id && c.hash === detail.hash,
+        );
+      }
+      return { ...result, inputRevision: detail.revision, stale };
+    },
+  );
   app.get("/api/incidents", async (req, reply) => {
     const s = await readStoreFor(req, reply);
     if (!s) return;
@@ -469,12 +633,10 @@ export async function createApp(o: AppOptions) {
       s.namespace === "demo" &&
       p.rows.some((r) => !r.id.startsWith("DEMO-"))
     )
-      return reply
-        .code(400)
-        .send({
-          message:
-            "Публичный DEMO принимает только синтетику с ID DEMO-. Для оригинала выберите приватную рабочую копию.",
-        });
+      return reply.code(400).send({
+        message:
+          "Публичный DEMO принимает только синтетику с ID DEMO-. Для оригинала выберите приватную рабочую копию.",
+      });
     for (const [k, v] of previews)
       if (v.expires < Date.now()) previews.delete(k);
     if (previews.size > 20)
@@ -524,12 +686,10 @@ export async function createApp(o: AppOptions) {
       .get(s.namespace)!
       .exclusive(() => atomicWrite(o.sources.get(s.namespace)!.path, p.text));
     if (s.status.state !== "live")
-      return reply
-        .code(503)
-        .send({
-          message:
-            "Рабочий файл записан, но ещё не принят. Проверьте состояние источника; показана предыдущая версия.",
-        });
+      return reply.code(503).send({
+        message:
+          "Рабочий файл записан, но ещё не принят. Проверьте состояние источника; показана предыдущая версия.",
+      });
     await audit(u.username, "import-accepted", s.namespace, {
       revision: s.revision,
     });

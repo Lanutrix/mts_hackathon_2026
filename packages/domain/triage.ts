@@ -1,0 +1,373 @@
+import {
+  deadlineStatus,
+  GROUPS,
+  hash,
+  PRIORITIES,
+  spaces,
+  type Group,
+  type Incident,
+} from "./index.ts";
+
+export const GROUP_BY = ["symptom", "priority", "product", "team"] as const;
+export type GroupBy = (typeof GROUP_BY)[number];
+export type Signal = Group | "all";
+export interface CaseEvidence {
+  id: string;
+  field: string;
+  value: string;
+}
+export interface TriageCase {
+  id: string;
+  label: string;
+  count: number;
+  hash: string;
+  revision: number;
+  lead: { id: string; header: string; groups: Group[]; revision: number };
+  topId: string;
+  highestPriorityId: number | null;
+  highestPriorityLabel: string;
+  priorities: Record<string, number>;
+  overdue: number;
+  soon: number;
+  deadlineMissing: number;
+  earliestDeadline: string | null;
+  escalations: number;
+  escalationUnknown: number;
+  unverified: number;
+  team: string | null;
+  product: string | null;
+  recommendation: string;
+  evidence: CaseEvidence[];
+}
+export interface Triage {
+  groupBy: GroupBy;
+  unique: number;
+  overdue: number;
+  escalations: number;
+  cases: TriageCase[];
+  tracking?: TriageCase["lead"] | null;
+}
+export interface CaseAnalysis {
+  mode: "model" | "fallback";
+  summary: string[];
+  evidence: CaseEvidence[];
+  uncertainties: string[];
+  model: string;
+  provider: string;
+  inputRevision: number;
+  inputHash: string;
+  stale: boolean;
+  error?: string;
+  sampled: number;
+}
+export function grouping(q: Record<string, string>) {
+  const groupBy = q.groupBy ?? "symptom";
+  const signal = q.signal ?? "all";
+  if (
+    !GROUP_BY.includes(groupBy as GroupBy) ||
+    (signal !== "all" && !GROUPS.includes(signal as Group))
+  )
+    throw new Error("Неизвестная группировка или выборка");
+  return { groupBy: groupBy as GroupBy, signal: signal as Signal };
+}
+
+export function filterDashboard(
+  rows: Incident[],
+  q: Record<string, string>,
+): Incident[] {
+  const search = (q.q ?? "").toLocaleLowerCase("ru").slice(0, 300);
+  return rows.filter(
+    (r) =>
+      (!search ||
+        [r.id, r.raw.header, r.raw.productName, r.team, r.raw.assignedEmployee]
+          .join(" ")
+          .toLocaleLowerCase("ru")
+          .includes(search)) &&
+      (!q.service || String(r.raw.serviceTypeId) === q.service) &&
+      (!q.up || r.raw.isNeedUp === true),
+  );
+}
+
+export function sortTickets(rows: Incident[], sort?: string) {
+  return rows.sort((a, b) => {
+    if (sort === "id") return a.id.localeCompare(b.id);
+    if (sort === "registered")
+      return (
+        String(b.dates.submitDate).localeCompare(String(a.dates.submitDate)) ||
+        a.id.localeCompare(b.id)
+      );
+    return (
+      (Date.parse(a.dates.deadline ?? "") || Infinity) -
+        (Date.parse(b.dates.deadline ?? "") || Infinity) ||
+      a.id.localeCompare(b.id)
+    );
+  });
+}
+
+const symptomPatterns: [RegExp, string][] = [
+  [
+    /ошиб\p{L}*\s+(?:при\s+)?(?:вход|авторизац|аутентификац)|не уда[её]тся войти|не (?:входит|работает вход)/iu,
+    "Ошибки авторизации",
+  ],
+  [
+    /(?:рост|увеличени\p{L}*) времени ответа|медленн\p{L}* (?:ответ|загруз)|задержк\p{L}* ответа|тайм-?аут/iu,
+    "Задержка ответа",
+  ],
+  [
+    /плат[её]ж\p{L}* не проход|не проход\p{L}* (?:оплат|плат[её]ж)|ошиб\p{L}* (?:при )?оплат|отклон\p{L}* плат[её]ж/iu,
+    "Ошибки оплаты",
+  ],
+  [
+    /недоступност\p{L}* операц|операци\p{L}* недоступн/iu,
+    "Недоступность операции",
+  ],
+];
+const norm = (s: string) => s.toLocaleLowerCase("ru").normalize("NFKC");
+type Facet = { key: string; label: string; field: string };
+function facet(r: Incident, groupBy: GroupBy): Facet {
+  if (groupBy === "priority")
+    return {
+      key: String(r.priorityId),
+      label: r.priorityLabel,
+      field: "priorityId",
+    };
+  if (groupBy === "product" || groupBy === "team") {
+    const field = groupBy === "team" ? "assignedGroupName" : "productName";
+    const value = spaces(r.raw[field]);
+    return {
+      key: norm(value),
+      label:
+        value ||
+        (groupBy === "team" ? "Команда не указана" : "Продукт не указан"),
+      field,
+    };
+  }
+  // Prefer the reporter's headline. A stock description can mention a second
+  // symptom (or merely a check) that is not the subject of this ticket.
+  for (const field of ["header", "shortDescription", "description"]) {
+    const value = spaces(r.raw[field]).slice(0, 2400);
+    const match = symptomPatterns.find(([pattern]) => pattern.test(value));
+    if (match) return { key: "signal:" + match[1], label: match[1], field };
+  }
+  const header = spaces(r.raw.header);
+  return {
+    key: header ? "header:" + norm(header) : "unknown",
+    label: header || "Признак не определён",
+    field: "header",
+  };
+}
+
+const collator = new Intl.Collator("ru", { numeric: true });
+const compareText = (a: string, b: string) =>
+  collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
+const byTime = (r: Incident) => r.dates.deadline ?? "\uffff";
+// Within a priority: first the earliest deadline, then explicit escalation.
+// Absolute deadlines give the same ticket order on every page of a revision.
+export function urgent(a: Incident, b: Incident) {
+  return (
+    (b.priorityId ?? 0) - (a.priorityId ?? 0) ||
+    compareText(byTime(a), byTime(b)) ||
+    Number(b.raw.isNeedUp === true) - Number(a.raw.isNeedUp === true) ||
+    compareText(a.id, b.id) ||
+    compareText(a.key, b.key)
+  );
+}
+
+function mostCommon(rows: Incident[], field: string) {
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const value = spaces(r.raw[field]);
+    if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return (
+    [...counts.keys()].sort(
+      (a, b) => counts.get(b)! - counts.get(a)! || compareText(a, b),
+    )[0] ?? null
+  );
+}
+
+function summarizeCase(
+  id: string,
+  signal: Facet,
+  rows: Incident[],
+  revision: number,
+  now: number,
+): TriageCase {
+  const lead = rows[0];
+  const priorities: Record<string, number> = {
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    unknown: 0,
+  };
+  let overdue = 0,
+    soon = 0,
+    deadlineMissing = 0,
+    escalations = 0,
+    escalationUnknown = 0,
+    unverified = 0;
+  let earliest: Incident | undefined;
+  let firstEscalation: Incident | undefined;
+  for (const r of rows) {
+    priorities[r.priorityId ?? "unknown"]++;
+    const deadline = deadlineStatus(r.dates.deadline, now);
+    if (deadline === "overdue") overdue++;
+    if (deadline === "soon") soon++;
+    if (deadline === "unset") deadlineMissing++;
+    if (
+      r.dates.deadline &&
+      (!earliest || r.dates.deadline < earliest.dates.deadline!)
+    )
+      earliest = r;
+    if (r.raw.isNeedUp === true) {
+      escalations++;
+      firstEscalation ??= r;
+    }
+    if (r.raw.isNeedUp == null) escalationUnknown++;
+    if (!r.sourcePresent) unverified++;
+  }
+  const evidence: CaseEvidence[] = [];
+  function cite(r: Incident, field: string) {
+    if (evidence.some((e) => e.id === r.id && e.field === field)) return;
+    const value = field === "sourcePresent" ? r.sourcePresent : r.raw[field];
+    evidence.push({
+      id: r.id,
+      field,
+      value: value == null ? "Не указано" : String(value).slice(0, 360),
+    });
+  }
+  cite(lead, signal.field);
+  cite(lead, "priorityId");
+  let recommendation: string;
+  if (earliest && (overdue || soon)) {
+    cite(earliest, "deadline");
+    recommendation =
+      (overdue
+        ? "Уточните новый срок по "
+        : "Уточните готовность к сроку по ") +
+      earliest.id +
+      (overdue
+        ? ". Срок прошёл у " + overdue
+        : ". Срок наступит в ближайшие 15 минут у " + soon) +
+      " из " +
+      rows.length +
+      ".";
+  } else if (firstEscalation) {
+    cite(firstEscalation, "isNeedUp");
+    recommendation =
+      "Уточните у исполнителя " +
+      firstEscalation.id +
+      ", кому передать эскалацию. Отметка есть у " +
+      escalations +
+      " из " +
+      rows.length +
+      ".";
+  } else if (deadlineMissing) {
+    const withoutDeadline = rows.find((r) => !r.dates.deadline)!;
+    cite(withoutDeadline, "deadline");
+    recommendation =
+      "Запросите срок по " +
+      withoutDeadline.id +
+      ". Поле срока пустует у " +
+      deadlineMissing +
+      " из " +
+      rows.length +
+      ".";
+  } else {
+    cite(lead, "assignedGroupName");
+    recommendation =
+      "Уточните ход работ по " +
+      lead.id +
+      (lead.team
+        ? " у группы «" + lead.team + "»."
+        : " и ответственную группу.");
+  }
+  if (!lead.sourcePresent) {
+    cite(lead, "sourcePresent");
+    recommendation += " Сверьте " + lead.id + " с последней выгрузкой.";
+  }
+  return {
+    id,
+    label: signal.label,
+    count: rows.length,
+    hash: hash(rows.map((r) => [r.key, r.hash, r.sourcePresent])),
+    revision,
+    lead: {
+      id: lead.id,
+      header: spaces(lead.raw.header),
+      groups: lead.groups,
+      revision: lead.revision,
+    },
+    topId: lead.id,
+    highestPriorityId: lead.priorityId,
+    highestPriorityLabel:
+      lead.priorityId === null ? "Неизвестен" : PRIORITIES[lead.priorityId],
+    priorities,
+    overdue,
+    soon,
+    deadlineMissing,
+    earliestDeadline: earliest?.dates.deadline ?? null,
+    escalations,
+    escalationUnknown,
+    unverified,
+    team: mostCommon(rows, "assignedGroupName"),
+    product: mostCommon(rows, "productName"),
+    recommendation,
+    evidence,
+  };
+}
+
+export function buildTriage(
+  rows: Incident[],
+  groupBy: GroupBy,
+  revision: number,
+  now: number,
+  signal: Signal = "all",
+) {
+  const seen = new Set<string>();
+  const buckets = new Map<string, Incident[]>();
+  for (const r of rows) {
+    if (
+      !r.groups.length ||
+      (signal !== "all" && !r.groups.includes(signal)) ||
+      seen.has(r.key)
+    )
+      continue;
+    seen.add(r.key);
+    const key = facet(r, groupBy).key;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(r);
+    else buckets.set(key, [r]);
+  }
+  const members = new Map<string, Incident[]>();
+  const cases: TriageCase[] = [];
+  for (const [key, rows] of buckets) {
+    rows.sort(urgent);
+    const id = hash([groupBy, key]).slice(0, 24);
+    cases.push(summarizeCase(id, facet(rows[0], groupBy), rows, revision, now));
+    members.set(id, rows);
+  }
+  cases.sort(
+    (a, b) =>
+      (b.highestPriorityId ?? 0) - (a.highestPriorityId ?? 0) ||
+      b.overdue - a.overdue ||
+      b.soon - a.soon ||
+      b.escalations - a.escalations ||
+      compareText(
+        a.earliestDeadline ?? "\uffff",
+        b.earliestDeadline ?? "\uffff",
+      ) ||
+      b.count - a.count ||
+      compareText(a.label, b.label) ||
+      compareText(a.id, b.id),
+  );
+  return {
+    groupBy,
+    unique: seen.size,
+    overdue: cases.reduce((n, c) => n + c.overdue, 0),
+    escalations: cases.reduce((n, c) => n + c.escalations, 0),
+    cases,
+    members,
+  };
+}

@@ -14,7 +14,7 @@
 
 | Экран | Макет | Реализация | Проверка |
 |---|---|---|---|
-| Эфир смены | [51:2](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-2) | `LiveBoard.tsx`, `/live`, `/wallboard` | Поток событий, счётчики, сроки и фильтры в `tests/e2e/workflows.spec.ts`. |
+| Эфир смены | [51:2](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-2) | `LiveBoard.tsx`, `TriageCases.tsx`, `/live`, `/wallboard` | Кейсы по четырём признакам, разбор с основаниями, отслеживание ID на модели, постраничный реестр и поток событий в `tests/e2e/workflows.spec.ts`. |
 | Рабочая очередь | [51:160](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-160) | `Workspace.tsx`, `contextAnalysis.ts`, `/workspace` | Выборка, поиск, группировка, пересечения и обновление источника в `tests/e2e/workspace.spec.ts`. |
 
 Мобильные прототипы актуальной версии собраны в ширине 390 px. [Эфир](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=62-246) · [Очередь](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=63-498) · [Открытый контекст](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=68-1742)
