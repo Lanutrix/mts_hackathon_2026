@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   canvasDimensions,
   canvasWeights,
@@ -148,6 +149,41 @@ function validBlocks(v: unknown): v is CanvasView[] {
         member(b.layout, layouts),
     )
   );
+}
+
+// The browser accepts only the canonical context. Model patches additionally
+// allow a scalar enum wrapped in a singleton and redundant per-view filters.
+function modelFilters(raw: unknown): CanvasFilters | undefined {
+  if (!record(raw)) return;
+  const filters = { ...raw };
+  for (const field of ["deadline", "escalation"] as const) {
+    const value = filters[field];
+    if (Array.isArray(value) && value.length === 1) filters[field] = value[0];
+  }
+  if (validFilters(filters)) return filters;
+}
+function modelBlocks(
+  raw: unknown,
+  shared: CanvasFilters,
+): CanvasView[] | undefined {
+  if (!Array.isArray(raw) || raw.length > 2) return;
+  const views = [];
+  for (const block of raw) {
+    if (!record(block)) return;
+    const { filters, ...view } = block;
+    if (filters !== undefined) {
+      const repeated = modelFilters(filters);
+      if (
+        !repeated ||
+        !Object.entries(repeated).every(([key, value]) =>
+          isDeepStrictEqual(value, shared[key as keyof CanvasFilters]),
+        )
+      )
+        return;
+    }
+    views.push(view);
+  }
+  if (validBlocks(views)) return views;
 }
 export function validContext(v: unknown): v is CanvasIntent {
   return (
@@ -405,13 +441,13 @@ function localReading(
   previous?: CanvasIntent,
 ) {
   const weightClause = text.match(
-    /(?:площадь|размер|вес|взвесь|масштаб)\p{L}*(?:\s+(?:квадрат|област|групп|команд|блок|фигур)\p{L}*)?\s+(?:(?:по|от|пропорциональн\p{L}*|числ\p{L}*|количеств\p{L}*|с|уч[её]том)\s+)*(просроч\p{L}*|доработ\p{L}*|заяв\p{L}*|инцидент\p{L}*)/u,
+    /(?:площадь|размер|вес|взвесь|масштаб)\p{L}*(?:\s+(?:квадрат|област|групп|команд|блок|фигур)\p{L}*)?\s+(?:(?:по|от|пропорциональн\p{L}*|числ\p{L}*|количеств\p{L}*|с|уч[её]том)\s+)*(просроч\p{L}*|доработ\p{L}*|(?:заяв|инцидент)\p{L}*(?:,?\s+(?:с|требующ\p{L}*)\s+доработ\p{L}*)?)/u,
   );
   const metric = weightClause?.[1];
   const weightBy = metric
     ? metric.startsWith("просроч")
       ? ("overdue" as const)
-      : metric.startsWith("доработ")
+      : metric.includes("доработ")
         ? ("escalated" as const)
         : ("count" as const)
     : undefined;
@@ -568,6 +604,7 @@ const instructions = [
   "groupBy: symptom (сходство проявлений), team, product, priority, deadline, status, escalation, ticket. layout: groups (группы), list (заявки), comparison (сопоставление).",
   "В группировках площадь квадратов задаёт weightBy: count (число заявок, по умолчанию), overdue (число просроченных), escalated (требуется устранить последствия после решения). Вес определяет геометрию, не фильтрует набор заявок. Дополнительные представления тоже могут указать свой вес.",
   'Для составного запроса выбери основное представление и добавь blocks (до двух дополнительных представлений с общими фильтрами). Например «по командам и рядом покажи сроки»: {"supported":true,"groupBy":"team","layout":"groups","blocks":[{"groupBy":"deadline","layout":"groups"}]}. Для одного представления не дублируй его в blocks.',
+  'При уточнении фильтра в существующей выборке ответь только изменением, например {"supported":true,"filters":{"deadline":"overdue"}}. Этот фильтр уже применяется ко всем блокам. filters разрешён только на верхнем уровне, каждый дополнительный блок содержит только groupBy, layout и необязательные presentation, exhibits, weightBy.',
   "Значения localHints.filters установлены из явно заданных условий. Сохраняй их. deadline: overdue — заданный срок уже прошёл, soon — в течение 15 минут, normal — позже, unset — срок не задан. escalation: yes,no,unknown. priorities: массив чисел 1..4; 4 наивысший. states: массив чисел 0 (назначен),2 (в работе),20 (исследование),7 (решён),10 (закрыт). По умолчанию открыты 0,2,20. Активны 0,2.",
   "teams,products,ids,symptoms: массивы ссылок E1 и т.п. только из entities и только соответствующего типа. Остальные имена скрыты. Не угадывай скрытые слова. Числа, суммы ущерба, первопричины, прогнозы и история не доступны. Вопрос «а по командам?» меняет только группировку и сохраняет фильтры. «Только просроченные» меняет только фильтр. Сравнение двух продуктов группирует по продуктам.",
   "Для справочного вопроса выбери раздел справки и верни только {supported:true,guide:{topic,focus}}. Темы: " +
@@ -583,7 +620,7 @@ const instructions = [
     answerExhibits.join(", ") +
     ". median-load и mean-load — размер групп. median-overdue — число просрочек на группу. Статистика берётся из всего среза; интерес к доле или числу просрочек сам по себе не отбирает только просроченные заявки.",
 ].join("\n");
-const planVersion = "canvas-plan-5";
+const planVersion = "canvas-plan-6";
 const unsupportedText =
   "Для этого вопроса данных текущего среза недостаточно. Можно сопоставить заявки по симптомам, срокам, приоритетам, командам и продуктам.";
 type Decision = Pick<
@@ -875,7 +912,7 @@ async function planData(
       weightBy: local.weightBy,
       ...visual,
       ...(detectedInsights.length ? { insightIds: detectedInsights } : {}),
-      blocks,
+      ...(secondary.length ? { blocks: secondary } : {}),
       filters: {
         ...local.filters,
         ...Object.fromEntries(
@@ -920,8 +957,7 @@ async function planData(
     ]) ||
     (p.supported !== undefined && typeof p.supported !== "boolean") ||
     !validVisual(p) ||
-    (p.insightIds !== undefined && !validInsightIds(p.insightIds)) ||
-    (p.blocks !== undefined && !validBlocks(p.blocks))
+    (p.insightIds !== undefined && !validInsightIds(p.insightIds))
   )
     return malformed();
   if (
@@ -989,17 +1025,15 @@ async function planData(
         !p.clear.every((k) => member(k, filterFields))))
   )
     return malformed();
-  const proposed = p.filters === undefined ? {} : p.filters;
-  if (!record(proposed)) return malformed();
-  const proposedFilters = { ...proposed };
-  // A single enum in a singleton array has exactly the same meaning as the
-  // scalar. Multiple values cannot be represented by the canvas selection.
-  for (const field of ["deadline", "escalation"] as const) {
-    const value = proposedFilters[field];
-    if (Array.isArray(value) && value.length === 1)
-      proposedFilters[field] = value[0];
-  }
-  if (!validFilters(proposedFilters)) return malformed();
+  const proposedFilters = modelFilters(
+    p.filters === undefined ? {} : p.filters,
+  );
+  if (!proposedFilters) return malformed();
+  const proposedBlocks = modelBlocks(
+    p.blocks === undefined ? [] : p.blocks,
+    proposedFilters,
+  );
+  if (!proposedBlocks) return malformed();
   const resolved: CanvasFilters = { ...proposedFilters };
   for (const field of namedFields)
     if (resolved[field]) {
@@ -1065,7 +1099,6 @@ async function planData(
   const freshMetric =
     detectedInsights.length > 0 ||
     (!chosenInsights?.length && !!insightIds?.length);
-  const proposedBlocks = validBlocks(p.blocks) ? p.blocks : [];
   const nextBlocks: CanvasView[] | undefined = secondary.length
     ? secondary.map((view) => {
         const suggested = proposedBlocks.find(
@@ -1077,8 +1110,8 @@ async function planData(
       ? undefined
       : local.filterOnly
         ? local.base.blocks
-        : validBlocks(p.blocks)
-          ? p.blocks
+        : p.blocks !== undefined
+          ? proposedBlocks
           : blocks;
   if (nextBlocks?.length)
     intent.blocks = nextBlocks

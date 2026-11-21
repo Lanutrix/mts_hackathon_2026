@@ -383,6 +383,58 @@ test("explicit overdue refinement survives contradictory VseLLM filters, clear a
     await app.close();
   }
 });
+
+test("compound views share an overdue refinement even when VseLLM repeats it inside a block", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    const deadlineBlock = { groupBy: "deadline", layout: "groups" };
+    respond({
+      supported: true,
+      groupBy: "team",
+      layout: "groups",
+      blocks: [deadlineBlock],
+    });
+    const first = (
+      await ask("Сгруппируй по командам и рядом покажи сроки.")
+    ).json<CanvasResult>();
+    assert.equal(first.mode, "model");
+    assert.equal(first.blocks.length, 1);
+    for (const [question, blockFilters, expected] of [
+      ["А теперь только просроченные", { deadline: "overdue" }, "model"],
+      ["Оставь только просроченные заявки", { deadline: ["overdue"] }, "model"],
+      [
+        "Только заявки с просроченным дедлайном",
+        { deadline: "soon" },
+        "fallback",
+      ],
+      ["Отфильтруй просроченные инциденты", { unknown: "overdue" }, "fallback"],
+    ] as const) {
+      respond({
+        supported: true,
+        groupBy: "team",
+        layout: "groups",
+        filters: { deadline: "overdue" },
+        blocks: [{ ...deadlineBlock, filters: blockFilters }],
+      });
+      const scoped = (await ask(question, first.intent)).json<CanvasResult>();
+      assert.equal(scoped.mode, expected, question);
+      assert.deepEqual(
+        scoped.intent.filters,
+        { deadline: "overdue" },
+        question,
+      );
+      assert.deepEqual(scoped.intent.blocks, [deadlineBlock], question);
+      assert.equal(scoped.total, 24, question);
+      assert.deepEqual(
+        scoped.blocks[0].groups.map((g) => [g.key, g.count]),
+        [["overdue", 24]],
+        question,
+      );
+    }
+  } finally {
+    await app.close();
+  }
+});
 test("canvas session, CSRF, training toggle, role and context guards", async () => {
   const { app, ask, headers } = await setup();
   try {

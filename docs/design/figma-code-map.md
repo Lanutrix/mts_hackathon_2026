@@ -10,14 +10,14 @@
 
 Точка входа в продукт находится по адресу `/`. В `Landing.tsx` и `LandingOptic.tsx` заголовок, красный квадрат и сиреневое стекло отсылают к обложке кейса «Инциденты в фокусе». Херо занимает всю стартовую страницу. Арбуз и прозрачная рамка в браузере имеют собственную геометрию. Оба объекта можно вращать. Стеклянные метки на срезе в гостевом херо иллюстрируют инциденты. [Десктоп](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=72-1209) · [Телефон](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=72-1210)
 
-В эфире все четыре сигнала используют единый реестр. Тематические иконки обозначают причину отбора. Арбузный срез встроен в числовую строку активных заявок. На холсте группы связаны со списками тикетов. Новая реплика меняет графические разрезы и состав данных.
+В эфире все четыре сигнала используют единый реестр. Тематические иконки обозначают причину отбора. Арбузный срез показывает число инцидентов под наблюдением. Из любой группы на холсте можно открыть список входящих в неё инцидентов. Новая реплика меняет графические разрезы и состав данных.
 
 На масштаб чисел и работу с акцентом повлияли Lerno и Silv студии Halo Lab. Табличное представление и приоритет информации в строке опираются на Incident Management и обновление интерфейса Linear. [Lerno](https://dribbble.com/shots/26982241-Dashboard-for-Edtech-Product-Lerno) · [Silv](https://dribbble.com/shots/27341855-Dashboard-for-an-IoT-Product-Silv) · [Incident Management](https://dribbble.com/shots/23970269-Incident-Management-Web) · [Linear](https://linear.app/changelog/2026-03-12-ui-refresh)
 
 | Экран | Макет | Реализация | Проверка |
 |---|---|---|---|
-| Эфир смены | [51:2](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-2) | `LiveBoard.tsx`, `TriageCases.tsx`, `/live` | Кейсы по четырём признакам, разбор с основаниями, 3D-долька рядом с числом активных заявок и переход из кейса к исходному тикету, постраничный реестр и поток событий в `tests/e2e/workflows.spec.ts`. |
-| Холст смены | [51:160](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-160) | `Workspace.tsx`, `packages/contracts/canvas.ts`, `/workspace` | Стартовое представление, диалог, раскрытие группы и переход к тикету в `tests/e2e/workspace.spec.ts`. |
+| Эфир смены | [51:2](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-2) | `LiveBoard.tsx`, `TriageCases.tsx`, `/live` | Группы по четырём признакам, основания отбора, число инцидентов под наблюдением, переход к исходной карточке и в ITSM, постраничный реестр и поток событий в `tests/e2e/workflows.spec.ts`. |
+| Холст смены | [51:160](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-160) | `Workspace.tsx`, `packages/contracts/canvas.ts`, `/workspace` | Стартовое представление, диалог, раскрытие группы и переход к карточке инцидента в `tests/e2e/workspace.spec.ts`. |
 
 Компоненты ответа и справочные статьи повторяют элементы рабочего холста. Каждый аналитический блок связан с именованным показателем в `packages/contracts/answerInsights.ts`. [Библиотека ответов](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/?node-id=142-136767) · [Справочные компоненты](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/?node-id=143-136815) · [81 аналитический блок](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/?node-id=147-136767)
 
