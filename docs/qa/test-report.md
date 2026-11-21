@@ -1,6 +1,6 @@
 # Фактические проверки
 
-Обновлено 2026-11-20T23:56:12.848417+00:00. Итог проекта **частично готово**: локальный продукт и проверяемая ветка; deployment/DNS/production smoke blocked. Матрица [F01–F40](flow-coverage.csv) сохраняет весь обязательный объём.
+Обновлено 2026-11-21T00:23:51+00:00. Итог проекта **частично готово**: локальный продукт и проверяемая ветка; deployment/DNS/production smoke blocked. Матрица [F01–F40](flow-coverage.csv) сохраняет весь обязательный объём.
 
 | Проверка | Результат | Доказательство / предел |
 |---|---|---|
@@ -10,13 +10,13 @@
 | Browser E2E | 15 passed / 0 failed / 0 skipped | [Summary](evidence/e2e-summary.json); Chromium, Firefox, WebKit; 5 сценариев на движок |
 | Real file → two contexts | done | Отдельный Node-процесс заменяет файл; карточки/группы/notifications меняются без reload |
 | API auth/CSRF/roundtrip | done | viewer/coordinator/demo-admin, private namespace, 46 полей, 18-digit IDs, preview/commit/export |
-| AI live smoke | model / 384 dimensions / 3975 ms | [Настоящий ONNX inference](evidence/ai-smoke.json), 5 тезисов, evidence; mock тестируется отдельно |
+| AI live smoke | model / 384 dimensions / 4038 ms | [Настоящий ONNX inference](evidence/ai-smoke.json), 5 тезисов, evidence; mock тестируется отдельно |
 | AI faults/stale/injection | done | tests/analysis.test.ts; нет инструментов/побочных действий модели |
 | A11y | automated critical/serious = 0 в прошедших browser suites | Dashboard/login axe; ручная проверка ниже; не сертификат WCAG |
 | Impeccable explicit detect | 0 mechanical findings | [JSON](evidence/impeccable-detect.json); hook не включался, visual pass этим не подменяется |
 | Process restart / offline backup restore | done локально | tests/restart.test.ts + tests/recovery.test.ts; отдельный процесс/каталог |
-| PostgreSQL restore, release rollback на VDS | blocked | Runtime/bootstrap отсутствует; скрипты и runbooks подготовлены |
-| HTTPS / внешний smoke | blocked | DNS-доступ отсутствует; NXDOMAIN/authoritative timeout |
+| PostgreSQL restore и release rollback на VDS | done на закрытом стенде | [Протокол](evidence/vds-staging.json). Production-переключение ожидает root-установки |
+| HTTPS / внешний smoke | blocked | A-запись подтверждена у всех четырёх авторитетных NS; ожидается системная установка прокси и TLS |
 
 Тестовые учётные данные случайны и остаются только в памяти/хеш-файле `.runtime`, trace/video выключены. Снимки экрана снимаются только на публичной синтетике без формы пароля. Исторические failure traces с credentials не сохранялись по прямому запрету пользователя; вместо них — точные причины, assertions и безопасные публичные screenshots в defects.md. CI workflow закреплён SHA actions; его remote run не равен локальному pass.
 

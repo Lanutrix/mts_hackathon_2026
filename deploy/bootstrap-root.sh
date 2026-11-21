@@ -10,23 +10,24 @@ mkdir -p "$backup"
 cp -a /etc/ssh/sshd_config /etc/ssh/sshd_config.d "$backup/"
 cp -a /etc/fstab "$backup/fstab"
 ss -lnt > "$backup/listeners.txt"
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql postgresql-contrib ca-certificates xz-utils ufw
+(umask 022; apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql ca-certificates xz-utils ufw)
 temp=$(mktemp -d /var/tmp/watermelon-bootstrap.XXXXXX)
 trap 'rm -f "$temp/node.tar.xz" "$temp/caddy.tar.gz"; rmdir "$temp" 2>/dev/null || true' EXIT
 curl --fail --location --proto '=https' --tlsv1.2 https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.xz -o "$temp/node.tar.xz"
 printf '%s  %s\n' 55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742 "$temp/node.tar.xz" | sha256sum -c -
-mkdir -p /opt/watermelon-node
-tar -xJf "$temp/node.tar.xz" --strip-components=1 -C /opt/watermelon-node
+install -d -m 0755 /opt/watermelon-node
+(umask 022; tar --no-same-owner -xJf "$temp/node.tar.xz" --strip-components=1 -C /opt/watermelon-node)
+runuser -u deploy -- /opt/watermelon-node/bin/node --version
 curl --fail --location --proto '=https' --tlsv1.2 https://github.com/caddyserver/caddy/releases/download/v2.11.9/caddy_2.11.9_linux_amd64.tar.gz -o "$temp/caddy.tar.gz"
 printf '%s  %s\n' 5b8cb7faf8726a2028ad96a66e54e6e81e8f361bc6175e5d22bbd997cc5177fb "$temp/caddy.tar.gz" | sha256sum -c -
 tar -xzf "$temp/caddy.tar.gz" -C "$temp" caddy
 install -m 0755 "$temp/caddy" /usr/local/bin/caddy
 rm -f "$temp/caddy"
 getent passwd caddy >/dev/null || useradd --system --home /var/lib/caddy --create-home --shell /usr/sbin/nologin caddy
-install -d -m 0750 -o caddy -g caddy /var/lib/caddy /etc/caddy
-install -d -m 0750 -o deploy -g deploy /srv/mts-watermelon/{releases,shared,backups}
-install -d -m 0700 -o deploy -g deploy /srv/mts-watermelon/shared/{models,demo,workspace}
+install -d -m 0750 -o caddy -g caddy /var/lib/caddy
+install -d -m 0750 -o root -g caddy /etc/caddy
+runuser -u deploy -- install -d -m 0750 /srv/mts-watermelon/{releases,shared,backups}
+runuser -u deploy -- install -d -m 0700 /srv/mts-watermelon/shared/{models,demo,workspace}
 # 889 MiB VM: swap protects model loading; no existing swap is replaced.
 if [ "$(swapon --noheadings | wc -l)" -eq 0 ] && [ ! -e /swapfile-watermelon ]; then
   fallocate -l 1G /swapfile-watermelon
@@ -51,10 +52,8 @@ USERS_FILE=/srv/mts-watermelon/shared/users.json
 DATABASE_URL=postgresql://deploy@localhost/watermelon?host=/var/run/postgresql
 AI_TIMEOUT_MS=120000
 ENV
-chown root:deploy /etc/mts-watermelon.env
-chmod 0640 /etc/mts-watermelon.env
-test -e /srv/mts-watermelon/shared/users.json || install -m 0600 -o deploy -g deploy /dev/null /srv/mts-watermelon/shared/users.json
-if [ ! -s /srv/mts-watermelon/shared/users.json ]; then printf '[]\n' > /srv/mts-watermelon/shared/users.json; fi
+chmod 0600 /etc/mts-watermelon.env
+runuser -u deploy -- sh -c 'umask 077; if [ ! -e "$1" ]; then set -C; echo "[]" > "$1"; fi' sh /srv/mts-watermelon/shared/users.json
 cat > /etc/systemd/system/mts-watermelon.service <<'UNIT'
 [Unit]
 Description=Watermelon incident dashboard demo
@@ -112,7 +111,7 @@ UNIT
 cat > /etc/caddy/Caddyfile <<'CADDY'
 http://89.19.215.254 {
   @writes not method GET HEAD
-  respond @writes "Предпросмотр доступен только для чтения. Для входа используйте HTTPS или SSH-туннель." 403
+  respond @writes "РџСЂРµРґРїСЂРѕСЃРјРѕС‚СЂ РґРѕСЃС‚СѓРїРµРЅ С‚РѕР»СЊРєРѕ РґР»СЏ С‡С‚РµРЅРёСЏ. Р”Р»СЏ РІС…РѕРґР° РёСЃРїРѕР»СЊР·СѓР№С‚Рµ HTTPS РёР»Рё SSH-С‚СѓРЅРЅРµР»СЊ." 403
   reverse_proxy 127.0.0.1:3000 {
     flush_interval -1
   }
@@ -137,7 +136,7 @@ ufw allow 10050/tcp comment 'Existing provider monitoring; narrow only after pro
 ufw --force enable
 systemctl enable mts-watermelon.service watermelon-caddy.service
 systemctl start watermelon-caddy.service
-printf 'BOOTSTRAP_OK\n'
 /opt/watermelon-node/bin/node --version
 caddy version
 runuser -u deploy -- psql -d watermelon -tAc 'SELECT version()'
+printf 'BOOTSTRAP_OK\n'

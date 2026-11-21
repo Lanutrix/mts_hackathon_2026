@@ -14,3 +14,5 @@
 Общий экран: 600 секунд, 20 samples, browser errors=0. [Heap/nodes/listeners](evidence/soak.json). Число DOM cards стабильно 120. Heap и detached listeners колеблются между GC, сам по себе пик не доказывает утечку. Финальный settled sample после collectGarbage: [{'Documents': 1, 'JSEventListeners': 301, 'Nodes': 2601, 'JSHeapUsedSize': 5629916}].
 
 VDS: 1 CPU/889 MiB без исходного swap. Фактические throughput/AI memory/latency остаются blocked до установки. Скрипт предусматривает 1 GiB swap и resource limits, но это ещё не доказательство достаточности ресурсов.
+
+VDS без swap. Прогретый ONNX-запрос из браузера занял 5277 мс, режим model, пять тезисов с evidence. При лимите 466 МиБ процесс позднее достиг OOM. С проверкой доступной памяти при 430 МиБ некэшированный запрос завершился подписанным fallback за 1264 мс, сразу после этого /health/ready вернул 200. Эти значения не заменяют замеры файл→экран.

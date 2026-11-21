@@ -6,7 +6,7 @@ release=${1:?PREVIOUS_COMMIT_SHA required}
 base=/srv/mts-watermelon
 target="$base/releases/$release"
 test "$(realpath "$target")" = "$target"
-test -s "$target/RELEASE"
+test "$(cat "$target/RELEASE")" = "$release"
 ln -s "$target" "$base/current.next"
 mv -Tf "$base/current.next" "$base/current"
 sudo /usr/bin/systemctl restart mts-watermelon.service

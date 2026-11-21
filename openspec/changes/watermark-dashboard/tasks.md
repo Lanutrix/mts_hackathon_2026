@@ -59,4 +59,4 @@
 - [ ] 2.39 F39: Email/chat/voice fixtures с неоднозначностью; Текст остаётся данными; unknown/review вместо выдуманного инициатора (deferred extension)
 - [ ] 2.40 F40: Опциональная рекомендация/назначение/ACK/reject; Только отдельный demo-контур; SENT≠DELIVERED≠ACKED, не основной lifecycle (deferred extension)
 
-Блокеры 1.13–1.14: первоначальная root-установка, PostgreSQL restore/rollback на VDS, SSH recovery/rotation, DNS/TLS и внешний smoke. F37–F40 остаются deferred. 1.15 выполнен: финальные проверки и traceability сохранены, создан draft PR #3 без merge. Остаются 2 blocked этапа и 4 deferred расширения.
+Блокеры 1.13–1.14: первоначальная системная установка, публичное переключение/откат, SSH recovery/rotation, TLS и внешний smoke. На закрытом VDS-стенде выполнены PostgreSQL restore, browser smoke и переключение/откат; A-запись подтверждена. F37–F40 остаются deferred. 1.15 выполнен: финальные проверки и traceability сохранены, создан draft PR #3 без merge. Остаются 2 blocked этапа и 4 deferred расширения.

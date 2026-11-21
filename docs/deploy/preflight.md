@@ -9,3 +9,5 @@
 `deploy/bootstrap-root.sh` загружен в /srv/mts-watermelon/bootstrap. Его выполнение не подтверждено: интерактивный root-вход завершился без результата BOOTSTRAP_OK; проверка от deploy не обнаружила /opt/watermelon-node, app unit и psql. Установка, firewall и proxy не объявляются выполненными.
 
 Финальные четыре deployment-скрипта загружены в /srv/mts-watermelon/bootstrap; удалённый `bash -n` для каждого вернул BASH_SYNTAX_OK. Это синтаксическая проверка, не запуск установки.
+
+Обновление 21.11.2026. В закрытом каталоге deploy развёрнуты Node 24.18 и PostgreSQL 18.6. Временная БД использовала Unix socket, приложение слушало loopback. Системная установка и публичная активация ожидают входа владельца. [Наблюдения и результаты](../qa/evidence/vds-staging.json).

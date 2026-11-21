@@ -42,6 +42,16 @@ export class AnalysisService {
   ) {}
   async run(sentences: string[], query: string) {
     if (this.runner) return this.runner(sentences, query);
+    // On the VDS, loading a new ONNX session killed the web process in
+    // both a 430 MiB and a 466 MiB cgroup. Keep serving the dashboard
+    // when the remaining Linux process budget cannot cover model startup.
+    if (
+      !this.worker &&
+      process.platform === "linux" &&
+      process.availableMemory() < 448 * 1024 ** 2
+    ) {
+      throw new Error("Недостаточно свободной памяти для запуска модели");
+    }
     clearTimeout(this.idle);
     this.worker ??= new Worker(new URL("./inference.mjs", import.meta.url), {
       workerData: { cacheDir: this.cacheDir },
