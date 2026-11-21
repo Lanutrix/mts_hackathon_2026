@@ -153,14 +153,16 @@ export function DeviceNotifications({
       try {
         const config = await request<Device>();
         let matches = false;
-        if (available()) {
+        if (
+          config.endpointHash &&
+          available() &&
+          Notification.permission === "granted"
+        ) {
           await registerDeviceWorker();
           const worker = await navigator.serviceWorker.ready;
           const sub = await worker.pushManager.getSubscription();
           matches = !!(
             sub &&
-            config.endpointHash &&
-            Notification.permission === "granted" &&
             applicationKey(sub) === config.publicKey &&
             (await endpointHash(sub.endpoint)) === config.endpointHash
           );

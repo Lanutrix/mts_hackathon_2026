@@ -548,6 +548,30 @@ test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", 
     ),
   ).toBe(true);
 });
+test("an unenrolled device opens settings without querying the native push service", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    if ("PushManager" in window) {
+      PushManager.prototype.getSubscription = async () => {
+        throw new Error(
+          "Unexpected native push lookup on an unenrolled device",
+        );
+      };
+    }
+  });
+  const loginResponse = await page.request.post("/api/login", {
+    data: { username: "coordinator", password },
+  });
+  expect(loginResponse.ok()).toBeTruthy();
+  await page.goto("/preferences");
+  const device = page.getByRole("region", {
+    name: "Уведомления на этом устройстве",
+  });
+  await expect(device.getByRole("status")).toHaveText(
+    "Выключены на этом устройстве.",
+  );
+});
 test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   page,
 }, info) => {
