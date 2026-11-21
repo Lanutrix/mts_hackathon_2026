@@ -447,12 +447,7 @@ function WorkspaceScreen({
     }).format(new Date(result.asOf));
   const choose = (view: CanvasResult, group: CanvasGroup | null) =>
     setChat((c) => ({ ...c, selection: { result: view, group, offset: 0 } }));
-  const reply =
-    last?.mode === "unsupported"
-      ? last.summary
-      : turn?.question
-        ? turn.result.summary
-        : "";
+  const reply = last?.mode === "unsupported" ? last.summary : result?.notice;
   const busyText =
     busy === null ? "" : busy ? "Собираю срез…" : "Читаю источник…";
   const sourceInfo = [

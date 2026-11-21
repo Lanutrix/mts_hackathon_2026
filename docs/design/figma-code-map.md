@@ -4,6 +4,8 @@
 
 ## Два основных экрана
 
+Тёмные варианты и экран наблюдения находятся на первой странице файла. [Эфир](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=134-142812) · [Холст](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=134-142814) · [Общий экран](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=134-142821) · [Справка](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=134-142825)
+
 Для [учебного эфира](https://mts-watermelon.ru/simulation) подготовлены [десктоп](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Watermelon?node-id=86-1568) и [телефон](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Watermelon?node-id=86-1690). Эфир, помощник, карточка, история, качество данных и журнал используют общие компоненты на рабочих и учебных маршрутах. За полосу отвечает `IncidentNotice`. Он показывает последнее важное изменение по инциденту, пока зритель открывает сведения или скрывает полосу. Все поступившие сигналы можно прочитать в журнале.
 
 Точка входа в продукт находится по адресу `/`. В `Landing.tsx` и `LandingOptic.tsx` заголовок, красный квадрат и сиреневое стекло отсылают к обложке кейса «Инциденты в фокусе». Херо занимает всю стартовую страницу. Арбуз и прозрачная рамка в браузере имеют собственную геометрию. Оба объекта можно вращать. Стеклянные метки на срезе в гостевом херо иллюстрируют инциденты. [Десктоп](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=72-1209) · [Телефон](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=72-1210)

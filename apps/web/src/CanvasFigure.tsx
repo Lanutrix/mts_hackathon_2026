@@ -223,6 +223,7 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
           <button
             type="button"
             className="cx-square"
+            data-stacked-label={rect.width < 192 && rect.caption >= 55}
             key={g.key}
             onClick={() => choose(g)}
             title={
