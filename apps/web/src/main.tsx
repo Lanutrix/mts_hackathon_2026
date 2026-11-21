@@ -4,30 +4,34 @@ import React, {
   useLayoutEffect,
   useRef,
   useState,
-  useMemo,
   type FormEvent,
 } from "react";
 import { createRoot } from "react-dom/client";
-import { MotionConfig, motion } from "motion/react";
+import { MotionConfig } from "motion/react";
 import "@fontsource/golos-text/cyrillic-400.css";
 import "@fontsource/golos-text/cyrillic-600.css";
 import "@fontsource/golos-text/latin-400.css";
 import "@fontsource/golos-text/latin-600.css";
 import "./style.css";
-import type { Incident, Group } from "../../../packages/domain/index.ts";
+import Workspace from "./Workspace";
+import { analyzeContext } from "./contextAnalysis";
+import {
+  LiveIntro,
+  incidentCount,
+  IncidentLane,
+  Mark,
+  Icon,
+  lanes as groups,
+  type IconName,
+} from "./LiveBoard";
+import "./ops.css";
+import type { Incident } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
 type User = {
   username: string;
   role: "viewer" | "coordinator" | "demo-admin";
   csrf: string;
 };
-const groups: Group[] = ["critical", "coordinators", "high", "research"],
-  names: Record<Group, string> = {
-    critical: "Критические",
-    coordinators: "У координаторов",
-    high: "Высокие",
-    research: "Исследование",
-  };
 const reasons: Record<string, string> = {
   critical: "Критический инцидент",
   "critical-reopened": "Критический возвращён в работу",
@@ -279,17 +283,20 @@ function App() {
   }, [load, ready]);
   const link = (to: string) =>
     to + (ns !== "demo" ? "?ns=" + encodeURIComponent(ns) : "");
-  const nav = (to: string, label: string) => (
+  const nav = (to: string, label: string, icon?: IconName, compact = false) => (
     <a
       tabIndex={0}
       href={link(to)}
-      aria-current={path === to ? "page" : undefined}
+      aria-current={path === to || (wall && to === "/") ? "page" : undefined}
+      className={compact ? "icon-link" : undefined}
+      title={compact ? label : undefined}
       onClick={(e) => {
         e.preventDefault();
         go(link(to));
       }}
     >
-      {label}
+      {icon && <Icon name={icon} size={18} />}
+      <span className={compact ? "sr-only" : undefined}>{label}</span>
     </a>
   );
   const open = (id: string) => go(link("/incident/" + encodeURIComponent(id)));
@@ -310,52 +317,47 @@ function App() {
   };
   return (
     <MotionConfig reducedMotion="user">
-      <div className={wall ? "app wallboard" : "app"}>
+      <div className={"app ops-shell" + (wall ? " wallboard" : "")}>
         <a tabIndex={0} className="skip" href="#main">
           К содержимому
         </a>
-        <header className="header">
-          <div className="brand">
-            <a
-              href={link("/")}
-              onClick={(e) => {
-                e.preventDefault();
-                go(link("/"));
-              }}
-            >
-              МТС Watermelon
-            </a>
-            <span>Дашборд координатора</span>
-          </div>
-          <nav aria-label="Основная навигация">
-            {nav("/", "Обзор")}
-            {!wall && (
-              <>
-                {nav("/notifications", "Уведомления")}
-                {nav("/history", "История")}
-                {nav("/quality", "Качество данных")}
-              </>
-            )}
+        <header className="ops-header">
+          <a
+            className="ops-brand"
+            href={link("/")}
+            onClick={(e) => {
+              e.preventDefault();
+              go(link("/"));
+            }}
+          >
+            <Mark />
+            <span>Watermelon</span>
+            <small>МТС</small>
+          </a>
+          <nav className="primary-switch" aria-label="Основная навигация">
+            {nav("/", "Эфир смены", "live")}
+            {nav("/workspace", "Рабочая очередь", "queue")}
+          </nav>
+          <nav className="ops-actions" aria-label="Сервисы">
+            {!wall && nav("/notifications", "Уведомления", "bell", true)}
+            {!wall && nav("/history", "История", "history", true)}
+            {!wall && nav("/quality", "Качество данных", "quality", true)}
             {nav(
               wall ? "/" : "/wallboard",
               wall ? "Обычный режим" : "Общий экран",
-            )}
-            {!wall && write && nav("/preferences", "Настройки")}
-            {!wall && user?.role === "demo-admin" && (
-              <>
-                {nav("/import", "Импорт")}
-                {nav("/demo", "Демонстрация")}
-              </>
+              "expand",
+              true,
             )}
             {!wall &&
               (user ? (
                 <button
-                  tabIndex={0}
-                  className="link"
+                  className="user-pill"
                   onClick={() =>
                     void call(async () => {
                       await post("/logout", {});
                       setUser(null);
+                      setSources(["demo"]);
+                      setData(null);
                       go("/");
                     })
                   }
@@ -367,6 +369,17 @@ function App() {
               ))}
           </nav>
         </header>
+        {!wall && write && (
+          <nav className="role-nav" aria-label="Управление">
+            {nav("/preferences", "Настройки")}
+            {user?.role === "demo-admin" && (
+              <>
+                {nav("/import", "Импорт")}
+                {nav("/demo", "Демонстрация")}
+              </>
+            )}
+          </nav>
+        )}
         <div
           className={
             "source-banner " +
@@ -420,8 +433,39 @@ function App() {
             <div className="empty" aria-busy={!error}>
               Загрузка данных…
             </div>
+          ) : path === "/workspace" ? (
+            <Workspace
+              data={data.namespace === ns ? data : null}
+              ns={ns}
+              userKey={user ? "user:" + user.username : "public"}
+              write={!!write}
+              zone={zone}
+              open={open}
+              analyze={(ids, q) =>
+                analyzeContext(
+                  ids,
+                  q,
+                  zone,
+                  async (id) =>
+                    (await api(suffix("/incident/" + encodeURIComponent(id))))
+                      .incident,
+                  (id) => post("/analysis/" + encodeURIComponent(id), {}),
+                )
+              }
+            />
           ) : path === "/" || wall ? (
             <>
+              <LiveIntro
+                data={data}
+                now={tick}
+                zone={zone}
+                ns={ns}
+                online={connection === "На связи"}
+              />
+              <div className="flow-heading">
+                <h2>Поток инцидентов</h2>
+                <span data-testid="unique">{incidentCount(data.unique)}</span>
+              </div>
               {!wall && (
                 <form className="toolbar" onSubmit={(e) => e.preventDefault()}>
                   <label className="search">
@@ -497,9 +541,6 @@ function App() {
                       Сбросить фильтры
                     </button>
                   )}
-                  <span data-testid="unique">
-                    {data.unique} уникальных инцидентов
-                  </span>
                 </form>
               )}
               {(data.quality.quarantined > 0 || data.quality.missing > 0) && (
@@ -529,87 +570,19 @@ function App() {
                   ))}
                 </section>
               )}
-              <nav className="group-nav" aria-label="Перейти к группе">
-                {groups.map((g) => (
-                  <a key={g} href={"#group-" + g}>
-                    {names[g]} {data.groups[g].count}
-                  </a>
-                ))}
-              </nav>
               <div className="board">
                 {groups.map((g) => (
-                  <section
+                  <IncidentLane
                     key={g}
-                    id={"group-" + g}
-                    aria-labelledby={"heading-" + g}
-                    data-testid={"group-" + g}
-                  >
-                    <h1 id={"heading-" + g}>
-                      {names[g]}{" "}
-                      <span data-testid={"count-" + g}>
-                        {data.groups[g].count}
-                      </span>
-                    </h1>
-                    {data.groups[g].unverified > 0 && (
-                      <p className="warning">
-                        Из них {data.groups[g].unverified} требуют сверки с
-                        источником
-                      </p>
-                    )}
-                    <div className="cards">
-                      {data.groups[g].items.length ? (
-                        data.groups[g].items.map((i: Incident) => (
-                          <IncidentCard
-                            key={i.key}
-                            incident={i}
-                            critical={g === "critical"}
-                            now={tick}
-                            zone={zone}
-                            onOpen={() => open(i.id)}
-                          />
-                        ))
-                      ) : (
-                        <div className="empty">
-                          <strong>Инцидентов нет</strong>
-                          <p>Новые записи появятся автоматически.</p>
-                        </div>
-                      )}
-                    </div>
-                    {data.groups[g].count > 30 && (
-                      <div className="pagination">
-                        <button
-                          tabIndex={0}
-                          disabled={!data.groups[g].offset}
-                          onClick={() =>
-                            updateParam(
-                              g,
-                              String(Math.max(0, data.groups[g].offset - 30)),
-                            )
-                          }
-                        >
-                          Назад
-                        </button>
-                        <span>
-                          {data.groups[g].offset + 1}–
-                          {Math.min(
-                            data.groups[g].offset + 30,
-                            data.groups[g].count,
-                          )}
-                        </span>
-                        <button
-                          tabIndex={0}
-                          disabled={
-                            data.groups[g].offset + 30 >= data.groups[g].count
-                          }
-                          onClick={() =>
-                            updateParam(g, String(data.groups[g].offset + 30))
-                          }
-                        >
-                          Далее
-                        </button>
-                      </div>
-                    )}
-                  </section>
+                    g={g}
+                    bucket={data.groups[g]}
+                    now={tick}
+                    zone={zone}
+                    open={open}
+                    page={(offset) => updateParam(g, String(offset))}
+                    scope={ns + "?" + query}
+                    revision={data.revision}
+                  />
                 ))}
               </div>
             </>
@@ -841,71 +814,6 @@ function App() {
         </footer>
       </div>
     </MotionConfig>
-  );
-}
-function IncidentCard({
-  incident: i,
-  critical,
-  now,
-  zone,
-  onOpen,
-}: {
-  incident: Incident;
-  critical: boolean;
-  now: number;
-  zone: string;
-  onOpen: () => void;
-}) {
-  const delta = i.dates.deadline ? Date.parse(i.dates.deadline) - now : null;
-  return (
-    <motion.article
-      initial={false}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.18 }}
-      className={
-        "incident " +
-        (critical ? "critical " : "") +
-        (!i.sourcePresent ? "unverified" : "")
-      }
-      data-testid={"card-" + i.id}
-    >
-      <span className="meta">{i.id}</span>
-      <h2>
-        <button tabIndex={0} onClick={onOpen}>
-          {text(i.raw.header)}
-        </button>
-      </h2>
-      <span className={critical ? "priority critical-text" : "priority"}>
-        {i.priorityLabel} приоритет
-      </span>
-      <span className="badge">{i.stateLabel}</span>
-      <p className="meta team">
-        {i.team || "Команда не указана"}
-        <br />
-        {text(i.raw.assignedEmployee, "Исполнитель не указан")}
-      </p>
-      <span className="meta">
-        Регистрация: {formatDate(i.dates.submitDate, zone)}
-      </span>
-      <span
-        className={
-          "meta deadline " + (delta !== null && delta < 0 ? "warning" : "")
-        }
-      >
-        {delta === null
-          ? "Срок не задан"
-          : `${delta < 0 ? "Просрочен · " : delta <= 900_000 ? "Срок близко · " : "Срок: "}${formatDate(i.dates.deadline, zone)} · ${zone === "UTC" ? "UTC" : "МСК"}`}
-      </span>
-      {i.raw.isNeedUp === true && (
-        <span className="badge warning">Требует эскалации</span>
-      )}
-      {!i.sourcePresent && (
-        <strong className="warning">Нет в снимке · требуется сверка</strong>
-      )}
-      {i.issues.some((q) => q.code !== "zero-date") && (
-        <span className="meta">Есть замечания к данным</span>
-      )}
-    </motion.article>
   );
 }
 function Detail({

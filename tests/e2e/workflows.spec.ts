@@ -153,7 +153,7 @@ test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", 
   await reset();
   await page.goto("/");
   await page.getByRole("searchbox").fill("DEMO-42-00019");
-  await expect(page.getByTestId("unique")).toContainText("1 уникальных");
+  await expect(page.getByTestId("unique")).toHaveText("1 уникальный инцидент");
   await expect(page).toHaveURL(/q=DEMO/);
   await page
     .getByTestId("card-DEMO-42-00019")

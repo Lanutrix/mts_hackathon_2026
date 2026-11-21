@@ -2,6 +2,15 @@
 
 [Файл команды Лерниум](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe). Все экраны состоят из редактируемых text/component instances/auto-layout. Полноэкранные растры не использованы.
 
+## Два основных экрана
+
+| Экран | Макет | Реализация | Проверка |
+|---|---|---|---|
+| Эфир смены | [51:2](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-2) | `LiveBoard.tsx`, `/`, `/wallboard` | Поток событий, счётчики, сроки и фильтры в `tests/e2e/workflows.spec.ts`. |
+| Рабочая очередь | [51:160](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-160) | `Workspace.tsx`, `contextAnalysis.ts`, `/workspace` | Выборка, поиск, группировка, пересечения и обновление источника в `tests/e2e/workspace.spec.ts`. |
+
+## Ранние макеты и вспомогательные сценарии
+
 | Экран | Узел | Компонент / route | Состояния / tests |
 |---|---|---|---|
 | S01 | [7:3](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=7-3) | apps/web/src/main.tsx · App / | loading/empty/error/live; tests/e2e/workflows.spec.ts |
