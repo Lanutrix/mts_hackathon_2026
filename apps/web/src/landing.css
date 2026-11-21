@@ -50,43 +50,12 @@
   background: #c5c1d0;
 }
 .landing-identity,
-.landing-team,
-.landing-case,
 .landing-login {
   display: flex;
   align-items: center;
 }
 .landing-identity {
   gap: 18px;
-}
-.landing-team {
-  gap: 7px;
-}
-.landing-team svg {
-  width: 40px;
-  height: 30px;
-  transform: rotate(-13deg);
-}
-.landing-team span {
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: -0.07em;
-  font-weight: 600;
-}
-.landing-identity-rule {
-  background: #aaa5b5;
-  height: 23px;
-  width: 1px;
-}
-.landing-case {
-  gap: 9px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: -0.028em;
-}
-.landing-case img {
-  width: 29px;
-  height: 29px;
 }
 .landing-login {
   gap: 6px;
@@ -220,12 +189,6 @@
   .landing-identity {
     gap: 12px;
   }
-  .landing-team span {
-    font-size: 21px;
-  }
-  .landing-case {
-    font-size: 11px;
-  }
   .landing-copy h1 {
     font-size: clamp(48px, 8vw, 64px);
   }
@@ -276,28 +239,6 @@
   .landing-identity {
     gap: 9px;
   }
-  .landing-team {
-    gap: 3px;
-  }
-  .landing-team svg {
-    width: 29px;
-    height: 23px;
-  }
-  .landing-team span {
-    font-size: 18px;
-  }
-  .landing-case {
-    gap: 5px;
-    font-size: 10px;
-    line-height: 1.15;
-  }
-  .landing-case img {
-    width: 22px;
-    height: 22px;
-  }
-  .landing-identity-rule {
-    height: 19px;
-  }
   .landing-login {
     font-size: 12px;
     gap: 2px;
@@ -309,9 +250,6 @@
 @media (max-width: 365px) {
   .landing {
     --page-pad: 16px;
-  }
-  .landing-case span {
-    max-width: 63px;
   }
   .landing-actions {
     gap: 12px;

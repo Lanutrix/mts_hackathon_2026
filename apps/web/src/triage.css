@@ -5,8 +5,8 @@
 .triage-header {
   display: grid;
   grid-template-columns: minmax(170px, 1fr) minmax(300px, 1.5fr) minmax(
-      120px,
-      0.7fr
+      150px,
+      0.8fr
     );
   gap: clamp(12px, 2.5vw, 40px);
   align-items: center;
@@ -76,7 +76,7 @@
 .triage-object {
   position: relative;
   min-width: 0;
-  height: 112px;
+  height: clamp(128px, 10.4vw, 160px);
 }
 .broadcast .feed-tools {
   min-height: 55px;
@@ -401,16 +401,13 @@
   .triage-layout {
     grid-template-columns: minmax(290px, 0.66fr) minmax(0, 2.05fr);
   }
-  .triage-object {
-    height: 135px;
-  }
 }
 @media (min-width: 741px) and (max-height: 720px) {
   .triage-header {
     min-height: 80px;
   }
   .triage-object {
-    height: 80px;
+    height: 100px;
   }
   .case-heading,
   .triage-ledger-title {
@@ -573,8 +570,33 @@
   .triage-clock {
     display: none;
   }
+}
+@media (max-width: 540px) {
   .triage-header {
-    grid-template-columns: minmax(0, 1fr) 26%;
+    grid-template-columns: minmax(0, 1fr) minmax(132px, 44%);
+    row-gap: 0;
+    padding-block: 3px 10px;
+  }
+  .triage-headline {
+    grid-column: 1;
+    grid-row: 1;
+    display: grid;
+    justify-items: start;
+    gap: 5px;
+  }
+  .triage-headline h1 {
+    font-size: clamp(26px, 6.9vw, 35px);
+  }
+  .triage-object {
+    grid-column: 2;
+    grid-row: 1;
+    height: clamp(84px, 23vw, 111px);
+  }
+  .triage-indices {
+    grid-column: 1/-1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (prefers-reduced-motion: no-preference) {

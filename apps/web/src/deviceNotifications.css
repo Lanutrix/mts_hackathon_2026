@@ -1,0 +1,32 @@
+.device-notifications {
+  display: grid;
+  gap: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.device-notifications h2,
+.device-notifications h3,
+.device-notifications p {
+  margin: 0;
+}
+.device-notifications > label {
+  display: grid;
+  gap: 0.35rem;
+}
+.device-notifications .device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.device-notifications .device-actions:empty {
+  display: none;
+}
+.device-notifications p {
+  color: var(--muted);
+}
+.device-notifications .device-install {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}

@@ -5,12 +5,15 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generate } from "../packages/domain/generator.ts";
+import { createFixtureViewer } from "../scripts/fixture-viewer.ts";
 import { atomicWrite } from "../apps/server/demo.ts";
 test("F30 actual backend process restart retains committed revision and notifications", async () => {
   const dir = await mkdtemp(join(tmpdir(), "wm-process-")),
     source = join(dir, "incidents.json"),
     rows = generate(1).rows;
   await writeFile(source, JSON.stringify(rows));
+  const viewer = await createFixtureViewer(dir);
+  let cookie = "";
   let child: ChildProcess | undefined;
   const start = () => {
     child = spawn(
@@ -23,7 +26,7 @@ test("F30 actual backend process restart retains committed revision and notifica
           SOURCE_FILE: source,
           ORIGINAL_PATH: "",
           DATABASE_URL: "",
-          USERS_FILE: "",
+          USERS_FILE: viewer.path,
           PORT: "3240",
           ORIGIN: "http://127.0.0.1:3240",
         },
@@ -49,10 +52,22 @@ test("F30 actual backend process restart retains committed revision and notifica
     throw new Error("Backend condition timeout");
   };
   const get = (path: string) =>
-    fetch("http://127.0.0.1:3240" + path).then((r) => r.json());
+    fetch("http://127.0.0.1:3240" + path, { headers: { cookie } }).then((r) =>
+      r.json(),
+    );
+  async function signIn() {
+    const res = await fetch("http://127.0.0.1:3240/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(viewer.credentials),
+    });
+    assert.equal(res.status, 200);
+    cookie = res.headers.getSetCookie()[0].split(";")[0];
+  }
   try {
     start();
     await until(async () => (await get("/health/ready")).status === "ready");
+    await signIn();
     rows[0].priorityId = 4;
     rows[0].priority = "Наивысший";
     await atomicWrite(source, JSON.stringify(rows));
@@ -61,6 +76,7 @@ test("F30 actual backend process restart retains committed revision and notifica
     await stop();
     start();
     await until(async () => (await get("/health/ready")).status === "ready");
+    await signIn();
     assert.equal((await get("/api/dashboard")).revision, 2);
     assert.equal((await get("/api/notifications")).items.length, 1);
     await atomicWrite(source, JSON.stringify(rows, null, 2));

@@ -16,9 +16,12 @@ import { createApp } from "../apps/server/api.ts";
 import { Auth } from "../apps/server/auth.ts";
 import { Store } from "../apps/worker/ingestion.ts";
 
-async function view(url: string, lastEventId?: string) {
+async function view(url: string, lastEventId?: string, cookie?: string) {
   const req = get(url, {
-    headers: lastEventId ? { "Last-Event-ID": lastEventId } : {},
+    headers: {
+      ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
+      ...(cookie ? { cookie } : {}),
+    },
   });
   const res = await new Promise<import("node:http").IncomingMessage>(
     (ok, fail) => {
@@ -216,6 +219,7 @@ test(
       const firstCase = a.triage.cases[0];
       const analysis = await app.inject({
         method: "POST",
+        headers,
         url:
           "/api/triage/" +
           firstCase.id +
@@ -232,13 +236,21 @@ test(
           .evidence.every((e: { id: string }) => e.id.startsWith("SIM-AUTH-")),
       );
       assert.deepEqual((await read("me")).sources, ["simulation"]);
-      assert.equal((await read("me")).user, null);
+      assert.equal((await read("me")).user.username, "owner");
       assert.deepEqual(
         (await read("health")).sources.map((s: any) => s.namespace),
         ["simulation"],
       );
-      const legacy = await view(base + "/api/simulation/stream");
-      const stream = await view(base + "/api/stream?ns=simulation&cursor=1");
+      const legacy = await view(
+        base + "/api/simulation/stream",
+        undefined,
+        headers.cookie,
+      );
+      const stream = await view(
+        base + "/api/stream?ns=simulation&cursor=1",
+        undefined,
+        headers.cookie,
+      );
       assert.equal((await legacy.next()).runId, a.simulation.runId);
       assert.equal((await stream.frame()).event, "ready");
       legacy.close();
@@ -295,6 +307,8 @@ test(
       assert.equal((await read("export")).length, 8);
       const reconnected = await view(
         base + "/api/stream?ns=simulation&cursor=0",
+        undefined,
+        headers.cookie,
       );
       assert.equal((await reconnected.frame()).event, "resync");
       assert.equal(queries, 0);

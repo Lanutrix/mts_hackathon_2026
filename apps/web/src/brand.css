@@ -1,0 +1,57 @@
+.product-brand,
+.mts-case-brand {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.product-brand {
+  gap: 5px;
+  color: #211d2c;
+  font: 600 27px/1 "Golos Text", Arial, sans-serif;
+  letter-spacing: -.065em;
+}
+.product-mark {
+  display: block;
+  width: 40px;
+  height: 40px;
+}
+.mts-case-brand {
+  gap: 9px;
+  font: 600 12px/1.15 "Golos Text", Arial, sans-serif;
+  letter-spacing: -.028em;
+}
+.mts-case-brand img {
+  display: block;
+  width: 29px;
+  height: 29px;
+}
+.mts-case-brand::before {
+  content: "";
+  background: #aaa5b5;
+  width: 1px;
+  height: 23px;
+  margin-right: 8px;
+}
+.mts-case-brand--compact img {
+  width: 25px;
+  height: 25px;
+}
+@media (max-width: 950px) {
+  .mts-case-brand--compact span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+@media (max-width: 640px) {
+  .product-brand { gap: 3px; font-size: 22px; }
+  .product-mark { width: 31px; height: 31px; }
+  .mts-case-brand { gap: 6px; font-size: 10px; }
+  .mts-case-brand img { width: 23px; height: 23px; }
+  .mts-case-brand::before { height: 18px; margin-right: 3px; }
+  .mts-case-brand--compact img { width: 20px; height: 20px; }
+  .mts-case-brand--compact::before { margin: 0; height: 15px; }
+}

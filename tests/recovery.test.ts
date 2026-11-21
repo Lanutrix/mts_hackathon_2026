@@ -117,10 +117,17 @@ test("F01 F28 integration original control and quarantined fields never invent c
 test("F29 F30 F36 dashboard is one revision across concurrent commit and database failure is explicit", async () => {
   const db = await openDB(":memory:"),
     s = await new Store(db, "demo").load();
+  const auth = new Auth();
+  auth.sessions.set(auth.digest("recovery-reader"), {
+    username: "reader",
+    role: "viewer",
+    csrf: "test",
+    expires: Date.now() + 60_000,
+  });
   const app = await createApp({
     stores: new Map([["demo", s]]),
     sources: new Map([["demo", new FileSource(s, "unused")]]),
-    auth: new Auth(),
+    auth,
     publicDemo: true,
     secure: false,
     origin: "http://localhost",
@@ -140,7 +147,12 @@ test("F29 F30 F36 dashboard is one revision across concurrent commit and databas
       }
       return normal(...args);
     };
-    const response = (await app.inject("/api/dashboard")).json();
+    const response = (
+      await app.inject({
+        url: "/api/dashboard",
+        headers: { cookie: "wm_session=recovery-reader" },
+      })
+    ).json();
     assert.equal(response.revision, firstRevision);
     assert.equal(response.groups.critical.count, 12);
     assert.equal(response.events.length, 0);
@@ -148,7 +160,12 @@ test("F29 F30 F36 dashboard is one revision across concurrent commit and databas
     s.notifications = async () => {
       throw new Error("database unavailable");
     };
-    const stale = (await app.inject("/api/dashboard")).json();
+    const stale = (
+      await app.inject({
+        url: "/api/dashboard",
+        headers: { cookie: "wm_session=recovery-reader" },
+      })
+    ).json();
     assert.equal(stale.status.state, "error");
     assert.equal(stale.groups.critical.count, 13);
     assert.match(stale.status.error, /База данных недоступна/);

@@ -1,10 +1,11 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Watermelon API",
+    "title": "Срез API",
     "version": "0.1.0",
-    "description": "Один источник истины: accepted file revision. Public read-only DEMO; cookie + CSRF для mutations."
+    "description": "Рабочие данные, учебный эфир и потоки событий требуют действующей сессии. Изменяющие запросы после входа используют CSRF-токен."
   },
+  "security": [{ "session": [] }],
   "servers": [
     {
       "url": "/"
@@ -114,12 +115,28 @@
     }
   },
   "paths": {
-    "/api/public/focus": {
+    "/api/push/device/test": {
+      "post": {
+        "summary": "Проверить доставку на текущее подключённое устройство",
+        "security": [{ "session": [], "csrf": [] }],
+        "responses": { "200": { "description": "Проверка отправлена" }, "429": { "description": "Повторите позже" } }
+      }
+    },
+    "/api/push/device": {
       "get": {
-        "summary": "Один актуальный открытый сигнал из публичного демонстрационного источника",
-        "responses": {
-          "200": { "description": "tracking содержит id, header, revision и group или null" }
-        }
+        "summary": "Настройки push этого устройства и публичный ключ VAPID",
+        "responses": { "200": { "description": "Источники и состояние устройства" }, "401": { "description": "Требуется вход" } }
+      },
+      "post": {
+        "summary": "Подключить устройство к уведомлениям выбранного источника",
+        "security": [{ "session": [], "csrf": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["namespace", "subscription"], "properties": { "namespace": {"type": "string"}, "subscription": {"type":"object"}, "previousHash": {"type":"string"} } } } } },
+        "responses": { "200": { "description": "Подписка сохранена" }, "409": { "description": "Подписка изменилась" } }
+      },
+      "delete": {
+        "summary": "Отключить уведомления этого устройства",
+        "security": [{ "session": [], "csrf": [] }],
+        "responses": { "200": { "description": "Подписка отозвана" } }
       }
     },
     "/api/triage/{id}": {
@@ -153,7 +170,7 @@
       "post": {
         "summary": "Разбор кейса с привязкой к снимку и полям заявок",
         "requestBody": {"content":{"application/json":{"schema":{"type":"object","properties":{"question":{"type":"string","maxLength":500}}}}}},
-        "description": "Фильтры и источник совпадают с запросом очереди. Публичный разбор разрешён для demo и simulation при включённой демонстрации. Остальные источники требуют роли координатора или demo-admin и CSRF.",
+        "description": "Фильтры и источник совпадают с запросом очереди. В учебных источниках разбор доступен вошедшим наблюдателям при включённой демонстрации. Для рабочих источников нужна роль coordinator или demo-admin. Запрос требует CSRF.",
         "responses": {
           "200":{"description":"Режим, модель, текст, цитаты с ID и полем, ограничения, хэш и версия"},
           "401":{"description":"Требуется вход"},
@@ -165,6 +182,7 @@
     },
     "/health/live": {
       "get": {
+        "security": [],
         "summary": "Liveness; не проверяет БД",
         "responses": {
           "200": {
@@ -188,6 +206,7 @@
     },
     "/health/ready": {
       "get": {
+        "security": [],
         "summary": "Readiness БД и всех источников; 503 degraded",
         "responses": {
           "200": {
@@ -234,6 +253,7 @@
     },
     "/api/me": {
       "get": {
+        "security": [],
         "summary": "Текущий пользователь и разрешённые источники",
         "responses": {
           "200": {
@@ -478,7 +498,7 @@
         "summary": "Команды из выгрузки и основания маршрутизации",
         "description": "Счётчики product, symptom и both отражают другие присутствующие обращения без критических ошибок в том же источнике. Каталог исполнителей и последние 20 локальных решений доступны координатору и demo-admin только в demo и workspace.",
         "responses": {
-          "200": { "description": "snapshot, sourceRevision, incidentRevision, recommended (команда или null), product, symptom, teams, history, canSave, readOnlyReason. Для предпросмотра сохраните snapshot и последнюю history[0].version или 0." },
+          "200": { "description": "snapshot, sourceRevision, incidentRevision, recommended (команда или null), product, symptom, teams, history, canSave, readOnlyReason. Элементы teams[].members содержат id, name, login, label, open и similar. open — число других открытых обращений этого сотрудника в команде (состояния 0, 2, 20). similar — число других обращений с теми же продуктом и симптомом независимо от состояния. Для предпросмотра сохраните snapshot и последнюю history[0].version или 0." },
           "401": { "description": "Для закрытого источника требуется вход" },
           "404": { "description": "Обращение или источник отсутствует" },
           "503": { "description": "Не удалось прочитать журнал" }

@@ -228,7 +228,7 @@ export function mountMelon(
     backingHeight = h;
     baseScale = hero
       ? Math.min(w / 4.12, h / 2.83)
-      : Math.min(w / 3.74, h / 2.42);
+      : Math.min(w / 3.14, h / 2.04);
     schedule();
   }
   function choose(name: ObjectName) {

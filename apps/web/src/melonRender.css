@@ -63,6 +63,9 @@
   pointer-events: none;
   color: #991b42;
 }
+.melon-scene:not(.melon-scene--hero) .melon-tracker {
+  --reticle-size: clamp(20px, 11cqw, 34px);
+}
 .melon-tracker__lock,
 .melon-tracker svg {
   display: block;
@@ -123,18 +126,18 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #fff8fa;
-  background: #67253f;
-  border-radius: 2px;
+  color: #fff;
+  background: #442638;
+  border-radius: 3px;
   font:
-    600 clamp(9px, 2.4cqw, 11px)/1.15 ui-monospace,
+    600 clamp(10px, 3cqw, 12px)/1.15 ui-monospace,
     monospace;
   letter-spacing: 0.02em;
 }
 .melon-tracker__short-id {
   display: none;
 }
-@container (max-width: 175px) {
+@container (max-width: 115px) {
   .melon-tracker__full-id {
     display: none;
   }

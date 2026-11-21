@@ -187,6 +187,7 @@ export class Store extends EventEmitter {
       },
     };
     this.emit("revision", { revision, at });
+    if (notifications.length) this.emit("notifications");
     return { changed: true, revision };
   }
   fail(error: unknown) {
@@ -240,6 +241,7 @@ export class Store extends EventEmitter {
   async reset() {
     const job = this.queue.then(async () => {
       await this.db.transaction(async (db) => {
+        await db.query("UPDATE push_devices SET since_revision=0,version=gen_random_uuid() WHERE namespace=$1", [this.namespace]);
         for (const t of [
           "reads",
           "notifications",

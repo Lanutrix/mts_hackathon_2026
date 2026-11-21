@@ -1,10 +1,8 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
-import type { MelonTracking } from "./melonModel";
-import { Mark } from "./Brand";
+import type { MouseEvent, ReactNode } from "react";
+import { ProductBrand, MtsCaseBrand } from "./Brand";
 import LandingOptic from "./LandingOptic";
 import "./landing.css";
 
-const mtsMark = new URL("./assets/mts-case-mark.png", import.meta.url).href;
 function Arrow({ up = false }: { up?: boolean }) {
   return (
     <svg
@@ -52,40 +50,6 @@ function RouteLink({
   );
 }
 export default function Landing({ go }: { go: (path: string) => void }) {
-  const [tracking, setTracking] = useState<MelonTracking | null>(null);
-  useEffect(() => {
-    let pending: AbortController | undefined;
-    const refresh = async () => {
-      if (document.hidden) {
-        pending?.abort();
-        return;
-      }
-      if (pending && !pending.signal.aborted) return;
-      const request = new AbortController();
-      pending = request;
-      try {
-        const response = await fetch("/api/public/focus", {
-          credentials: "omit",
-          signal: request.signal,
-        });
-        if (!response.ok) throw new Error();
-        const { tracking } = await response.json();
-        if (!request.signal.aborted) setTracking(tracking);
-      } catch {
-        if (!request.signal.aborted) setTracking(null);
-      } finally {
-        if (pending === request) pending = undefined;
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 15000);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      pending?.abort();
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, []);
   return (
     <div className="landing">
       <a className="skip" href="#landing-main">
@@ -94,15 +58,8 @@ export default function Landing({ go }: { go: (path: string) => void }) {
       <header className="landing-head">
         <div className="landing-head-inner">
           <div className="landing-identity">
-            <div className="landing-team">
-              <Mark />
-              <span>Watermelon</span>
-            </div>
-            <span className="landing-identity-rule" aria-hidden="true" />
-            <div className="landing-case">
-              <img src={mtsMark} alt="" width="32" height="32" />
-              <span>Кейс МТС True Tech</span>
-            </div>
+            <ProductBrand />
+            <MtsCaseBrand />
           </div>
           <RouteLink className="landing-login" path="/login" go={go}>
             Войти <Arrow up />
@@ -133,7 +90,7 @@ export default function Landing({ go }: { go: (path: string) => void }) {
                 </RouteLink>
               </div>
             </div>
-            <LandingOptic tracking={tracking} />
+            <LandingOptic />
           </div>
         </section>
       </main>

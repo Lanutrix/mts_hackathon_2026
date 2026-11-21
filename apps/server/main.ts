@@ -46,13 +46,15 @@ const ai = new AnalysisService(
   undefined,
   await loadVseLlm(root),
 );
+const origin = process.env.ORIGIN ?? "http://127.0.0.1:3000";
 const app = await createApp({
   stores,
   sources,
   auth,
   publicDemo: process.env.PUBLIC_DEMO !== "false",
   secure,
-  origin: process.env.ORIGIN ?? "http://127.0.0.1:3000",
+  origin,
+  push: { dataDir: root, subject: process.env.VAPID_SUBJECT ?? (origin.startsWith("https://") ? origin : "https://mts-watermelon.ru") },
   ai,
   itsmUrl: process.env.ITSM_URL,
 });

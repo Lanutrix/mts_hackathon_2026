@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { generate } from "../packages/domain/generator.ts";
+import { createFixtureViewer } from "./fixture-viewer.ts";
 const root = resolve(".runtime/bench/" + randomUUID());
 await mkdir(root, { recursive: true });
 await mkdir(".runtime/qa", { recursive: true });
@@ -34,6 +35,7 @@ try {
     rows[0].priorityId = 4;
     rows[0].priority = "Наивысший";
     await writeFile(source, JSON.stringify(rows));
+    const viewer = await createFixtureViewer(dir);
     const server = spawn(
       process.execPath,
       ["--import", "tsx", "apps/server/main.ts"],
@@ -41,6 +43,7 @@ try {
         env: {
           ...process.env,
           DATA_DIR: dir,
+          USERS_FILE: viewer.path,
           SOURCE_FILE: source,
           PORT: "3220",
           ORIGIN: "http://127.0.0.1:3220",
@@ -52,7 +55,7 @@ try {
     try {
       await until(async () => {
         try {
-          return (await fetch("http://127.0.0.1:3220/api/health")).ok;
+          return (await fetch("http://127.0.0.1:3220/health/ready")).ok;
         } catch {
           return false;
         }
@@ -60,6 +63,14 @@ try {
       const page = await browser.newPage({
         viewport: { width: 1920, height: 1080 },
       });
+      if (
+        !(
+          await page.request.post("http://127.0.0.1:3220/api/login", {
+            data: viewer.credentials,
+          })
+        ).ok()
+      )
+        throw new Error("Fixture login failed");
       await page.goto("http://127.0.0.1:3220/live?sort=id");
       await page.getByTestId("card-DEMO-42-00001").first().waitFor();
       const samples: any[] = [];
@@ -75,9 +86,9 @@ try {
           .getByRole("button", { name: value, exact: true })
           .first()
           .waitFor();
-        const d = await fetch("http://127.0.0.1:3220/api/dashboard").then((r) =>
-          r.json(),
-        );
+        const d = await page.request
+          .get("http://127.0.0.1:3220/api/dashboard")
+          .then((r) => r.json());
         await page.waitForFunction(
           (rev) =>
             (

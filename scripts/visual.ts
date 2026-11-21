@@ -3,9 +3,11 @@ import { spawn } from "node:child_process";
 import { mkdir, copyFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { createFixtureViewer } from "./fixture-viewer.ts";
 const dir = resolve(".runtime/visual/" + randomUUID());
 await mkdir(dir, { recursive: true });
 await mkdir(".runtime/qa", { recursive: true });
+const viewer = await createFixtureViewer(dir);
 const source = join(dir, "incidents.json");
 await copyFile("data/demo/design.json", source);
 const server = spawn(
@@ -15,6 +17,7 @@ const server = spawn(
     env: {
       ...process.env,
       DATA_DIR: dir,
+      USERS_FILE: viewer.path,
       SOURCE_FILE: source,
       PORT: "3230",
       ORIGIN: "http://127.0.0.1:3230",
@@ -35,6 +38,14 @@ try {
     const page = await browser.newPage({
       viewport: { width, height: width === 2560 ? 1440 : 900 },
     });
+    if (
+      !(
+        await page.request.post("http://127.0.0.1:3230/api/login", {
+          data: viewer.credentials,
+        })
+      ).ok()
+    )
+      throw new Error("Fixture login failed");
     await page.clock.setFixedTime(new Date("2026-11-21T09:04:08Z"));
     await page.goto(
       "http://127.0.0.1:3230/" +

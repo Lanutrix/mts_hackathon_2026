@@ -127,7 +127,7 @@ test("F23 F24 F33 F34 import preview/commit/raw roundtrip and server role/CSRF e
       });
       assert.equal(result.statusCode, 200);
       assert.equal(store.rows.size, 120);
-      const exported = await app.inject("/api/export");
+      const exported = await app.inject({ url: "/api/export", headers });
       assert.deepEqual(exported.json(), rows);
       assert.deepEqual(JSON.parse(await readFile(path, "utf8")), rows);
       const preview2 = await app.inject({

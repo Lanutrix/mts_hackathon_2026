@@ -1,4 +1,7 @@
 import type { Group } from "../../../packages/domain/index.ts";
+import "./brand.css";
+
+const mtsMark = new URL("./assets/mts-case-mark.png", import.meta.url).href;
 
 const paths = {
   more: "M4 12h1m6.5 0h1m6.5 0h1",
@@ -81,16 +84,24 @@ export function SignalBadge({ signal }: { signal: Group | "escalation" }) {
 }
 export function Mark() {
   return (
-    <svg width="44" height="31" viewBox="0 0 48 34" aria-hidden="true">
-      <path d="M2 5h44a22 22 0 0 1-44 0Z" fill="#28665c" />
-      <path d="M5 5h38a19 19 0 0 1-38 0Z" fill="#d2eae2" />
-      <path d="M8 5h32a16 16 0 0 1-32 0Z" fill="#f27795" />
-      <path
-        d="m16 9 2 3m6-2v4m8-5-2 3"
-        stroke="#211d2c"
-        strokeWidth="2.3"
-        strokeLinecap="round"
-      />
-    </svg>
+    <img className="product-mark" src="/srez-mark.svg" alt="" width="40" height="40" />
+  );
+}
+
+export function ProductBrand() {
+  return (
+    <span className="product-brand">
+      <Mark />
+      <span>Срез</span>
+    </span>
+  );
+}
+
+export function MtsCaseBrand({ compact = false }: { compact?: boolean }) {
+  return (
+    <span className={"mts-case-brand" + (compact ? " mts-case-brand--compact" : "")}>
+      <img src={mtsMark} alt="" width="32" height="32" />
+      <span>Кейс МТС True Tech</span>
+    </span>
   );
 }

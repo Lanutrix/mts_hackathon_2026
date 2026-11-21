@@ -25,12 +25,12 @@ import type { AnalysisService } from "./analysis.ts";
 import { analyzeCase } from "./caseAnalysis.ts";
 import { analyzeSelection } from "./operationalAnalysis.ts";
 import { registerDispatch } from "./dispatch.ts";
+import { registerPush, type PushOptions } from "./push.ts";
 import {
   buildTriage,
   filterDashboard,
   grouping,
   sortTickets,
-  urgent,
   type CaseAnalysis,
 } from "../../packages/domain/triage.ts";
 export interface AppOptions {
@@ -44,6 +44,7 @@ export interface AppOptions {
   staticDir?: string;
   itsmUrl?: string;
   jurySimulation?: SimulationOptions;
+  push?: PushOptions;
 }
 export async function createApp(o: AppOptions) {
   const app = Fastify({
@@ -80,7 +81,12 @@ export async function createApp(o: AppOptions) {
     { username: string; ns: string; text: string; expires: number }
   >();
   const identity = (req: any) => o.auth.get(req.cookies.wm_session);
-  const jury = registerJurySimulation(app, o.publicDemo, o.jurySimulation);
+  const jury = registerJurySimulation(
+    app,
+    o.publicDemo,
+    o.jurySimulation,
+    (req) => !!identity(req),
+  );
   const db = [...o.stores.values()][0].db;
   const audit = (
     actor: string,
@@ -116,10 +122,6 @@ export async function createApp(o: AppOptions) {
       reply.code(404).send({ message: "Источник не найден" });
       return null;
     }
-    if (!identity(req) && (!o.publicDemo || ns !== "demo")) {
-      reply.code(401).send({ message: "Для этого источника требуется вход" });
-      return null;
-    }
     return o.stores.get(ns)!;
   };
   const readStoreFor = async (req: any, reply: any) =>
@@ -149,7 +151,7 @@ export async function createApp(o: AppOptions) {
   }
   for (const s of o.stores.values())
     s.on("reset", () => snapshots.delete(s.namespace));
-  function publicCase(req: FastifyRequest) {
+  function trainingCaseAnalysis(req: FastifyRequest) {
     const ns = (req.query as Record<string, string>).ns ?? "demo";
     return (
       o.publicDemo &&
@@ -183,12 +185,10 @@ export async function createApp(o: AppOptions) {
       const detail = triage.cases.find((c) => c.id === id && c.hash === q.hash);
       if (detail) return { s, detail, rows: triage.members.get(id)! };
     }
-    reply
-      .code(409)
-      .send({
-        message: "Подборка изменилась. Откройте её из обновлённой очереди.",
-        revision: s.revision,
-      });
+    reply.code(409).send({
+      message: "Подборка изменилась. Откройте её из обновлённой очереди.",
+      revision: s.revision,
+    });
   }
   const juryReadRoutes = new Set([
     "/api/me",
@@ -204,16 +204,23 @@ export async function createApp(o: AppOptions) {
   ]);
   app.addHook("onRequest", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
-    const ns = req.url.startsWith("/api/")
-      ? (req.query as { ns?: unknown }).ns
-      : undefined;
+    const route = req.routeOptions.url ?? "";
+    const apiRequest = route.startsWith("/api/") || req.url.startsWith("/api/");
+    if (
+      apiRequest &&
+      route !== "/api/login" &&
+      route !== "/api/me" &&
+      !identity(req)
+    )
+      return reply.code(401).send({ message: "Требуется вход" });
+    const ns = apiRequest ? (req.query as { ns?: unknown }).ns : undefined;
     if (ns !== undefined && typeof ns !== "string")
       return reply.code(400).send({ message: "Укажите один источник" });
     if (ns === "simulation") {
       if (!o.publicDemo)
         return reply.code(404).send({ message: "Учебный эфир отключён" });
       if (
-        !publicCase(req) &&
+        !trainingCaseAnalysis(req) &&
         (!["GET", "HEAD"].includes(req.method) ||
           !juryReadRoutes.has(req.routeOptions.url ?? ""))
       )
@@ -232,7 +239,7 @@ export async function createApp(o: AppOptions) {
         reply.code(403).send({ message: "Межсайтовый запрос запрещён" });
         return;
       }
-      if (req.url.split("?")[0] !== "/api/login" && !publicCase(req)) {
+      if (route !== "/api/login") {
         const user = identity(req);
         if (!user) {
           reply.code(401).send({ message: "Требуется вход" });
@@ -247,7 +254,17 @@ export async function createApp(o: AppOptions) {
       }
     }
   });
-  juryReadRoutes.add(registerDispatch(app, { db, identity, readStoreFor, requireRole }));
+  juryReadRoutes.add(
+    registerDispatch(app, { db, identity, readStoreFor, requireRole }),
+  );
+  const push =
+    o.push &&
+    registerPush(app, o.push, {
+      db,
+      auth: o.auth,
+      stores: o.stores,
+      secure: o.secure,
+    });
   app.setErrorHandler((error, req, reply) => {
     const e = error as Error & { statusCode?: number };
     reply.code(e.statusCode && e.statusCode < 500 ? e.statusCode : 400).send({
@@ -300,18 +317,27 @@ export async function createApp(o: AppOptions) {
     const ready = database && sources.every((s) => s.state === "live");
     return reply
       .code(ready ? 200 : 503)
-      .send({ status: ready ? "ready" : "degraded", database, sources });
+      .send(
+        identity(req)
+          ? { status: ready ? "ready" : "degraded", database, sources }
+          : { status: ready ? "ready" : "degraded" },
+      );
   });
   app.get("/api/me", async (req) => {
-    if ((req.query as any).ns === "simulation")
-      return { user: null, publicDemo: o.publicDemo, sources: ["simulation"] };
     const u = identity(req);
+    if (!u) return { user: null, sources: [] };
     return {
-      user: u ? { username: u.username, role: u.role, csrf: u.csrf } : null,
+      user: {
+        username: u.username,
+        role: u.role,
+        csrf: u.csrf,
+        expiresInMs: Math.max(0, u.expires - Date.now()),
+      },
       publicDemo: o.publicDemo,
-      sources: [...o.stores.keys()].filter(
-        (n) => u || (n === "demo" && o.publicDemo),
-      ),
+      sources:
+        (req.query as any).ns === "simulation"
+          ? ["simulation"]
+          : [...o.stores.keys()],
     };
   });
   app.post(
@@ -324,6 +350,8 @@ export async function createApp(o: AppOptions) {
         return reply
           .code(401)
           .send({ message: "Неверное имя пользователя или пароль" });
+      o.auth.logout(req.cookies.wm_session);
+      await push?.login(req, result.session.username);
       reply.setCookie("wm_session", result.token, {
         httpOnly: true,
         secure: o.secure,
@@ -340,26 +368,9 @@ export async function createApp(o: AppOptions) {
   );
   app.post("/api/logout", async (req, reply) => {
     o.auth.logout(req.cookies.wm_session);
+    await push?.logout(req, reply);
     reply.clearCookie("wm_session", { path: "/" });
     return { ok: true };
-  });
-  app.get("/api/public/focus", async () => {
-    const s = o.publicDemo ? o.stores.get("demo") : null;
-    if (!s) return { tracking: null };
-    let lead: Incident | undefined;
-    for (const r of s.rows.values())
-      if (r.sourcePresent && r.groups.length && (!lead || urgent(r, lead) < 0))
-        lead = r;
-    return {
-      tracking: lead
-        ? {
-            id: lead.id,
-            header: String(lead.raw.header ?? ""),
-            revision: lead.revision,
-            group: lead.groups[0],
-          }
-        : null,
-    };
   });
   app.get("/api/dashboard", async (req, reply) => {
     const s = await readStoreFor(req, reply);
@@ -480,7 +491,7 @@ export async function createApp(o: AppOptions) {
     },
     async (req, reply) => {
       if (
-        !publicCase(req) &&
+        !trainingCaseAnalysis(req) &&
         !requireRole(req, reply, ["coordinator", "demo-admin"])
       )
         return;
@@ -859,6 +870,10 @@ export async function createApp(o: AppOptions) {
       "X-Accel-Buffering": "no",
     });
     const send = (event: string, data: any, id?: number) => {
+      if (!identity(req)) {
+        reply.raw.end();
+        return;
+      }
       if (!reply.raw.destroyed)
         reply.raw.write(
           `${id !== undefined ? "id: " + id + "\n" : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
@@ -907,11 +922,21 @@ export async function createApp(o: AppOptions) {
   const root = o.staticDir ?? resolve("dist/web");
   if (existsSync(root)) {
     await app.register(staticFiles, { root, cacheControl: false });
-    app.setNotFoundHandler((req, reply) =>
-      req.url.startsWith("/api/")
-        ? reply.code(404).send({ message: "Маршрут не найден" })
-        : reply.sendFile("index.html"),
-    );
+    app.setNotFoundHandler((req, reply) => {
+      const url = new URL(req.url, "http://localhost");
+      if (url.pathname.startsWith("/api/"))
+        return reply.code(404).send({ message: "Маршрут не найден" });
+      if (
+        url.pathname.startsWith("/assets/") ||
+        !["GET", "HEAD"].includes(req.method)
+      )
+        return reply.code(404).send();
+      if (url.pathname !== "/" && url.pathname !== "/login" && !identity(req)) {
+        const next = new URLSearchParams({ next: url.pathname + url.search });
+        return reply.redirect("/login?" + next, 303);
+      }
+      return reply.sendFile("index.html");
+    });
   }
   return app;
 }

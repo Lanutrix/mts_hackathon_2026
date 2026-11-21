@@ -4,6 +4,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { generate } from "../../packages/domain/generator.ts";
 
+import { createFixtureViewer } from "../../scripts/fixture-viewer.ts";
+let viewer: Awaited<ReturnType<typeof createFixtureViewer>>;
 const origin = "http://127.0.0.1:3228";
 const fixture = generate(360);
 let server: ChildProcess;
@@ -11,6 +13,7 @@ let source: string;
 
 test.beforeAll(async () => {
   const dir = await mkdtemp(resolve(".runtime/workspace-e2e-"));
+  viewer = await createFixtureViewer(dir);
   source = join(dir, "incidents.json");
   await writeFile(source, JSON.stringify(fixture.rows));
   server = spawn(process.execPath, ["--import", "tsx", "apps/server/main.ts"], {
@@ -18,6 +21,7 @@ test.beforeAll(async () => {
       ...process.env,
       PORT: "3228",
       ORIGIN: origin,
+      USERS_FILE: viewer.path,
       SOURCE_FILE: source,
       DATA_DIR: dir,
     },
@@ -27,7 +31,7 @@ test.beforeAll(async () => {
   await expect
     .poll(
       async () =>
-        fetch(origin + "/api/health").then(
+        fetch(origin + "/health/ready").then(
           (r) => r.ok,
           () => false,
         ),
@@ -42,6 +46,13 @@ test.afterAll(() => {
 test("queue keeps a selected ticket through search, source revision and reload; paginated groups contain each ID once", async ({
   page,
 }) => {
+  expect(
+    (
+      await page.request.post(origin + "/api/login", {
+        data: viewer.credentials,
+      })
+    ).ok(),
+  ).toBe(true);
   await page.goto(origin + "/workspace");
   const queue = page.getByRole("region", { name: "Инциденты" });
   const context = page.getByRole("complementary", { name: "Контекст разбора" });
@@ -66,8 +77,9 @@ test("queue keeps a selected ticket through search, source revision and reload; 
     count = await checkboxes.count();
   }
   await expect(more).toHaveCount(0);
-  const labels = await checkboxes
-    .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+  const labels = await checkboxes.evaluateAll((els) =>
+    els.map((el) => el.getAttribute("aria-label")),
+  );
   expect(labels.length).toEqual(expected.size);
   expect(new Set(labels).size).toEqual(expected.size);
   const updated = fixture.rows.map((r) =>

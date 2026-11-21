@@ -660,3 +660,20 @@ footer {
     scroll-behavior: auto !important;
   }
 }
+
+.access-dialog {
+  color: #18232c;
+  background: #fbfcfa;
+  border: 1px solid rgba(32, 57, 58, .16);
+  border-radius: 24px;
+  padding: clamp(22px, 4vw, 38px);
+  width: min(410px, calc(100vw - 32px));
+  box-sizing: border-box;
+  box-shadow: 0 28px 100px #172c392b;
+}
+.access-dialog::backdrop { background: rgb(24 34 42 / 30%); backdrop-filter: blur(7px); }
+.access-dialog .login { width: 100%; max-width: none; padding: 0; margin: 0; box-shadow: none; background: transparent; border: 0; }
+.access-dialog .login h1 { font-size: 1.75rem; line-height: 1.15; margin: 0 32px 26px 0; }
+.access-close { position:absolute; top:14px; right:14px; border:0; color:#33414a; background:transparent; border-radius:50%; font-size:25px; height:40px; width:40px; cursor:pointer; }
+.access-close:hover { background:#eaf0ed; }
+.access-check { margin:12vh auto; text-align:center; }

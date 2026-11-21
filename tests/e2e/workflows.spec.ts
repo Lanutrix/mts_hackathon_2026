@@ -53,7 +53,7 @@ test.beforeEach(async () => {
     .poll(
       async () => {
         try {
-          return (await fetch("http://127.0.0.1:3210/api/health")).status;
+          return (await fetch("http://127.0.0.1:3210/health/ready")).status;
         } catch {
           return 0;
         }
@@ -72,13 +72,13 @@ test.afterEach(async () => {
   if (dir && dirname(dir) === fixtureRoot)
     await rm(dir, { recursive: true, force: true, maxRetries: 5 });
 });
-async function reset() {
+async function reset(page: Page) {
   await writeFile(source, JSON.stringify(generate(120).rows));
   await expect
     .poll(async () => {
-      const r = await fetch(
-        "http://127.0.0.1:3210/api/incident/DEMO-42-00001",
-      ).then((r) => r.json());
+      const r = await page.request
+        .get("http://127.0.0.1:3210/api/incident/DEMO-42-00001")
+        .then((r) => r.json());
       return r.incident?.raw.header;
     })
     .toBe(generate(1).rows[0].header);
@@ -127,23 +127,45 @@ test("public landing shows only the hero and opens either screen", async ({
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
   await page.clock.fastForward(6000);
-  expect(apiCalls.length).toBeGreaterThan(0);
-  expect(apiCalls.every((path) => path === "/api/public/focus")).toBe(true);
-  await page.getByRole("link", { name: "Открыть эфир" }).click();
-  await expect(page).toHaveURL("/live");
-  await expect(page.getByTestId("live-register")).toBeVisible();
-  await page.goBack();
-  await expect(title).toBeVisible();
-  apiCalls.length = 0;
-  await page.clock.fastForward(16000);
-  expect(apiCalls.every((path) => path === "/api/public/focus")).toBe(true);
+  expect(apiCalls).toEqual([]);
   await page.getByRole("link", { name: "Рабочая очередь" }).click();
-  await expect(page).toHaveURL("/workspace");
-  await expect(page.getByRole("region", { name: "Инциденты" })).toBeVisible();
-  await page.goBack();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByTestId("live-register")).toHaveCount(0);
+  await page.getByRole("button", { name: "Закрыть вход" }).click();
   await expect(title).toBeVisible();
-  await page.goForward();
-  await expect(page.getByRole("region", { name: "Инциденты" })).toBeVisible();
+  const ticket = "/incident/DEMO-42-00019?ns=demo#main";
+  await page.goto(ticket);
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Основная навигация" }),
+  ).toHaveCount(0);
+  for (const route of [
+    "/api/export",
+    "/api/dashboard",
+    "/api/incident/DEMO-42-00019",
+    "/api/simulation/stream",
+    "/api/stream?ns=simulation",
+    "/api/public/focus",
+  ])
+    expect((await page.request.get(route)).status()).toBe(401);
+  await page.getByLabel("Имя пользователя").fill("viewer");
+  await page.getByLabel("Пароль", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Войти", exact: true }).click();
+  await expect(page).toHaveURL(ticket);
+  await expect(page.locator("main .detail")).toContainText("DEMO-42-00019");
+});
+async function viewerSession(page: Page) {
+  const result = await page.request.post("/api/login", {
+    data: { username: "viewer", password },
+  });
+  expect(result.ok()).toBe(true);
+}
+test.beforeEach(async ({ page }, info) => {
+  if (
+    !info.title.startsWith("public landing") &&
+    !info.title.startsWith("F18 ")
+  )
+    await viewerSession(page);
 });
 test("jury viewers receive the same observed events and dismiss them independently", async ({
   page,
@@ -170,6 +192,7 @@ test("jury viewers receive the same observed events and dismiss them independent
   });
   try {
     const second = await guest.newPage();
+    await viewerSession(second);
     await second.goto("/simulation");
     const secondNotice = second.getByRole("region", {
       name: "Уведомление об инциденте",
@@ -261,7 +284,9 @@ test("the 3D surface rotates the chosen object with reduced motion and follows i
     "critical",
   );
   await page.locator(".case-insight .case-source").click();
-  await expect(page.locator(".detail-guidance")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Маршрутизация" }),
+  ).toBeVisible();
 });
 
 test("cases rank the filtered queue, explain the source tickets and fit the viewport", async ({
@@ -411,9 +436,10 @@ test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers wit
   page,
   browser,
 }) => {
-  await reset();
+  await reset(page);
   const second = await browser.newContext();
   const other = await second.newPage();
+  await viewerSession(other);
   await Promise.all([page.goto("/live?sort=id"), other.goto("/live?sort=id")]);
   await expect(page.getByTestId("count-critical")).toHaveText("12");
   await expect(page.getByTestId("count-coordinators")).toHaveText("36");
@@ -473,7 +499,7 @@ test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers wit
 test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", async ({
   page,
 }, info) => {
-  await reset();
+  await reset(page);
   await page.goto("/live");
   await page.getByRole("searchbox").fill("DEMO-42-00019");
   await expect(page.getByTestId("live-count")).toHaveText("1");
@@ -526,7 +552,7 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   page,
 }, info) => {
   await login(page, "demo-admin");
-  await page.getByRole("link", { name: /Watermelon/ }).click();
+  await page.getByRole("link", { name: /Срез/ }).click();
   await expect(page).toHaveURL("/");
   await page.getByRole("link", { name: "Рабочая очередь" }).click();
   await expect(page).toHaveURL("/workspace");
@@ -537,9 +563,9 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   await page.getByRole("link", { name: "Настройки", exact: true }).click();
   await page.getByLabel("Часовой пояс", { exact: true }).selectOption("UTC");
   await page.getByRole("button", { name: "Сохранить настройки" }).click();
-  await expect(page.getByRole("status").last()).toHaveText(
-    "Настройки сохранены",
-  );
+  await expect(
+    page.getByText("Настройки сохранены", { exact: true }),
+  ).toHaveText("Настройки сохранены");
   await page.reload();
   await expect(page.getByLabel("Часовой пояс", { exact: true })).toHaveValue(
     "UTC",
@@ -592,9 +618,7 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
     page.getByRole("heading", { name: "Инциденты в фокусе." }),
   ).toBeVisible();
   await page.goBack();
-  await expect(
-    page.getByRole("link", { name: "Войти", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toBeVisible();
   expect(
     (
       await page.request.post("/api/demo", { data: { action: "reset" } })
@@ -625,7 +649,7 @@ test("F22 no serious/critical automated accessibility violations", async ({
 test("F08 F14 F28 exact deadline, null and untrusted HTML stay visible without execution", async ({
   page,
 }) => {
-  await reset();
+  await reset(page);
   await mutate("critical");
   await mutate("deadline", "2026-11-21T09:00:00Z");
   await page.clock.setFixedTime(new Date("2026-11-21T09:00:00Z"));

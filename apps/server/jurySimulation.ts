@@ -435,6 +435,7 @@ function frame(event: string, data: unknown, id?: string | number) {
 }
 
 type Viewer = {
+  authorized: () => boolean;
   protocol: "snapshot" | "dashboard";
   initial: boolean;
   cursor: number;
@@ -444,6 +445,7 @@ export function registerJurySimulation(
   app: FastifyInstance,
   publicDemo: boolean,
   options: SimulationOptions = {},
+  authorized: (request: FastifyRequest) => boolean = () => true,
 ) {
   const viewers = new Map<ServerResponse, Viewer>();
   let current:
@@ -458,6 +460,10 @@ export function registerJurySimulation(
   let closing = false;
 
   function write(viewer: ServerResponse, message: string) {
+    if (!viewers.get(viewer)?.authorized()) {
+      viewer.end();
+      return;
+    }
     if (viewer.writableNeedDrain) viewer.destroy();
     else if (!viewer.destroyed && !viewer.writableEnded) viewer.write(message);
   }
@@ -613,7 +619,12 @@ export function registerJurySimulation(
         (req.query as { cursor?: string }).cursor ??
         0,
     );
-    const viewer = { protocol, initial: true, cursor };
+    const viewer = {
+      protocol,
+      initial: true,
+      cursor,
+      authorized: () => authorized(req),
+    };
     viewers.set(response, viewer);
     response.once("close", () => {
       if (viewers.delete(response) && !viewers.size) idle();

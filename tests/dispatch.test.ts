@@ -35,6 +35,10 @@ test("coordinator dispatch uses scoped evidence, requires confirmation versions 
     assignedEmployeeLogin: "ivan",
   });
   Object.assign(rows[4], { productName: "Связь" });
+  Object.assign(rows[2], {
+    stateId: 10, state: "Закрыт", stateEnum: "Closed",
+    completionDate: rows[2].deadline,
+  });
   for (const ns of ["demo", "original", "workspace"]) {
     const store = new Store(db, ns);
     stores.set(ns, store);
@@ -90,6 +94,11 @@ test("coordinator dispatch uses scoped evidence, requires confirmation versions 
   assert.equal(view.recommended, best.name);
   assert.deepEqual([best.both, best.product, best.symptom], [2, 2, 3]);
   assert.equal(best.members[0].label, "Анна (anna)");
+  assert.deepEqual(
+    [best.members[0].open, best.members[0].similar],
+    [2, 2],
+    "closed similar tickets count as experience, only open rows count as workload",
+  );
   assert.ok(!result.body.includes("Приватная группа"));
   assert.ok(
     !view.teams.find((team: any) => team.name === "Координаторы").product,
@@ -157,13 +166,12 @@ test("coordinator dispatch uses scoped evidence, requires confirmation versions 
     admin,
   );
   assert.equal(second.json().decision.version, 2);
-  for (const headers of [{}, viewer]) {
-    const publicView = (await get(headers)).json();
-    assert.equal(publicView.canSave, false);
-    assert.equal(publicView.history.length, 0);
-    assert.ok(publicView.teams.every((team: any) => team.members.length === 0));
-    assert.ok(!JSON.stringify(publicView).includes(payload.note));
-  }
+  assert.equal((await get()).statusCode, 401);
+  const viewerView = (await get(viewer)).json();
+  assert.equal(viewerView.canSave, false);
+  assert.equal(viewerView.history.length, 0);
+  assert.ok(viewerView.teams.every((team: any) => team.members.length === 0));
+  assert.ok(!JSON.stringify(viewerView).includes(payload.note));
   const ws = (await get(admin, "workspace")).json();
   assert.equal(ws.history.length, 0);
   assert.equal(ws.recommended, "Приватная группа");
@@ -196,7 +204,7 @@ test("coordinator dispatch uses scoped evidence, requires confirmation versions 
   );
   assert.equal((await post(payload, writer)).json().decision.version, 1);
   assert.equal(
-    (await app.inject("/api/export?ns=demo")).json()[0].assignedGroupName,
+    (await app.inject({ url: "/api/export?ns=demo", headers: writer })).json()[0].assignedGroupName,
     "Координаторы",
   );
   await stores.get("demo")!.reset();
@@ -241,6 +249,8 @@ test("the local journal survives a database restart and a ticket cannot recommen
       const view = await read();
       assert.equal(view.recommended, null);
       if (initial) {
+        assert.equal(view.teams[0].members[0].similar, 0);
+        assert.equal(view.teams[0].members[0].open, 0);
         const result = await app.inject({
           method: "POST",
           url,

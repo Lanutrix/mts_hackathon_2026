@@ -1,14 +1,8 @@
 import MelonScene from "./MelonScene";
-import type { MelonTracking } from "./melonModel";
-
-export default function LandingOptic({
-  tracking,
-}: {
-  tracking?: MelonTracking | null;
-}) {
+export default function LandingOptic() {
   return (
     <div className="landing-optic">
-      <MelonScene active="all" hero tracking={tracking} />
+      <MelonScene active="all" hero />
     </div>
   );
 }

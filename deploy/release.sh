@@ -24,8 +24,11 @@ for attempt in $(seq 1 40); do
   sleep 1
 done
 curl -fsS http://127.0.0.1:3001/health/ready >/dev/null
-curl -fsS http://127.0.0.1:3001/api/dashboard > "$stage/dashboard.json"
-node --input-type=module -e 'import fs from "node:fs";const d=JSON.parse(fs.readFileSync(process.argv[1]));if(d.total!==600||Object.keys(d.groups).length!==4)process.exit(1)' "$stage/dashboard.json"
+# A fresh staging instance must serve the landing and deny guest access to both sources.
+curl -fsS http://127.0.0.1:3001/ >/dev/null
+for route in /api/dashboard /api/export '/api/dashboard?ns=simulation'; do
+  test "$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:3001$route")" = 401
+done
 kill "$stage_pid"
 wait "$stage_pid" || true
 trap - EXIT

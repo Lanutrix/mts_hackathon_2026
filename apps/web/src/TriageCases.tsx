@@ -190,10 +190,10 @@ export default function TriageCases(props: Props) {
             <button
               className="dispatch-entry"
               type="button"
-              aria-label={"Выбрать команду для " + focus.recommendationId}
+              aria-label={"Назначить исполнителя для " + focus.recommendationId}
               onClick={() => props.open(focus.recommendationId)}
             >
-              Выбрать команду <span aria-hidden="true">→</span>
+              Назначить исполнителя <span aria-hidden="true">→</span>
             </button>
           )}
         </div>

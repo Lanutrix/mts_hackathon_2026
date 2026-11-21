@@ -24,11 +24,8 @@
 .wm-loader-optic > i {
   display: block;
   width: 61%;
-  height: 36%;
-  border-radius: 12% 12% 100% 100% / 12% 12% 150% 150%;
-  background: #da204e;
-  border-bottom: 0.13em solid #357166;
-  transform: rotate(-28deg);
+  height: 61%;
+  background: url("/srez-mark.svg") center / contain no-repeat;
 }
 .wm-loader-stage {
   display: flex;
@@ -67,9 +64,9 @@
 @keyframes wm-slice {
   0%,
   100% {
-    transform: translateY(0.09em) rotate(-28deg);
+    transform: translateY(0.04em);
   }
   50% {
-    transform: translateY(-0.12em) rotate(7deg);
+    transform: translateY(-0.08em) rotate(8deg);
   }
 }

@@ -9,13 +9,20 @@ import { facet } from "../../packages/domain/triage.ts";
 import type { Role } from "./auth.ts";
 import type { DB } from "./db.ts";
 
-type Member = { id: string; label: string };
+export type DispatchMember = {
+  id: string;
+  name: string;
+  login: string;
+  label: string;
+  open: number;
+  similar: number;
+};
 export type DispatchTeam = {
   name: string;
   product: number;
   symptom: number;
   both: number;
-  members: Member[];
+  members: DispatchMember[];
 };
 export type DispatchDecision = {
   version: number;
@@ -90,7 +97,7 @@ function evidence(
   const product = facet(target, "product");
   const symptom = facet(target, "symptom");
   const teams = new Map<string, DispatchTeam>();
-  const roster = new Map<string, Map<string, Member>>();
+  const roster = new Map<string, Map<string, DispatchMember>>();
   for (const r of rows.values()) {
     if (!r.sourcePresent || r.quarantined || !r.team) continue;
     let team = teams.get(r.team);
@@ -99,17 +106,25 @@ function evidence(
       teams.set(r.team, team);
       roster.set(r.team, new Map());
     }
+    let member: DispatchMember | undefined;
     if (includeMembers) {
       const login = spaces(r.raw.assignedEmployeeLogin);
       const name = spaces(r.raw.assignedEmployee);
       if (login || name) {
         const id = login ? "login:" + login : "name:" + name;
-        roster
-          .get(r.team)!
-          .set(id, {
-            id,
+        const members = roster.get(r.team)!;
+        member = members.get(id);
+        if (!member) {
+          member = {
+            id, name, login,
             label: name && login ? name + " (" + login + ")" : name || login,
-          });
+            open: 0, similar: 0,
+          };
+          members.set(id, member);
+        } else if (name && login && (!member.name || textOrder(name, member.name) < 0)) {
+          member.name = name;
+          member.label = name + " (" + login + ")";
+        }
       }
     }
     // The ticket's own assignment belongs to the catalogue, never to its evidence.
@@ -120,7 +135,12 @@ function evidence(
       symptom.key !== "unknown" && facet(r, "symptom").key === symptom.key;
     if (sameProduct) team.product++;
     if (sameSymptom) team.symptom++;
-    if (sameProduct && sameSymptom) team.both++;
+    if (sameProduct && sameSymptom) {
+      team.both++;
+      if (member) member.similar++;
+    }
+    if (member && (r.stateId === 0 || r.stateId === 2 || r.stateId === 20))
+      member.open++;
   }
   const ranked = [...teams.values()].sort(
     (a, b) =>
@@ -131,7 +151,7 @@ function evidence(
   );
   for (const team of ranked)
     team.members = [...roster.get(team.name)!.values()].sort((a, b) =>
-      textOrder(a.label, b.label),
+      b.similar - a.similar || a.open - b.open || textOrder(a.label, b.label),
     );
   const matched = ranked.filter((t) => t.product || t.symptom);
   // A matching specialist group is a destination even if the dispatch desk

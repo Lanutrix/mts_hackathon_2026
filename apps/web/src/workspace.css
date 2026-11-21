@@ -585,10 +585,43 @@
   .wq-row-facts { font-size: .75rem; }
   .wq .wq-signals { max-width: 100%; gap: .25rem .7rem; }
   .wq-signals li { font-size: .72rem; }
-  .wq-intro { padding-block: .8rem; gap: .5rem; min-height: 0; }
-  .wq-optic { height: calc(100% - 3.4rem); }
+  .wq-intro {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(130px, 39%);
+    align-items: center;
+    padding-block: .75rem .8rem;
+    gap: .4rem .5rem;
+    min-height: 0;
+  }
+  .wq-intro h1 { grid-area: 1 / 1; max-width: none; }
+  .wq-snapshot { grid-area: 2 / 1; display: block; }
+  .wq-snapshot::before { display: inline-block; margin-right: .5rem; vertical-align: .1em; }
+  .wq .wq-signals { grid-column: 1/-1; }
+  .wq-optic {
+    grid-area: 1 / 2 / 3;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: clamp(92px, 26vw, 132px);
+  }
   .wq-ticket-link { font-size: 1.02rem; }
   .wq-context { padding: 1.25rem 0; }
+}
+@media (max-width: 360px) {
+  .wq .wq-signals {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .3rem .75rem;
+    align-items: start;
+  }
+  .wq-signals li {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    gap: .23rem;
+    font-size: .69rem;
+    line-height: 1.25;
+  }
+  .wq-signals .signal-mark { width: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .wq *, .wq *::before, .wq *::after { animation: none !important; transition: none !important; }

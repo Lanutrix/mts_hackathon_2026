@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Incident } from "../../../packages/domain/index";
-import type { DispatchDecision, DispatchView } from "../../server/dispatch";
+import type { DispatchDecision, DispatchMember, DispatchTeam, DispatchView } from "../../server/dispatch";
+import { Icon } from "./Brand";
 import "./dispatch.css";
 
 type Draft = {
   team: string;
   member: string | null;
+  memberLabel: string;
   note: string;
   snapshot: string;
   expectedVersion: number;
@@ -46,6 +48,100 @@ function formattedTime(date: string, zone: string) {
   }).format(new Date(date));
 }
 
+const normalizeSearch = (s: string) =>
+  s.normalize("NFKC").toLocaleLowerCase("ru").replace(/ё/g, "е").trim();
+
+function initials(member: DispatchMember) {
+  const words = (member.name || member.login).match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase("ru");
+}
+
+const pageSize = 6;
+
+function PersonPicker({
+  team, value, choose,
+}: {
+  team: DispatchTeam;
+  value: string | null;
+  choose: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(pageSize);
+  const nextOption = useRef<HTMLInputElement>(null);
+  const focusNext = useRef(false);
+  const tokens = normalizeSearch(query).split(/\s+/u).filter(Boolean);
+  const matches = team.members.filter((m) => {
+    const name = normalizeSearch(m.label);
+    return tokens.every((token) => name.includes(token));
+  });
+  useEffect(() => {
+    if (focusNext.current) {
+      nextOption.current?.focus();
+      focusNext.current = false;
+    }
+  }, [limit]);
+  return (
+    <fieldset className="dispatch-picker">
+      <legend>Исполнитель</legend>
+      {team.members.length > 0 && (
+        <div className="dispatch-search">
+          <Icon name="research" size={17} />
+          <input
+            type="search"
+            aria-label="Найти исполнителя"
+            placeholder="Имя или логин"
+            value={query}
+            onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }}
+            onChange={(event) => { setQuery(event.target.value); setLimit(pageSize); }}
+          />
+        </div>
+      )}
+      <label className="dispatch-option dispatch-team-option">
+        <span className="dispatch-avatar"><Icon name="coordinators" size={18} /></span>
+        <span className="dispatch-person">
+          <strong>Вся команда</strong>
+          <small>Без персонального назначения</small>
+        </span>
+        <input type="radio" name="recipient" checked={value === ""} onChange={() => choose("")} />
+      </label>
+      {team.members.length === 0 ? (
+        <p className="dispatch-basis dispatch-empty">В выгрузке нет сотрудников этой команды.</p>
+      ) : (
+        <>
+          <div className="dispatch-list-head">
+            <span aria-live="polite">Сотрудники · {tokens.length ? matches.length + " из " : ""}{team.members.length}</span>
+            <span aria-hidden="true">Похожие</span>
+            <span aria-hidden="true">Открытые</span>
+          </div>
+          {matches.length === 0 && <p className="dispatch-empty">Исполнители не найдены</p>}
+          {matches.slice(0, limit).map((m, index) => (
+            <label className="dispatch-option" key={m.id}>
+              <span className="dispatch-avatar" aria-hidden="true">{initials(m)}</span>
+              <span className="dispatch-person">
+                <strong>{m.name || m.login}</strong>
+                {m.name && m.login && <small>{m.login}</small>}
+              </span>
+              <span className="dispatch-count"><span>Похожие </span>{m.similar}</span>
+              <span className="dispatch-count"><span>Открытые </span>{m.open}</span>
+              <input
+                ref={index === limit - pageSize ? nextOption : undefined}
+                type="radio" name="recipient" checked={value === m.id}
+                onChange={() => choose(m.id)}
+              />
+            </label>
+          ))}
+          {matches.length > limit && (
+            <button type="button" className="dispatch-more" onClick={() => {
+              focusNext.current = true;
+              setLimit(limit + pageSize);
+            }}>Показать ещё {Math.min(pageSize, matches.length - limit)}</button>
+          )}
+        </>
+      )}
+    </fieldset>
+  );
+}
+
 function DecisionHandoff({
   decision,
   props,
@@ -61,7 +157,7 @@ function DecisionHandoff({
       " · " +
       String(props.incident.raw.header || "Обращение"),
     "Команда назначения: " + decision.team,
-    decision.member && "Исполнитель: " + decision.member,
+    "Исполнитель: " + (decision.member || "Вся команда"),
     decision.note && "Комментарий: " + decision.note,
     "Решение координатора: " +
       decision.actor +
@@ -89,8 +185,8 @@ function DecisionHandoff({
     <div className="dispatch-handoff">
       <p>
         {props.itsmMock
-          ? "Для передачи команде скопируйте решение. Здесь доступен макет карточки ITSM."
-          : "Откройте карточку ITSM и перенесите выбранное назначение."}
+          ? "Передайте сохранённое решение команде. Для этого обращения доступен макет ITSM."
+          : "Перенесите назначение в карточку ITSM вручную."}
       </p>
       <div className="dispatch-actions">
         <button
@@ -142,8 +238,9 @@ export default function CoordinatorDispatch(props: Props) {
     "/dispatch?ns=" +
     encodeURIComponent(ns);
   const [view, setView] = useState<DispatchView | null>(null);
-  const [team, setTeam] = useState("");
-  const [member, setMember] = useState("");
+  const [team, setTeam] = useState<string | null>(null);
+  const [member, setMember] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<Draft | null>(null);
   const [loadingFault, setLoadingFault] = useState("");
@@ -153,6 +250,15 @@ export default function CoordinatorDispatch(props: Props) {
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
+  const previewHeading = useRef<HTMLHeadingElement>(null);
+  const teamSelect = useRef<HTMLSelectElement>(null);
+  const lastDecisionHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (preview) previewHeading.current?.focus();
+  }, [preview]);
+  useEffect(() => {
+    if (notice) lastDecisionHeading.current?.focus();
+  }, [notice]);
   useEffect(() => {
     const controller = new AbortController();
     setLoadingFault("");
@@ -161,7 +267,10 @@ export default function CoordinatorDispatch(props: Props) {
         const body = await r.json();
         if (!r.ok)
           throw new Error(body.message || "Не удалось загрузить маршрут.");
-        if (!controller.signal.aborted) setView(body);
+        if (!controller.signal.aborted) {
+          setView(body);
+          setTeam((current) => current ?? body.recommended ?? "");
+        }
       })
       .catch((error) => {
         if (!controller.signal.aborted) setLoadingFault(error.message);
@@ -171,6 +280,7 @@ export default function CoordinatorDispatch(props: Props) {
   const best = view?.teams.find((t) => t.name === view.recommended);
   const selected = view?.teams.find((t) => t.name === team);
   const selectedMember = selected?.members.find((m) => m.id === member);
+  const hasRecipient = member === "" || !!selectedMember;
   const currentSnapshot =
     view?.sourceRevision === sourceRevision &&
     view.incidentRevision === incident.revision;
@@ -182,7 +292,7 @@ export default function CoordinatorDispatch(props: Props) {
         preview.expectedVersion !== currentVersion ||
         !currentSnapshot));
   const review = () => {
-    if (!view || !selected || !currentSnapshot) return;
+    if (!view || !selected || !hasRecipient || !currentSnapshot) return;
     setNotice("");
     setFault("");
     setConflict(false);
@@ -190,8 +300,9 @@ export default function CoordinatorDispatch(props: Props) {
       requestId: newRequestId(),
       snapshot: view.snapshot,
       expectedVersion: currentVersion,
-      team,
+      team: selected.name,
       member: selectedMember?.id ?? null,
+      memberLabel: selectedMember?.label ?? "Вся команда",
       note: note.trim(),
     });
   };
@@ -200,6 +311,7 @@ export default function CoordinatorDispatch(props: Props) {
     setConflict(false);
     setFault("");
     setView(null);
+    setMember(null);
     setAttempt((n) => n + 1);
   };
   const save = async () => {
@@ -211,7 +323,14 @@ export default function CoordinatorDispatch(props: Props) {
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-        body: JSON.stringify(preview),
+        body: JSON.stringify({
+          requestId: preview.requestId,
+          expectedVersion: preview.expectedVersion,
+          snapshot: preview.snapshot,
+          team: preview.team,
+          member: preview.member,
+          note: preview.note,
+        }),
       });
       const body = await response.json();
       if (!response.ok) {
@@ -235,8 +354,9 @@ export default function CoordinatorDispatch(props: Props) {
       );
       setNotice("Решение сохранено в журнале координатора.");
       setPreview(null);
-      setTeam("");
-      setMember("");
+      setEditing(false);
+      setTeam(decision.team);
+      setMember(null);
       setNote("");
       setAttempt((n) => n + 1);
     } catch (error) {
@@ -264,153 +384,131 @@ export default function CoordinatorDispatch(props: Props) {
       {!loadingFault && !view && <p role="status">Загружаем команды…</p>}
       {view && (
         <>
-          <div className="dispatch-evidence detail-guidance">
-            <p>
-              Рекомендация координатору ·{" "}
-              <strong>
-                {best ? best.name : "Совпадений по другим обращениям нет"}
-              </strong>
-            </p>
-            {best && (
-              <p className="dispatch-basis">
-                Другие обращения этой команды с продуктом «{view.product}» —{" "}
-                {best.product}, с симптомом «{view.symptom}» — {best.symptom}.
-                Оба признака — {best.both}.
-              </p>
-            )}
-          </div>
-          {view.canSave ? (
-            <>
-              {!preview ? (
-                <form
-                  className="dispatch-form"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    review();
-                  }}
-                >
-                  <label>
-                    Команда назначения
-                    <select
-                      required
-                      value={selected?.name || ""}
-                      onChange={(e) => {
-                        setTeam(e.target.value);
-                        setMember("");
-                        setNotice("");
-                      }}
-                    >
-                      <option value="">Выберите команду</option>
-                      {[...view.teams]
-                        .sort(
-                          (a, b) =>
-                            Number(b.name === best?.name) -
-                            Number(a.name === best?.name),
-                        )
-                        .map((t) => (
-                          <option key={t.name} value={t.name}>
-                            {t.name}
-                            {t.name === best?.name ? " · рекомендация" : ""}
-                          </option>
+          {view.canSave && (!view.history.length || editing || preview) ? (
+            !preview ? (
+              <form className="dispatch-form" onSubmit={(event) => {
+                event.preventDefault();
+                review();
+              }}>
+                <div className="dispatch-layout">
+                  <div className="dispatch-team">
+                    <label>
+                      Команда назначения
+                      <select
+                        ref={teamSelect}
+                        required
+                        value={selected?.name || ""}
+                        onChange={(event) => {
+                          setTeam(event.target.value);
+                          setMember(null);
+                          setNotice("");
+                          setFault("");
+                        }}
+                      >
+                        <option value="">Выберите команду</option>
+                        {[...view.teams].sort((a, b) =>
+                          Number(b.name === best?.name) - Number(a.name === best?.name),
+                        ).map((t) => (
+                          <option key={t.name} value={t.name}>{t.name}</option>
                         ))}
-                    </select>
-                  </label>
-                  <label>
-                    Исполнитель
-                    <select
-                      disabled={!selected?.members.length}
-                      value={selectedMember?.id ?? ""}
-                      onChange={(e) => setMember(e.target.value)}
-                    >
-                      <option value="">
-                        {team && !selected?.members.length
-                          ? "Нет исполнителей в выгрузке"
-                          : "На команду"}
-                      </option>
-                      {selected?.members.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {selected && selected.name !== best?.name && (
-                    <p className="dispatch-alt dispatch-basis">
-                      У выбранной команды совпадений по продукту —{" "}
-                      {selected.product}, по симптому — {selected.symptom}, по
-                      обоим признакам — {selected.both}.
-                    </p>
-                  )}
+                      </select>
+                    </label>
+                    <div className="dispatch-evidence">
+                      {best && <span className="dispatch-recommend"><Icon name="layers" size={15} />Рекомендация координатору</span>}
+                      {best && best.name !== selected?.name && <strong>{best.name}</strong>}
+                      {!best && <p className="dispatch-basis">Совпадений по другим обращениям нет.</p>}
+                      {selected && (
+                        <details className="dispatch-reasons">
+                          <summary>Основания для выбора команды</summary>
+                          <dl>
+                            <div><dt>Продукт «{view.product}»</dt><dd>{selected.product}</dd></div>
+                            <div><dt>Симптом «{view.symptom}»</dt><dd>{selected.symptom}</dd></div>
+                            <div><dt>Оба признака</dt><dd>{selected.both}</dd></div>
+                          </dl>
+                          {!!selected.members.length && <p className="dispatch-basis">
+                            Числа относятся к другим обращениям этой команды в выгрузке.
+                            У сотрудника «Похожие» совпадают по продукту и симптому,
+                            а «Открытые» включают назначенные, выполняемые и обращения на исследовании.
+                          </p>}
+                        </details>
+                      )}
+                    </div>
+                  </div>
+                  {selected ? (
+                    <PersonPicker key={selected.name} team={selected} value={member} choose={setMember} />
+                  ) : <p className="dispatch-basis dispatch-empty">Выберите команду, чтобы увидеть её сотрудников.</p>}
+                </div>
+                <div className="dispatch-footer">
                   <label className="dispatch-note">
                     Комментарий
-                    <input
+                    <textarea
+                      rows={2}
                       maxLength={500}
                       value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                      placeholder="Что проверить или передать команде"
+                      onChange={(event) => setNote(event.target.value)}
+                      placeholder="Что передать исполнителю?"
                     />
                   </label>
-                  <button
-                    className="dispatch-review"
-                    disabled={!selected || !!loadingFault || !currentSnapshot}
-                  >
-                    Проверить решение
-                  </button>
-                </form>
-              ) : (
-                <div className="dispatch-preview">
-                  <h3>Проверка перед сохранением</h3>
-                  <p>
-                    <strong>{incident.id}</strong> → {preview.team}
-                    {selectedMember && " · " + selectedMember.label}
-                  </p>
-                  {preview.note && <p>{preview.note}</p>}
-                  <p className="dispatch-basis">
-                    Решение попадёт в журнал. Назначение в ITSM выполняется
-                    вручную.
-                  </p>
-                  {stale && (
-                    <p role="alert">
-                      Обновите маршрут и проверьте данные ещё раз.
-                    </p>
-                  )}
-                  <div className="dispatch-actions">
-                    {stale ? (
-                      <button onClick={refresh}>Обновить маршрут</button>
-                    ) : (
-                      <button
-                        disabled={busy || !!loadingFault}
-                        onClick={() => void save()}
-                      >
-                        {busy ? "Сохраняем…" : "Сохранить решение"}
-                      </button>
+                  <div className="dispatch-submit">
+                    {selected && hasRecipient && (
+                      <p className="dispatch-target"><small>Получатель</small>
+                        <strong>{selectedMember?.label ?? selected.name}</strong>
+                      </p>
                     )}
-                    <button
-                      className="dispatch-inline"
-                      disabled={busy}
-                      onClick={() => {
-                        setPreview(null);
-                        setFault("");
-                        setConflict(false);
-                      }}
-                    >
-                      Изменить выбор
+                    <button className="dispatch-review" disabled={!selected || !hasRecipient || !!loadingFault || !currentSnapshot}>
+                      Проверить решение <span aria-hidden="true">→</span>
                     </button>
                   </div>
                 </div>
-              )}
-            </>
-          ) : (
-            <p className="dispatch-basis">{view.readOnlyReason}</p>
+              </form>
+            ) : (
+              <section className="dispatch-preview" aria-labelledby="dispatch-preview-title">
+                <h3 id="dispatch-preview-title" tabIndex={-1} ref={previewHeading}>Проверка перед сохранением</h3>
+                <dl className="dispatch-summary">
+                  <div><dt>Обращение</dt><dd>{incident.id}</dd></div>
+                  <div><dt>Команда назначения</dt><dd>{preview.team}</dd></div>
+                  <div><dt>Исполнитель</dt><dd>{preview.memberLabel}</dd></div>
+                  {preview.note && <div><dt>Комментарий</dt><dd>{preview.note}</dd></div>}
+                </dl>
+                <p className="dispatch-basis">Решение попадёт в журнал координатора. Назначение в ITSM выполняется вручную.</p>
+                {stale && <p role="alert">Обновите маршрут и проверьте данные ещё раз.</p>}
+                <div className="dispatch-actions">
+                  {stale ? (
+                    <button type="button" onClick={refresh}>Обновить маршрут</button>
+                  ) : (
+                    <button type="button" disabled={busy || !!loadingFault} onClick={() => void save()}>
+                      {busy ? "Сохраняем…" : "Сохранить решение"}
+                    </button>
+                  )}
+                  <button
+                    type="button" className="dispatch-inline" disabled={busy}
+                    onClick={() => {
+                      setPreview(null);
+                      setFault("");
+                      setConflict(false);
+                      requestAnimationFrame(() => teamSelect.current?.focus());
+                    }}
+                  >Изменить выбор</button>
+                </div>
+              </section>
+            )
+          ) : !view.canSave && (
+            <div className="dispatch-evidence">
+              <span className="dispatch-recommend"><Icon name="layers" size={15} />Рекомендация координатору</span>
+              <strong>{best?.name ?? "Совпадений по другим обращениям нет"}</strong>
+              {best && <p className="dispatch-basis">Другие обращения с продуктом «{view.product}» — {best.product},
+                с симптомом «{view.symptom}» — {best.symptom}. Оба признака — {best.both}.</p>}
+              <p className="dispatch-basis">{view.readOnlyReason}</p>
+            </div>
           )}
           {fault && <p role="alert">{fault}</p>}
           {notice && <p role="status">{notice}</p>}
           {view.history.length > 0 && (
             <section className="dispatch-history" aria-label="Журнал решений">
-              <h3>Последнее решение</h3>
+              <h3 ref={lastDecisionHeading} tabIndex={-1}>Последнее решение</h3>
               <p>
-                <strong>{view.history[0].team}</strong>
-                {view.history[0].member && " · " + view.history[0].member}
+                <strong>{view.history[0].member ?? "Вся команда"}</strong>
+                {" · " + view.history[0].team}
               </p>
               {view.history[0].note && <p>{view.history[0].note}</p>}
               <small>
@@ -432,7 +530,7 @@ export default function CoordinatorDispatch(props: Props) {
                     {view.history.slice(1).map((d) => (
                       <li key={d.version}>
                         <strong>{d.team}</strong>
-                        {d.member && " · " + d.member}
+                        {" · " + (d.member ?? "Вся команда")}
                         {d.note && <p>{d.note}</p>}
                         <small>
                           {d.actor} · {formattedTime(d.at, zone)}
@@ -441,6 +539,16 @@ export default function CoordinatorDispatch(props: Props) {
                     ))}
                   </ol>
                 </details>
+              )}
+              {view.canSave && !editing && !preview && (
+                <button type="button" className="dispatch-secondary" onClick={() => {
+                  setTeam(view.teams.some((t) => t.name === view.history[0].team)
+                    ? view.history[0].team : (view.recommended ?? ""));
+                  setMember(null);
+                  setNotice("");
+                  setEditing(true);
+                  requestAnimationFrame(() => teamSelect.current?.focus());
+                }}>Изменить назначение</button>
               )}
             </section>
           )}

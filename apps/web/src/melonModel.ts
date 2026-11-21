@@ -95,9 +95,9 @@ export function modelPoses(
         0.36 + 0.025 * Math.sin(phase * 0.43),
       ]
     : [
-        0.31 + fruit.pitch + 0.037 * breathe,
-        -0.55 - 0.37 * activity + fruit.yaw + 0.12 * yaw,
-        -0.055 + 0.025 * Math.sin(phase * 0.43),
+        0.29 + fruit.pitch + 0.037 * breathe,
+        -0.48 - 0.29 * activity + fruit.yaw + 0.1 * yaw,
+        0.105 + 0.025 * Math.sin(phase * 0.43),
       ];
   const sections = centers.map((z, index): Pose => {
     const lift = focus[index] ?? 0;
@@ -139,13 +139,13 @@ export function modelPoses(
     offset: [0, 0, 0],
     camera: [
       frame.pitch - 0.095 + 0.044 * Math.sin(phase * 0.57),
-      frame.yaw - 0.54 + 0.14 * Math.sin(phase * 0.33),
+      frame.yaw - (hero ? 0.54 : 0.70) + 0.14 * Math.sin(phase * 0.33),
       -0.048 + 0.032 * Math.sin(phase * 0.44),
     ],
     origin: hero
       ? [0.12, 0.012 - 0.027 * breathe, 0]
       : [0.025, 0.035 - 0.018 * breathe, 0],
-    size: hero ? 1.28 : 1.01,
+    size: hero ? 1.28 : 0.94,
   };
   separateGlass(sections, glass, sectionCuts(hero));
   return { fruit: sections, frame: glass };

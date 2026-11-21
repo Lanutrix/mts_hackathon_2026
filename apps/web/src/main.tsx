@@ -14,19 +14,20 @@ import "@fontsource/golos-text/latin-400.css";
 import "@fontsource/golos-text/latin-600.css";
 import "./style.css";
 import Landing from "./Landing";
+import {
+  registerDeviceWorker,
+  disconnectDeviceBrowser,
+  DeviceNotifications,
+} from "./DeviceNotifications";
 import { isTrainingPath, screenLink, screenPath } from "./routes";
 import Loader from "./Loader";
-import {
-  IncidentNotice,
-  signalTitle,
-  type IncidentSignal,
-} from "./IncidentNotice";
+import { IncidentNotice, type IncidentSignal } from "./IncidentNotice";
 import { mergeSignals } from "./signalQueue";
 import Workspace from "./Workspace";
 import LiveBoard from "./LiveBoard";
 import CoordinatorDispatch from "./CoordinatorDispatch";
 import { groups } from "./liveFeed";
-import { Mark, Icon, type IconName } from "./Brand";
+import { ProductBrand, MtsCaseBrand, Icon, type IconName } from "./Brand";
 import "./ops.css";
 import "./ticket.css";
 import type { Incident } from "../../../packages/domain/index.ts";
@@ -35,6 +36,7 @@ type User = {
   username: string;
   role: "viewer" | "coordinator" | "demo-admin";
   csrf: string;
+  expiresInMs: number;
 };
 const reasons: Record<string, string> = {
   critical: "Критический инцидент",
@@ -59,6 +61,7 @@ async function api(path: string, options: RequestInit = {}) {
     ...options,
     headers: { "Content-Type": "application/json", ...options.headers },
   });
+  if (response.status === 401 && path !== "/login") promptLogin();
   const data = await response.json();
   if (!response.ok)
     throw new Error(data.message ?? "Не удалось получить данные");
@@ -95,6 +98,133 @@ function readRoute() {
   }
   return url;
 }
+function promptLogin() {
+  if (location.pathname === "/" || location.pathname === "/login") return;
+  const next = location.pathname + location.search + location.hash;
+  location.replace("/login?" + new URLSearchParams({ next }));
+}
+function afterLogin(url: URL) {
+  const next = url.searchParams.get("next");
+  if (!next?.startsWith("/") || next.startsWith("//")) return "/live";
+  const destination = new URL(next, location.origin);
+  if (
+    destination.origin !== location.origin ||
+    !/^\/(?:simulation(?:\/|$)|live$|workspace$|wallboard$|incident\/|itsm\/|preferences$|notifications$|demo$|import$|history$|quality$)/.test(
+      destination.pathname,
+    )
+  )
+    return "/live";
+  return (
+    destination.pathname + destination.search + (destination.hash || url.hash)
+  );
+}
+type SessionInfo = { user: User; sources: string[]; publicDemo: boolean };
+
+function SessionGate({
+  route,
+  go,
+}: {
+  route: URL;
+  go: (path: string) => void;
+}) {
+  const [session, setSession] = useState<SessionInfo | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, retry] = useState(0);
+  const training = isTrainingPath(route.pathname);
+  useEffect(() => {
+    let active = true;
+    api(training ? "/me?ns=simulation" : "/me")
+      .then((info) => {
+        if (!active) return;
+        if (!info.user) promptLogin();
+        else setSession(info);
+      })
+      .catch(() => {
+        if (active) setError("Не удалось проверить вход");
+      });
+    const signedOut = (event: StorageEvent) => {
+      if (event.key === "srez:logout") {
+        setSession(null);
+        promptLogin();
+      }
+    };
+    window.addEventListener("storage", signedOut);
+    return () => {
+      active = false;
+      window.removeEventListener("storage", signedOut);
+    };
+  }, [attempt, training]);
+  useEffect(() => {
+    if (!session) return;
+    const expire = () => {
+      setSession(null);
+      promptLogin();
+    };
+    const timer = window.setTimeout(
+      expire,
+      session.user.expiresInMs,
+    );
+    return () => window.clearTimeout(timer);
+  }, [session]);
+  if (session) return <Dashboard route={route} go={go} session={session} />;
+  if (error)
+    return (
+      <main className="access-check">
+        <p role="alert">{error}</p>
+        <button
+          onClick={() => {
+            setError("");
+            retry((n) => n + 1);
+          }}
+        >
+          Повторить
+        </button>
+      </main>
+    );
+  return <Loader label="Проверяем вход…" stage />;
+}
+function LoginLanding({
+  route,
+  go,
+}: {
+  route: URL;
+  go: (path: string) => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+    return () => dialog.current?.close();
+  }, []);
+  return (
+    <>
+      <Landing go={go} />
+      <dialog
+        ref={dialog}
+        className="access-dialog"
+        aria-labelledby="access-title"
+        onCancel={() => go("/")}
+      >
+        <button
+          type="button"
+          className="access-close"
+          onClick={() => go("/")}
+          aria-label="Закрыть вход"
+        >
+          ×
+        </button>
+        <Login
+          onSubmit={async (username, password) => {
+            await api("/login", {
+              method: "POST",
+              body: JSON.stringify({ username, password }),
+            });
+            location.replace(afterLogin(route));
+          }}
+        />
+      </dialog>
+    </>
+  );
+}
 function App({ initialRoute }: { initialRoute: URL }) {
   const [route, setRoute] = useState(initialRoute);
   const [visit, setVisit] = useState(0);
@@ -111,7 +241,7 @@ function App({ initialRoute }: { initialRoute: URL }) {
     document.title =
       (names[path] ?? "Дашборд координатора") +
       (isTrainingPath(route.pathname) ? " · Учебный эфир" : "") +
-      " · Watermelon";
+      " · Срез";
   }, [route.pathname]);
   useEffect(() => {
     const update = () => setRoute(readRoute());
@@ -135,8 +265,10 @@ function App({ initialRoute }: { initialRoute: URL }) {
   };
   return route.pathname === "/" ? (
     <Landing go={go} />
+  ) : route.pathname === "/login" ? (
+    <LoginLanding route={route} go={go} />
   ) : (
-    <Dashboard
+    <SessionGate
       key={
         visit +
         ":" +
@@ -149,7 +281,21 @@ function App({ initialRoute }: { initialRoute: URL }) {
     />
   );
 }
-function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
+function Dashboard({
+  route,
+  go,
+  session,
+}: {
+  route: URL;
+  go: (path: string) => void;
+  session: SessionInfo;
+}) {
+  const { user, sources, publicDemo } = session;
+  const roleLabel = {
+    coordinator: "Координатор",
+    "demo-admin": "Администратор",
+    viewer: "Наблюдатель",
+  }[user.role];
   const path = screenPath(route.pathname),
     training = isTrainingPath(route.pathname),
     params = route.searchParams,
@@ -157,11 +303,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     ns = training ? "simulation" : (params.get("ns") ?? "demo");
   const link = (to: string) => screenLink(to, ns);
   const detailKey = path + route.search;
-  const [user, setUser] = useState<User | null>(null),
-    [publicDemo, setPublicDemo] = useState(false),
-    [sources, setSources] = useState<string[]>(["demo"]),
-    [ready, setReady] = useState(false),
-    [data, setData] = useState<any>(null),
+  const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
     [signals, setSignals] = useState<IncidentSignal[]>([]),
     [connection, setConnection] = useState("Подключение…"),
@@ -190,7 +332,8 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
   const extra = detailPage?.key === detailKey ? detailPage.value : null;
   const zone = prefs.zone,
     wall = path === "/wallboard",
-    write = user?.role === "coordinator" || user?.role === "demo-admin";
+    write =
+      !training && (user.role === "coordinator" || user.role === "demo-admin");
   const suffix = (url: string) =>
     url + (url.includes("?") ? "&" : "?") + "ns=" + encodeURIComponent(ns);
   const post = async (url: string, body: unknown) =>
@@ -256,19 +399,6 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
         );
         if (fresh.length) {
           setSignals((previous) => mergeSignals(previous, fresh));
-          const note = fresh[0];
-          if (
-            prefsRef.current.notifications &&
-            "Notification" in window &&
-            Notification.permission === "granted"
-          )
-            try {
-              new Notification(signalTitle(note), {
-                body: note.header || note.id,
-              });
-            } catch {
-              /* In-app delivery also works when system notifications are unavailable. */
-            }
           if (prefsRef.current.sound) beep();
         }
       }
@@ -335,19 +465,6 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     };
   }, [data?.revision]);
   useEffect(() => {
-    api(training ? "/me?ns=simulation" : "/me")
-      .then((m) => {
-        setUser(m.user);
-        setSources(m.sources);
-        setPublicDemo(m.publicDemo === true);
-        setReady(true);
-      })
-      .catch((e) => {
-        setError(e.message);
-        setReady(true);
-      });
-  }, [training]);
-  useEffect(() => {
     if (user && user.role !== "viewer")
       api("/preferences")
         .then(setPrefs)
@@ -358,10 +475,9 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     latestLoad.current = load;
   }, [load]);
   useEffect(() => {
-    if (ready) void load();
-  }, [load, ready]);
+    void load();
+  }, [load]);
   useEffect(() => {
-    if (!ready) return;
     let disposed = false;
     const es = new EventSource(
       "/api/stream?ns=" +
@@ -419,7 +535,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       generation.current++;
       pending.current?.abort();
     };
-  }, [ns, ready]);
+  }, [ns]);
   const dismiss = () => {
     const note = signals[0];
     if (!note) return;
@@ -445,7 +561,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
   ) => (
     <a
       tabIndex={0}
-      href={to === "/login" ? "/login" : link(to)}
+      href={to === "/preferences" ? "/preferences" : link(to)}
       aria-current={
         path === to || (wall && to === "/live") ? "page" : undefined
       }
@@ -455,7 +571,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       onClick={(e) => {
         if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
-        go(to === "/login" ? "/login" : link(to));
+        go(to === "/preferences" ? "/preferences" : link(to));
       }}
     >
       {icon && <Icon name={icon} size={18} />}
@@ -495,9 +611,8 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
               go("/");
             }}
           >
-            <Mark />
-            <span>Watermelon</span>
-            <small>МТС</small>
+            <ProductBrand />
+            <MtsCaseBrand compact />
           </a>
           <nav className="primary-switch" aria-label="Основная навигация">
             {nav("/live", "Эфир смены", "live", false, "Эфир")}
@@ -540,7 +655,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                   <button
                     className="user-pill profile-trigger"
                     type="button"
-                    aria-label={"Профиль: " + user.username}
+                    aria-label={"Профиль: " + user.username + ", " + roleLabel}
                     title={"Профиль: " + user.username}
                     popoverTarget="profile-menu"
                   >
@@ -556,13 +671,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                       <circle cx="12" cy="8" r="3.5" />
                       <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
                     </svg>
-                    <span>
-                      {user.role === "coordinator"
-                        ? "Координатор"
-                        : user.role === "demo-admin"
-                          ? "Администратор"
-                          : "Наблюдатель"}
-                    </span>
+                    <span>{roleLabel}</span>
                   </button>
                   <div
                     className="service-menu profile-menu"
@@ -571,8 +680,8 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                     key={path}
                   >
                     <strong>{user.username}</strong>
-                    {write && nav("/preferences", "Настройки")}
-                    {user.role === "demo-admin" && (
+                    {nav("/preferences", "Настройки")}
+                    {!training && user.role === "demo-admin" && (
                       <>
                         {nav("/import", "Импорт")}
                         {nav("/demo", "Демонстрация")}
@@ -581,8 +690,21 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                     <button
                       aria-label={"Выйти: " + user.username}
                       onClick={() =>
-                        void post("/logout", {})
-                          .then(() => go("/"))
+                        void api("/logout", {
+                          method: "POST",
+                          headers: { "X-CSRF-Token": user.csrf },
+                          body: "{}",
+                        })
+                          .then(async () => {
+                            try {
+                              localStorage.setItem(
+                                "srez:logout",
+                                String(Date.now()),
+                              );
+                            } catch {}
+                            await disconnectDeviceBrowser().catch(() => {});
+                            location.replace("/");
+                          })
                           .catch((e) => setError(e.message))
                       }
                     >
@@ -650,21 +772,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
           onJournal={() => go(link("/notifications"))}
         />
         <main id="main">
-          {path === "/login" ? (
-            <Login
-              onSubmit={async (username, password) => {
-                const u = await api("/login", {
-                  method: "POST",
-                  body: JSON.stringify({ username, password }),
-                });
-                const m = await api("/me");
-                setSources(m.sources);
-                setPublicDemo(m.publicDemo === true);
-                setUser(u);
-                go("/live");
-              }}
-            />
-          ) : !data || data.namespace !== ns ? (
+          {!data || data.namespace !== ns ? (
             error ? null : (
               <Loader label="Загрузка данных…" stage />
             )
@@ -976,17 +1084,18 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
               <Denied />
             )
           ) : path === "/preferences" ? (
-            write ? (
-              <Preferences
-                prefs={prefs}
-                onSave={async (p) => {
-                  await post("/preferences", p);
-                  setPrefs(p);
-                }}
-              />
-            ) : (
-              <Denied />
-            )
+            <>
+              {write && (
+                <Preferences
+                  prefs={prefs}
+                  onSave={async (p) => {
+                    await post("/preferences", p);
+                    setPrefs(p);
+                  }}
+                />
+              )}
+              <DeviceNotifications user={user} namespace={ns} />
+            </>
           ) : (
             <section className="content">
               <h1>Страница не найдена</h1>
@@ -1272,7 +1381,7 @@ function Login({
         }
       }}
     >
-      <h1>Вход в рабочее место</h1>
+      <h1 id="access-title">Вход в Срез</h1>
       <label>
         Имя пользователя
         <input name="username" autoComplete="username" required />
@@ -1417,17 +1526,6 @@ function Preferences({
         e.preventDefault();
         setSaving(true);
         try {
-          if (p.notifications && "Notification" in window) {
-            const permission = await Notification.requestPermission();
-            if (permission !== "granted") {
-              setP({ ...p, notifications: false });
-              await onSave({ ...p, notifications: false });
-              setStatus(
-                "Браузер запретил уведомления. Визуальная лента доступна.",
-              );
-              return;
-            }
-          }
           await onSave(p);
           setStatus("Настройки сохранены");
           if (p.sound) beep();
@@ -1458,14 +1556,6 @@ function Preferences({
         />
         Звук важных событий
       </label>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={p.notifications}
-          onChange={(e) => setP({ ...p, notifications: e.target.checked })}
-        />
-        Уведомления браузера
-      </label>
       <button tabIndex={0} disabled={saving}>
         {saving ? (
           <Loader label="Сохранение настроек…" />
@@ -1491,6 +1581,7 @@ function beep() {
     o.onended = () => void c.close();
   } catch {}
 }
+void registerDeviceWorker().catch(() => {});
 createRoot(document.getElementById("root")!).render(
   <App initialRoute={readRoute()} />,
 );

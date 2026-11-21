@@ -774,7 +774,7 @@ function WorkspaceScreen({
           )}
           {canDispatch && selected.length === 1 && !selected[0].unavailable && (
             <a className="wq-dispatch" href={screenLink("/incident/" + encodeURIComponent(selected[0].id) + "#dispatch", ns)}>
-              <Icon name="coordinators" size={17} /> Выбрать команду <Arrow direction="right" />
+              <Icon name="coordinators" size={17} /> Назначить исполнителя <Arrow direction="right" />
             </a>
           )}
           <form

@@ -121,30 +121,28 @@ test("case pages pin all members to the same revision and locally analyze only t
     ai,
   };
   const app = await createApp(options);
+  const headers = { cookie: "wm_session=viewer", "x-csrf-token": "csrf" };
+  const read = (url: string) => app.inject({ url, headers });
   try {
-    const snapshot = (
-      await app.inject("/api/dashboard?signal=critical")
-    ).json();
+    const snapshot = (await read("/api/dashboard?signal=critical")).json();
     assert.equal(snapshot.triage.unique, 72);
     assert.equal(snapshot.groups.critical.items.length, 30);
     assert.equal(snapshot.groups.coordinators.count, 72);
     assert.equal(
-      (await app.inject("/api/dashboard?signal=high")).json().triage.unique,
+      (await read("/api/dashboard?signal=high")).json().triage.unique,
       0,
     );
     assert.equal(calls, 0);
     const c = snapshot.triage.cases[0];
     const params = "?signal=critical&revision=4&hash=" + c.hash;
     const path = "/api/triage/" + c.id;
-    const first = (
-      await app.inject(path + params + "&sort=id&limit=35")
-    ).json();
+    const first = (await read(path + params + "&sort=id&limit=35")).json();
     assert.equal(first.nextOffset, 35);
     demo.rows = new Map(demo.rows);
     demo.rows.delete(members[0].key);
     demo.revision = 5;
     const second = (
-      await app.inject(path + params + "&sort=id&offset=35&limit=100")
+      await read(path + params + "&sort=id&offset=35&limit=100")
     ).json();
     assert.equal(second.revision, 4);
     assert.equal(second.nextOffset, null);
@@ -152,7 +150,7 @@ test("case pages pin all members to the same revision and locally analyze only t
       [...first.items, ...second.items].map((r) => r.id),
       members.map((r) => r.id).sort((a, b) => a.localeCompare(b)),
     );
-    const live = (await app.inject("/api/dashboard?signal=critical")).json();
+    const live = (await read("/api/dashboard?signal=critical")).json();
     assert.equal(live.triage.unique, 71);
     assert.notEqual(live.triage.cases[0].hash, c.hash);
     assert.equal(
@@ -160,23 +158,26 @@ test("case pages pin all members to the same revision and locally analyze only t
       401,
     );
     assert.equal(
-      (await app.inject(path + params.replace(c.hash, "a".repeat(64))))
-        .statusCode,
+      (await read(path + params.replace(c.hash, "a".repeat(64)))).statusCode,
       409,
     );
-    assert.equal((await app.inject(path)).statusCode, 400);
+    assert.equal((await read(path)).statusCode, 400);
     const analysisUrl = path + "/analysis" + params;
     assert.equal(
       (
         await app.inject({
           method: "POST",
           url: analysisUrl,
-          headers: { origin: "https://other.invalid" },
+          headers: { ...headers, origin: "https://other.invalid" },
         })
       ).statusCode,
       403,
     );
-    const analyzed = await app.inject({ method: "POST", url: analysisUrl });
+    const analyzed = await app.inject({
+      method: "POST",
+      url: analysisUrl,
+      headers,
+    });
     assert.equal(analyzed.statusCode, 200, analyzed.body);
     const result = analyzed.json();
     assert.equal(result.stale, true);
@@ -190,7 +191,7 @@ test("case pages pin all members to the same revision and locally analyze only t
     );
     assert.equal(result.sampled, 20);
     assert.match(result.model, /e5-small/);
-    await app.inject({ method: "POST", url: analysisUrl });
+    await app.inject({ method: "POST", url: analysisUrl, headers });
     assert.equal(calls, 1);
     const privateUrl = analysisUrl + "&ns=workspace";
     assert.equal(
@@ -217,23 +218,14 @@ test("case pages pin all members to the same revision and locally analyze only t
       ).statusCode,
       403,
     );
-    const focus = (
-      await app.inject({
-        url: "/api/public/focus?ns=workspace",
-        headers: { cookie: "wm_session=coordinator" },
-      })
-    ).json();
-    assert.ok(members.some((r) => r.id === focus.tracking.id));
-    assert.ok(!JSON.stringify(focus).includes(sensitive.id));
+    assert.equal((await app.inject("/api/public/focus")).statusCode, 401);
   } finally {
     await app.close();
     await ai.close();
   }
   const closed = await createApp({ ...options, publicDemo: false });
   try {
-    assert.deepEqual((await closed.inject("/api/public/focus")).json(), {
-      tracking: null,
-    });
+    assert.equal((await closed.inject("/api/public/focus")).statusCode, 401);
   } finally {
     await closed.close();
   }
