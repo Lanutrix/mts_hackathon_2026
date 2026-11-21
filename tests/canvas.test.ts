@@ -173,7 +173,7 @@ test("canvas counts all open source IDs, pages stable selections and validates m
     assert.equal(ids.size, 46);
     respond({ supported: true, groupBy: "DROP", layout: "groups" });
     const invalid = (
-      await ask("Покажи эскалации по командам")
+      await ask("Покажи заявки с доработкой по командам")
     ).json<CanvasResult>();
     assert.equal(invalid.mode, "fallback");
     assert.equal(invalid.total, 0);
@@ -205,6 +205,135 @@ test("named source values and private text stay local, even across turns", async
     assert.equal(unsupported.mode, "unsupported");
     assert.ok(unsupported.suggestions.length > 0);
     assert.equal(unsupported.tickets.length, 0);
+  } finally {
+    await app.close();
+  }
+});
+test("contextual VseLLM chart patches work without repeating the support flag", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    let context = (
+      await ask("Что такое инцидент?", {
+        groupBy: "symptom",
+        layout: "groups",
+        filters: { products: ["PRIVATE-PRODUCT"] },
+        blocks: [
+          { groupBy: "deadline", layout: "groups", presentation: "deadline" },
+        ],
+      })
+    ).json<CanvasResult>().intent;
+    for (const [question, presentation] of [
+      ["Покажи доли команд круговой диаграммой", "orbit"],
+      ["Построй схему по командам", "flow"],
+      ["Покажи матрицу по командам", "matrix"],
+    ]) {
+      respond(
+        presentation === "orbit"
+          ? { groupBy: "team", layout: "groups", presentation }
+          : { presentation },
+      );
+      const result = (await ask(question, context)).json<CanvasResult>();
+      assert.equal(result.mode, "model", question);
+      assert.equal(result.provider, "VseLLM");
+      assert.equal(result.intent.presentation, presentation);
+      assert.equal(result.total, 46);
+      assert.equal(result.intent.groupBy, "team");
+      context = result.intent;
+    }
+    for (const [question, invalid] of [
+      ["Покажи схему по статусам", {}],
+      ["Покажи схему по продуктам", { presentation: "fake" }],
+      ["Покажи схему по срокам", { presentation: "flow", supported: "true" }],
+      ["Покажи схему по приоритетам", { presentation: "flow", script: "bad" }],
+    ] as const) {
+      respond(invalid);
+      const result = (await ask(question, context)).json<CanvasResult>();
+      assert.equal(result.mode, "fallback");
+    }
+  } finally {
+    await app.close();
+  }
+});
+test("questions about starting a shift and the most urgent work use the guide and current source queue", async () => {
+  const { app, ask, respond, prompts } = await setup();
+  try {
+    respond({
+      supported: true,
+      groupBy: "deadline",
+      layout: "groups",
+      presentation: "spotlight",
+      filters: { deadline: ["soon"] },
+    });
+    const shift = (await ask("С чего мне начать смену?")).json<CanvasResult>();
+    assert.equal(shift.mode, "knowledge");
+    assert.equal(shift.answer?.topic, "shift");
+    assert.ok(shift.answer.sections.some((s) => s.role === "steps"));
+    const urgent = (
+      await ask("Что у нас сейчас самое срочное?", shift.intent)
+    ).json<CanvasResult>();
+    assert.equal(urgent.mode, "model");
+    assert.equal(urgent.intent.presentation, "spotlight");
+    assert.deepEqual(urgent.intent.filters, {});
+    assert.equal(urgent.tickets[0].priority, PRIORITIES[4]);
+    assert.equal(urgent.total, 47);
+    assert.match(
+      JSON.parse(JSON.parse(prompts.at(-1)!).messages[1].content).question,
+      /срочн/u,
+    );
+    const soon = (
+      await ask("Отбери заявки, у которых скоро истекает срок")
+    ).json<CanvasResult>();
+    assert.equal(soon.mode, "model");
+    assert.equal(soon.intent.filters.deadline, "soon");
+    respond({ supported: true, filters: { deadline: ["overdue", "soon"] } });
+    const ambiguous = (
+      await ask("Покажи ближайшие сроки")
+    ).json<CanvasResult>();
+    assert.equal(ambiguous.mode, "fallback");
+  } finally {
+    await app.close();
+  }
+});
+test("post-resolution follow-up is measurable while escalation counts have no data field", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    respond({
+      supported: true,
+      groupBy: "team",
+      filters: { escalation: "yes" },
+    });
+    for (const question of [
+      "Сколько эскалаций?",
+      "Покажи эскалации по командам",
+      "Какие заявки эскалированы?",
+    ]) {
+      const missing = (await ask(question)).json<CanvasResult>();
+      assert.equal(missing.mode, "unsupported", question);
+      assert.match(missing.notice ?? "", /эскалац/iu);
+      assert.deepEqual(missing.tickets, []);
+    }
+    respond({ supported: true, groupBy: "team" });
+    for (const question of [
+      "Какие заявки требуют устранения последствий?",
+      "Покажи заявки с доработкой после решения",
+    ]) {
+      const follow = (await ask(question)).json<CanvasResult>();
+      assert.equal(follow.intent.filters.escalation, "yes", question);
+      assert.equal(follow.total, 16, question);
+    }
+    const no = (
+      await ask("Заявки без необходимости устранять последствия")
+    ).json<CanvasResult>();
+    assert.equal(no.intent.filters.escalation, "no");
+    assert.equal(no.total, 31);
+    const split = (
+      await ask("Сгруппируй по необходимости устранения последствий")
+    ).json<CanvasResult>();
+    assert.equal(split.intent.groupBy, "escalation");
+    assert.deepEqual(
+      split.groups.map((item) => item.count),
+      [31, 16],
+    );
   } finally {
     await app.close();
   }
@@ -417,7 +546,7 @@ test("the model can compose independently weighted plots and an explicit area me
     assert.equal(explicit.total, planned.total);
     respond({ supported: true, weightBy: "arbitrary-field" });
     const invalid = (
-      await ask("Размер групп по числу эскалаций", explicit.intent)
+      await ask("Размер групп по числу доработок", explicit.intent)
     ).json<CanvasResult>();
     assert.equal(invalid.mode, "fallback");
     assert.equal(invalid.intent.weightBy, "escalated");
@@ -849,7 +978,7 @@ test("every source metric can be requested by its name, including completed and 
     const ratio = await offline.read(
       store,
       "operator",
-      "Полнота отметки эскалации",
+      "Полнота отметки о доработке",
     );
     assert.equal(ratio.intent.filters.escalation, undefined);
     assert.equal(ratio.total, 47);
@@ -884,7 +1013,7 @@ test("every source metric can be requested by its name, including completed and 
       insightIds: ["escalation-known"],
     });
     const corrected = (
-      await ask("Полнота отметки эскалации")
+      await ask("Полнота отметки о доработке")
     ).json<CanvasResult>();
     assert.equal(corrected.total, 47);
     const denied = (

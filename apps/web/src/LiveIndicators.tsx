@@ -36,7 +36,7 @@ export function ShiftMetrics({
 }) {
   const metrics = [
     {
-      name: "Активные заявки",
+      name: "Под наблюдением",
       count: triage.unique,
       testId: "live-count",
       definition: "В выбранных очередях, без повторов",
@@ -47,17 +47,17 @@ export function ShiftMetrics({
       name: "Просрочены",
       count: triage.overdue,
       testId: "overdue-count",
-      definition: "Срок активной заявки уже прошёл",
+      definition: "Срок решения инцидента прошёл",
     },
     {
-      name: "К эскалации",
+      name: "Устранение последствий",
       count: triage.escalations,
       testId: "escalation-count",
-      definition: "У активной заявки есть отметка эскалации",
+      definition: "После решения потребуются дополнительные работы (isNeedUp = true)",
     },
   ];
   return (
-    <dl className="shift-metrics" aria-label="Показатели активных заявок">
+    <dl className="shift-metrics" aria-label="Показатели инцидентов под наблюдением">
       {metrics.map((m) => (
         <div
           key={m.testId}

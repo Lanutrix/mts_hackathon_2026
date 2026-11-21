@@ -1,5 +1,5 @@
 import { FIELDS, STATES, PRIORITIES, TEAM, hash, type Raw } from "./index.ts";
-export const GENERATOR_VERSION = "1.0.0";
+export const GENERATOR_VERSION = "1.1.0";
 export const FIXED_CLOCK = "2026-11-21T09:00:00.000Z";
 export function generate(count = 600, seed = 42, clock = FIXED_CLOCK) {
   let s = seed >>> 0;
@@ -59,8 +59,8 @@ export function generate(count = 600, seed = 42, clock = FIXED_CLOCK) {
       isDouble: i % 11 === 0,
       isMaster: i % 13 === 0,
       incType: "Массовый инцидент",
-      serviceTypeId: service + 1,
-      serviceType: ["Технический", "Клиентский", "Внутренний"][service],
+      serviceTypeId: [30, 10, 20][service],
+      serviceType: ["Технологический", "Клиентский", "Пользовательский"][service],
       priorityId: priority,
       priority: PRIORITIES[priority],
       urgencyId: 2,

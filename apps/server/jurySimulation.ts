@@ -149,8 +149,8 @@ function backgroundTickets(identity: string, now: number): Raw[] {
       priorityId: priority,
       priority: PRIORITIES[priority],
       isNeedUp: up,
-      serviceTypeId: index < 3 ? 2 : 1,
-      serviceType: index < 3 ? "Клиентский" : "Технический",
+      serviceTypeId: index < 3 ? 10 : 30,
+      serviceType: index < 3 ? "Клиентский" : "Технологический",
       submitDate: new Date(now - (62 - index) * 60_000).toISOString(),
       deadline:
         minutes === null

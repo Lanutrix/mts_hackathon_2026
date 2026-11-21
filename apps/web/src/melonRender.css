@@ -18,6 +18,14 @@
 html[data-theme="dark"] .melon-hero-poster {
   background-image: url("./assets/melon-cut-night.webp");
 }
+@media (prefers-reduced-motion: no-preference) {
+  .melon-scene[data-mode="waiting"] .melon-hero-poster {
+    background-image: url("./assets/melon-uncut-poster.webp");
+  }
+  html[data-theme="dark"] .melon-scene[data-mode="waiting"] .melon-hero-poster {
+    background-image: url("./assets/melon-uncut-night.webp");
+  }
+}
 html[data-theme="dark"] .melon-view:focus-visible { outline-color: var(--wm-violet); }
 .melon-view,
 .melon-scene__canvas,

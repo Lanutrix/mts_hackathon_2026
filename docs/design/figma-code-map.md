@@ -23,7 +23,7 @@
 
 Полноэкранные ответы показаны на данных из той же сборки. [Определение инцидента](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/?node-id=150-136767) · [Схема нагрузки](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/?node-id=150-136805) · [Медианный возраст очереди](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/?node-id=150-136914) · [Справка на телефоне](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/?node-id=150-137802)
 
-У холста есть прототип составного ответа. Запрос о командах и сроках открывает два графика на одной выборке. В режиме сравнения видны количество заявок, просрочки и эскалации в каждой группе. [Команды и сроки](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Srez?node-id=127-130892) · [Сравнение](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Srez?node-id=127-131103)
+У холста есть прототип составного ответа. Запрос о командах и сроках открывает два графика на одной выборке. В режиме сравнения видны количество заявок, просрочки и необходимость устранения последствий в каждой группе. [Команды и сроки](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Srez?node-id=127-130892) · [Сравнение](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Srez?node-id=127-131103)
 
 Мобильные прототипы актуальной версии собраны в ширине 390 px. [Эфир](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=62-246) · [Холст](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=63-498) · [Открытый контекст](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=68-1742)
 

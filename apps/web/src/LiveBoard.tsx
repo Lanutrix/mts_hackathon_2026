@@ -9,6 +9,8 @@ import {
 import { motion } from "motion/react";
 import type { Incident } from "../../../packages/domain/index.ts";
 import Loader from "./Loader";
+import {screenLink} from "./routes";
+import {serviceFilterId} from "../../../packages/contracts/serviceType";
 import { ShiftClock, ShiftMetrics } from "./LiveIndicators";
 import { useLivePrefix } from "./useLivePrefix";
 import TriageCases, { caseRequest } from "./TriageCases";
@@ -120,13 +122,13 @@ function SearchFilters({
           <label>
             Тип сервиса
             <select
-              value={params.get("service") || ""}
+              value={serviceFilterId(params.get("service") || "")}
               onChange={(e) => setParam("service", e.target.value)}
             >
               <option value="">Все сервисы</option>
-              <option value="1">Технический</option>
-              <option value="2">Клиентский</option>
-              <option value="3">Внутренний</option>
+              <option value="10">Клиентский</option>
+              <option value="20">Пользовательский</option>
+              <option value="30">Технологический</option>
             </select>
           </label>
           <label className="check">
@@ -135,7 +137,7 @@ function SearchFilters({
               checked={params.has("up")}
               onChange={(e) => setParam("up", e.target.checked ? "1" : "")}
             />
-            Требует эскалации
+            Требуется устранение последствий
           </label>
           {sources.length > 1 && (
             <label>
@@ -262,7 +264,7 @@ export default function LiveBoard({
           open={open}
           setParam={search.setParam}
         />
-        <section className="triage-register" aria-label="Тикеты в эфире">
+        <section className="triage-register" aria-label="Инциденты в эфире">
           {filtering ? (
             <Loader label="Поиск инцидентов…" stage />
           ) : (
@@ -379,7 +381,7 @@ function Ledger({
       .then(async (r) => {
         const body = await r.json();
         if (!r.ok)
-          throw new Error(body.message || "Не удалось загрузить тикеты кейса.");
+          throw new Error(body.message || "Не удалось загрузить инциденты группы.");
         if (!ac.signal.aborted)
           setCasePage({ request: scoped, items: body.items });
       })
@@ -447,7 +449,7 @@ function Ledger({
     >
       <div className="triage-ledger-title">
         <div>
-          <h2>Тикеты</h2>
+          <h2>Инциденты</h2>
           {chosen && <small>{chosen.label}</small>}
         </div>
         {total > 0 && (
@@ -504,7 +506,32 @@ function Ledger({
               >
                 <td className="feed-subject">
                   <span className="ticket-detail">
-                    {item.id}
+                    <a
+                      className="feed-itsm"
+                      href={
+                        data.itsmMock !== false
+                          ? screenLink(
+                              "/itsm/" + encodeURIComponent(item.id),
+                              data.namespace,
+                            )
+                          : "/api/incident/" +
+                            encodeURIComponent(item.id) +
+                            "/itsm?ns=" +
+                            encodeURIComponent(data.namespace)
+                      }
+                      title={
+                        data.itsmMock !== false
+                          ? "Открыть макет ITSM"
+                          : "Открыть в ITSM"
+                      }
+                      aria-label={
+                        (data.itsmMock !== false ? "Макет ITSM" : "ITSM") +
+                        " · " +
+                        item.id
+                      }
+                    >
+                      {item.id} <span aria-hidden="true">↗</span>
+                    </a>
                     {!item.sourcePresent && (
                       <small className="source-absent">
                         {" "}

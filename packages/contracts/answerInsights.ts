@@ -158,7 +158,7 @@ export const insightDefinitions = {
     source: "lateTeams",
   },
   "by-product-raised": {
-    title: "Продукты с эскалациями",
+    title: "Продукты с отмеченными последствиями",
     kind: "distribution",
     source: "raisedProducts",
   },
@@ -284,15 +284,15 @@ export const insightDefinitions = {
     kind: "subset",
     source: "isRootIncident",
   },
-  effects: { title: "Инциденты-следствия", kind: "subset", source: "isEffect" },
-  causes: { title: "Инциденты-причины", kind: "subset", source: "isReason" },
+  effects: { title: "Дочерние инциденты", kind: "subset", source: "isReason" },
+  causes: { title: "Инциденты-причины", kind: "subset", source: "isEffect" },
   "unknown-escalation": {
-    title: "Статус эскалации не указан",
+    title: "Отметка об устранении последствий не заполнена",
     kind: "subset",
     source: "unknownEscalation",
   },
   "late-escalated": {
-    title: "Просроченные с эскалацией",
+    title: "Просроченные с последствиями",
     kind: "subset",
     source: "lateEscalated",
   },
@@ -337,7 +337,7 @@ export const insightDefinitions = {
     source: "hasDeadline",
   },
   "escalation-known": {
-    title: "Полнота отметки эскалации",
+    title: "Полнота отметки об устранении последствий",
     kind: "ratio",
     source: "knownEscalation",
   },
@@ -372,7 +372,7 @@ export const insightDefinitions = {
     source: "shifts",
   },
   "unassigned-critical-path": {
-    title: "Кто ведёт заявки к эскалации",
+    title: "Кто ведёт инциденты с последствиями",
     kind: "distribution",
     source: "raisedTeams",
   },

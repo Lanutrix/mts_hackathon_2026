@@ -44,6 +44,10 @@ export type Pose = {
   size: number;
 };
 export type Orbit = { yaw: number; pitch: number; vx: number; vy: number };
+export type CutContact = {
+  plane: [number, number, number, number];
+  strength: number;
+};
 export function orbit(): Orbit {
   return { yaw: 0, pitch: 0, vx: 0, vy: 0 };
 }
@@ -93,7 +97,7 @@ export function modelPoses(
   loads: number[],
   occupied: number[],
   centers: number[],
-): { fruit: Pose[]; frame: Pose } {
+): { fruit: Pose[]; frame: Pose; specimens?: Pose[]; contacts?: CutContact[] } {
   if (hero) return brandPoses(phase, fruit, frame, centers);
   const breathe = Math.sin(phase * 0.72);
   const yaw = Math.sin(phase * 0.29);
@@ -181,48 +185,82 @@ function brandPoses(
     return {
       twist: [-0.04 * offset, 0.11 * offset, 0.045 * offset],
       pivot: [0, -0.47, z],
-      offset: [0, 0.51 - 0.095 * offset, 0.88 * offset],
+      offset: [0, 0.51 - 0.095 * offset, 1.19 * offset],
       camera,
       origin: [-0.04, -0.055, 0],
       size: 1.12,
     };
   });
-  const origin = rotate([0, 0, blade * 1.12], rest);
   const glass: Pose = {
     twist: [0, 0, 0],
     pivot: [0, 0, 0],
     offset: [0, 0, 0],
     camera: [rest[0] + frame.pitch, rest[1] + frame.yaw, rest[2]],
-    origin: [origin[0] - 0.04, origin[1] - 0.055, origin[2]],
+    origin: [-0.04, -0.055, 0],
     size: 1.9,
   };
+  const normal = rotate([0, 0, 1], glass.camera);
+  // Find each solid's actual extent along the scanner normal. A hand turn or
+  // an opening gap changes both the contact patch and when a plate is revealed.
+  const spans = sections.map((slice, i) => {
+    const q = axes.map(
+      (axis) =>
+        dot(rotate(rotate(axis, slice.twist), slice.camera), normal) *
+        slice.size,
+    ) as Vec;
+    const origin = world([0, 0, 0], slice);
+    const offset = dot(origin, normal) - dot(glass.origin, normal);
+    const back = cuts[i + 1],
+      front = cuts[i];
+    return {
+      q,
+      offset,
+      near: offset + sectionSupport(q, back, front),
+      far: offset - sectionSupport(q.map((x) => -x) as Vec, back, front),
+    };
+  });
+  const start = Math.max(...spans.map((s) => s.near)) + 0.37;
+  const end = Math.min(...spans.map((s) => s.far)) - 0.37;
+  const depth = start + (end - start) * progress;
+  glass.origin = glass.origin.map((v, i) => v + depth * normal[i]) as Vec;
+  const contacts = spans.map(
+    ({ q, offset, near, far }): CutContact => ({
+      plane: [...q, offset - depth],
+      strength: smooth(Math.min(near - depth, depth - far) / 0.065),
+    }),
+  );
+  const reveals = spans.map(({ far }) => smooth((far - depth) / 0.17));
   fitScanner(sections, glass, cuts);
-  return { fruit: sections, frame: glass };
+  return {
+    fruit: sections,
+    frame: glass,
+    contacts,
+    specimens: specimenPoses(sections, reveals),
+  };
 }
 
-// A fixed point on each section carries an etched sample number. The plates
-// cant slightly toward the observer so the numerals stay legible at rest.
-export function specimenPoses(sections: Pose[]): Pose[] {
-  const sockets = [
-    [-0.7, -0.46],
-    [-0.14, 0.29],
-    [1.01, 0.25],
-  ];
+export const specimenSockets = [
+  [-0.53, -0.41],
+  [0.67, -0.26],
+  [0.75, -0.25],
+] as const;
+// The back bevel rests on the flesh; all four corners lie inside its half ellipse.
+export function specimenPoses(sections: Pose[], reveals: number[]): Pose[] {
   const cuts = sectionCuts(true);
   return sections.map((section, i) => ({
-    twist: [
-      -0.18 + section.twist[0],
-      0.43 + section.twist[1],
-      -0.055 + section.twist[2],
-    ],
+    twist: section.twist,
     pivot: [0, 0, 0],
     offset: [0, 0, 0],
     camera: section.camera,
     origin: world(
-      [sockets[i][0], sockets[i][1], cuts[i] * radii[2] + 0.18],
+      [
+        specimenSockets[i][0],
+        specimenSockets[i][1],
+        cuts[i] * radii[2] + 0.036 * 0.42 * reveals[i] + 0.001,
+      ],
       section,
     ),
-    size: section.size * 0.57,
+    size: section.size * 0.42 * reveals[i],
   }));
 }
 export function rotate([x, y, z]: Vec, [rx, ry, rz]: Vec): Vec {

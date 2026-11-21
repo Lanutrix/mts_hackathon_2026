@@ -21,7 +21,7 @@ const tones = [
 const weights: Record<CanvasWeight, string> = {
   count: "все заявки",
   overdue: "просроченные",
-  escalated: "к эскалации",
+  escalated: "устранение последствий",
 };
 const paint = (index: number) =>
   ({ "--tone": tones[index % tones.length] }) as CSSProperties;
@@ -240,7 +240,7 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
               g.count +
               " · Просрочено " +
               g.overdue +
-              " · К эскалации " +
+              " · Устранение последствий " +
               g.escalated
             }
             style={
@@ -288,9 +288,9 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
             </span>
             <span
               {...el("notch-key")}
-              title="Длина верхней отметки соответствует доле заявок к эскалации внутри группы"
+              title="Длина верхней отметки соответствует доле заявок с отметкой об устранении последствий внутри группы"
             >
-              <i className="cx-key-line" />К эскалации{" "}
+              <i className="cx-key-line" />Устранение последствий{" "}
               {formatCount(
                 result.metrics.find((m) => m.key === "escalated")?.value ?? 0,
               )}
@@ -354,7 +354,7 @@ function Comparison({
       <table {...el("comparison-table")}>
         <thead>
           <tr>
-            {["Группа", "Всего", "Просрочено", "Эскалации"].map((h) => (
+            {["Группа", "Всего", "Просрочено", "Последствия"].map((h) => (
               <th key={h} scope="col">
                 {h}
               </th>

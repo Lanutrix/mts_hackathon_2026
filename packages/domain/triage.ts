@@ -1,3 +1,4 @@
+import {serviceFilterId,sourceServiceTypeId} from "../contracts/serviceType.ts";
 import {
   deadlineStatus,
   GROUPS,
@@ -84,7 +85,8 @@ export function filterDashboard(
           .join(" ")
           .toLocaleLowerCase("ru")
           .includes(search)) &&
-      (!q.service || String(r.raw.serviceTypeId) === q.service) &&
+      (!q.service ||
+        sourceServiceTypeId(r.raw.serviceTypeId, r.raw.serviceType) === serviceFilterId(q.service)) &&
       (!q.up || r.raw.isNeedUp === true),
   );
 }
@@ -166,7 +168,7 @@ const collator = new Intl.Collator("ru", { numeric: true });
 const compareText = (a: string, b: string) =>
   collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
 const byTime = (r: Incident) => r.dates.deadline ?? "\uffff";
-// Within a priority: first the earliest deadline, then explicit escalation.
+// Within a priority: first the earliest deadline, then flagged follow-up work.
 // Absolute deadlines give the same ticket order on every page of a revision.
 export function urgent(a: Incident, b: Incident) {
   return (
@@ -266,7 +268,7 @@ function summarizeCase(
     recommendation =
       "Уточните у исполнителя " +
       firstEscalation.id +
-      ", кому передать эскалацию. Отметка есть у " +
+      ", какие последствия нужно устранить после решения. Отметка есть у " +
       escalations +
       " из " +
       rows.length +

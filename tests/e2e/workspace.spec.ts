@@ -267,7 +267,7 @@ test("two and ten real groups repack by weight, paginate on smaller screens and 
     squares = field.locator(".cx-square");
   await expect(squares).toHaveCount(2);
   await capture(page, "canvas-two");
-  const weighted = await ask(page, "Размер групп по числу эскалаций");
+  const weighted = await ask(page, "Размер групп по числу инцидентов с последствиями");
   await expect(field).toHaveAttribute("data-weight", "escalated");
   expect(weighted.total).toBe(two.total);
   await expect(field.locator('[data-zero="true"]')).toHaveCount(1);
@@ -486,6 +486,9 @@ test("a definition opens relevant help and a conversation can change into diagra
   expect(article.answer?.kind).toBe("knowledge");
   const guide = page.getByTestId("answer-guide");
   await expect(guide).toContainText("незапланированный сбой");
+  await page.getByRole("button", { name: "История диалога" }).click();
+  await expect(page.getByRole("log")).toContainText("Справка Среза");
+  await page.getByRole("button", { name: "Закрыть историю" }).click();
   await expect(page.getByTestId("group-field")).toHaveCount(0);
   await expect(page.locator(".cx")).not.toContainText(
     /демо-данные|версия [0-9]/i,

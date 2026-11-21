@@ -131,7 +131,7 @@ const checks: Record<string, Check> = {
   unknownEscalation: (r) => r.raw.isNeedUp == null,
   lateEscalated: (r, t) => overdue(r, t) && r.raw.isNeedUp === true,
   criticalUnowned: (r, t) =>
-    open(r) && r.priorityId === 4 && checks.unowned(r, t),
+    r.groups.includes("critical") && checks.unowned(r, t),
   lateUnowned: (r, t) => overdue(r, t) && checks.unowned(r, t),
   researchLate: (r, t) => r.stateId === 20 && overdue(r, t),
   assigned: (r) => r.stateId === 0,
@@ -275,7 +275,7 @@ function distributionResult(
     fields = [source === "raisedTeams" ? "assignedGroupName" : "productName"];
   }
   if (source === "criticalOwners") {
-    population = rows.filter((r) => open(r) && r.priorityId === 4);
+    population = rows.filter((r) => r.groups.includes("critical"));
     fields = ["assignedEmployee"];
   }
   if (!population.length)

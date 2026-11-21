@@ -38,11 +38,11 @@ export const iconLabels: Record<IconName, string> = {
   quality: "Качество данных",
   expand: "Общий экран",
   research: "На исследовании",
-  critical: "Критический приоритет",
+  critical: "Критический инцидент",
   coordinators: "У координаторов",
   high: "Высокий приоритет",
   clock: "Срок решения",
-  escalation: "Требует эскалации",
+  escalation: "Требуется устранение последствий",
   layers: "ИИ-помощник",
   help: "Помощь",
   profile: "Профиль",
@@ -89,11 +89,11 @@ export function SignalMark({ signal }: { signal: Group | "all" }) {
 }
 
 const signalNames: Record<Group | "escalation", string> = {
-  critical: "Критический приоритет",
+  critical: "Критический инцидент",
   coordinators: "У координаторов",
   high: "Высокий приоритет",
   research: "На исследовании",
-  escalation: "Требует эскалации",
+  escalation: "Требуется устранение последствий",
 };
 
 export function SignalBadge({ signal }: { signal: Group | "escalation" }) {

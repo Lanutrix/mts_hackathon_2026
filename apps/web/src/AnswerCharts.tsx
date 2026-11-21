@@ -35,7 +35,7 @@ export function percent(n: number, base: number) {
 const weights: Record<CanvasWeight, string> = {
   count: "Заявки",
   overdue: "Просроченные",
-  escalated: "К эскалации",
+  escalated: "Устранение последствий",
 };
 function Ranking({ groups, choose, start, weight, all }: GroupMarks) {
   const ceiling = Math.max(1, ...all.map((g) => g[weight]));
@@ -215,7 +215,7 @@ function HeatGrid({ all, groups, choose }: GroupMarks) {
             <th scope="col" {...el("group-axis")}>
               Группа
             </th>
-            {["Всего", "Просрочено", "Эскалации"].map((s) => (
+            {["Всего", "Просрочено", "Последствия"].map((s) => (
               <th scope="col" key={s} {...el("column-key")}>
                 {s}
               </th>
@@ -278,7 +278,7 @@ function Dossiers({ groups, start, choose }: GroupMarks) {
             {(["overdue", "escalated"] as const).map((key, j) => (
               <span key={key} {...el(j ? "escalation-track" : "overdue-track")}>
                 <span>
-                  <small>{j ? "К эскалации" : "Просрочено"}</small>
+                  <small>{j ? "Устранение последствий" : "Просрочено"}</small>
                   <b>{count(g[key])}</b>
                 </span>
                 <i>
@@ -420,7 +420,7 @@ export function Spotlight({
       </dl>
       {t.escalated && (
         <strong {...el("escalation-flag")} className="ar-flag">
-          Требует эскалации
+          Требуется устранение последствий
         </strong>
       )}
       <a

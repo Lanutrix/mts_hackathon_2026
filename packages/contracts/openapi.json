@@ -1385,6 +1385,106 @@
         ]
       }
     },
+    "/api/incident/{id}/itsm": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": { "type": "string" }
+        },
+        { "in": "query", "name": "ns", "schema": { "type": "string" } }
+      ],
+      "get": {
+        "summary": "Открыть ту же запись в ITSM или её подписанном макете",
+        "responses": {
+          "302": { "description": "Адрес карточки этого инцидента" },
+          "401": { "description": "Требуется вход" },
+          "404": { "description": "Источник или инцидент не найден" }
+        }
+      }
+    },
+    "/api/incident/{id}/dispatch/suggestions": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": { "type": "string" }
+        },
+        {
+          "in": "query",
+          "name": "ns",
+          "schema": { "enum": ["demo", "workspace"] }
+        }
+      ],
+      "post": {
+        "summary": "Предложить команды решения и черновики комментариев",
+        "security": [{ "session": [], "csrf": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["snapshot"],
+                "properties": {
+                  "snapshot": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "team": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Рекомендации без записи назначения",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["mode", "snapshot", "teams", "comments"],
+                  "properties": {
+                    "mode": { "enum": ["model", "local"] },
+                    "model": { "type": "string" },
+                    "snapshot": { "type": "string" },
+                    "teams": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["name", "reason"],
+                        "properties": {
+                          "name": { "type": "string" },
+                          "reason": { "type": "string" }
+                        }
+                      }
+                    },
+                    "comments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["label", "text"],
+                        "properties": {
+                          "label": { "type": "string" },
+                          "text": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Неверный снимок или команда" },
+          "401": { "description": "Требуется вход" },
+          "403": { "description": "Недоступная роль или источник" },
+          "404": { "description": "Инцидент отсутствует" },
+          "409": {
+            "description": "Снимок изменился или инцидент недоступен для назначения"
+          }
+        }
+      }
+    },
     "/api/incident/{id}/dispatch": {
       "parameters": [
         { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } },

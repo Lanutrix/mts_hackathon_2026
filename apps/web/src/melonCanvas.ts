@@ -1,4 +1,6 @@
 import {
+  cutBand,
+  cutGridPitch,
   glassMesh,
   glassPlate,
   radii,
@@ -9,7 +11,9 @@ import {
   groupColors,
   pixels,
   rotate,
+  specimenSockets,
   world,
+  type CutContact,
   type Pose,
   type Vec,
 } from "./melonModel";
@@ -21,6 +25,7 @@ interface Face {
   object: number;
   paint: string;
   uv?: number[][];
+  grid?: [Vec, Vec][];
 }
 interface Projected {
   face: Face;
@@ -29,6 +34,53 @@ interface Projected {
   light: number;
 }
 const half = 192;
+function interpolate(a: Vec, b: Vec, t: number): Vec {
+  return [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ];
+}
+
+// Intersect each lattice line with the actual face polygon once. The painter
+// can then depth-sort these marks with their host face, including after a drag.
+function surfaceGrid(face: Face): [Vec, Vec][] {
+  const uv = face.vertices.map(([x, y, z]) =>
+    face.paint !== "flesh"
+      ? [Math.atan2(-y / radii[1], x / radii[0]) * 1.12, z]
+      : face.normal[1] === 1
+        ? [x, z]
+        : [x, y],
+  );
+  const grid: [Vec, Vec][] = [];
+  for (let axis = 0; axis < 2; axis++) {
+    const values = uv.map((p) => p[axis]);
+    const last = Math.floor(Math.max(...values) / cutGridPitch);
+    for (
+      let n = Math.ceil(Math.min(...values) / cutGridPitch);
+      n <= last;
+      n++
+    ) {
+      const line = n * cutGridPitch;
+      const ends: Vec[] = [];
+      values.forEach((a, i) => {
+        const j = (i + 1) % values.length,
+          b = values[j];
+        if (a < line !== b < line) {
+          ends.push(
+            interpolate(
+              face.vertices[i],
+              face.vertices[j],
+              (line - a) / (b - a),
+            ),
+          );
+        }
+      });
+      if (ends.length === 2) grid.push([ends[0], ends[1]]);
+    }
+  }
+  return grid;
+}
 function fleshTexture() {
   const sheet = document.createElement("canvas");
   sheet.width = sheet.height = 2 * half;
@@ -163,21 +215,13 @@ function fallbackMesh(hero: boolean) {
         object,
         normal: [rail[i + 3], rail[i + 4], rail[i + 5]],
         paint,
-        uv:
-          paint === "specimen" && Math.abs(rail[i + 5]) === 1
-            ? vertices.map(([x, y]) => [
-                (object - 6 + x + 0.5) * 160,
-                (0.5 - y) * 160,
-              ])
-            : undefined,
       });
     }
   }
+  if (hero) for (const face of faces) face.grid = surfaceGrid(face);
   appendGlass(glassMesh(5, 3, hero), 5, "glass");
   if (hero) {
     appendGlass(glassPlate(0.766, 0.008, 4), 5, "pane");
-    for (let i = 0; i < 3; i++)
-      appendGlass(glassPlate(0.5, 0.036, 5), 6 + i, "specimen");
   }
   return { faces, centers };
 }
@@ -252,6 +296,52 @@ export function canvasRenderer(
     sheet = fleshTexture();
   let dark = false,
     decals = hero ? specimenDecals() : null;
+  // In Canvas the plate and its host must share a texture. Sorting separate
+  // triangles by their centres can paint a sector of flesh across the number.
+  const markedFaces = hero
+    ? specimenSockets.map(() => {
+        const layer = document.createElement("canvas");
+        layer.width = sheet.width;
+        layer.height = sheet.height;
+        return { layer, size: -1 };
+      })
+    : [];
+  function sampleFace(i: number, size: number) {
+    if (!size || !decals) return sheet;
+    const entry = markedFaces[i];
+    if (size === entry.size) return entry.layer;
+    entry.size = size;
+    const paint = entry.layer.getContext("2d")!;
+    paint.drawImage(sheet, 0, 0);
+    const radius = Math.sqrt(1 - sectionCuts(true)[i] ** 2);
+    const sx = half / (radii[0] * radius),
+      sy = half / (radii[1] * radius);
+    const w = size * sx,
+      h = size * sy;
+    const x = half + specimenSockets[i][0] * sx - w / 2;
+    const y = half - specimenSockets[i][1] * sy - h / 2;
+    const sheen = paint.createLinearGradient(x, y + h, x + w, y);
+    sheen.addColorStop(0, dark ? "rgba(61,40,81,.88)" : "rgba(122,83,164,.69)");
+    sheen.addColorStop(
+      0.52,
+      dark ? "rgba(80,61,102,.82)" : "rgba(218,200,240,.65)",
+    );
+    sheen.addColorStop(
+      0.64,
+      dark ? "rgba(143,117,163,.83)" : "rgba(247,240,255,.79)",
+    );
+    sheen.addColorStop(
+      1,
+      dark ? "rgba(76,50,103,.84)" : "rgba(177,142,216,.74)",
+    );
+    paint.fillStyle = sheen;
+    paint.fillRect(x, y, w, h);
+    paint.lineWidth = Math.min(w, h) * 0.035;
+    paint.strokeStyle = "rgba(247,235,255,.86)";
+    paint.strokeRect(x, y, w, h);
+    paint.drawImage(decals, 160 * i, 0, 160, 160, x, y, w, h);
+    return entry.layer;
+  }
   const neutral = document.createElement("canvas");
   neutral.width = sheet.width;
   neutral.height = sheet.height;
@@ -276,6 +366,47 @@ export function canvasRenderer(
   function project(v: Vec, pose: Pose) {
     return pixels(world(v, pose), w, h, scale);
   }
+  function drawContact(face: Face, pose: Pose, contact: CutContact) {
+    const [x, y, z, offset] = contact.plane;
+    const distance = (p: Vec) => x * p[0] + y * p[1] + z * p[2] + offset;
+    for (const [a, b] of face.grid!) {
+      const da = distance(a),
+        db = distance(b);
+      if (Math.min(da, db) >= cutBand || Math.max(da, db) <= -cutBand) continue;
+      const delta = db - da;
+      let start = 0,
+        end = 1;
+      if (Math.abs(delta) > 1e-6) {
+        const t1 = (-cutBand - da) / delta,
+          t2 = (cutBand - da) / delta;
+        start = Math.max(0, Math.min(t1, t2));
+        end = Math.min(1, Math.max(t1, t2));
+      }
+      const from = project(interpolate(a, b, start), pose);
+      const to = project(interpolate(a, b, end), pose);
+      ctx.beginPath();
+      ctx.moveTo(...from);
+      ctx.lineTo(...to);
+      for (const [rgb, width] of [
+        ["87,23,174", 0.027],
+        ["224,166,255", 0.01],
+      ] as const) {
+        const ink = (t: number) => {
+          const d = Math.min(1, Math.abs(da + delta * t) / cutBand);
+          return `rgba(${rgb},${contact.strength * (1 - d * d * (3 - 2 * d))})`;
+        };
+        if (Math.abs(delta) < 0.008) ctx.strokeStyle = ink(start);
+        else {
+          const gradient = ctx.createLinearGradient(...from, ...to);
+          for (const at of [0, 0.25, 0.5, 0.75, 1])
+            gradient.addColorStop(at, ink(start + (end - start) * at));
+          ctx.strokeStyle = gradient;
+        }
+        ctx.lineWidth = Math.max(0.6, scale * pose.size * width);
+        ctx.stroke();
+      }
+    }
+  }
   function draw(frame: SceneFrame) {
     ctx.clearRect(0, 0, w, h);
     const shadowY = h / 2 + (hero ? 1.21 : 0.94) * scale;
@@ -291,11 +422,7 @@ export function canvasRenderer(
     visible = [];
     for (const face of mesh.faces) {
       const pose =
-        face.object > 5
-          ? frame.specimens![face.object - 6]
-          : face.object === 5
-            ? frame.frame
-            : frame.fruit[face.object - 1];
+        face.object === 5 ? frame.frame : frame.fruit[face.object - 1];
       const normal = rotate(rotate(face.normal, pose.twist), pose.camera);
       const pts = face.vertices.map((p) => world(p, pose));
       const depth = pts.reduce((s, p) => s + p[2], 0) / pts.length;
@@ -313,50 +440,17 @@ export function canvasRenderer(
     visible.sort((a, b) => a.depth - b.depth);
     for (const p of visible) {
       path(ctx, p.points);
-      if (p.face.paint === "specimen" || p.face.paint === "pane") {
-        const tile = p.face.paint === "specimen";
-        const pose = tile ? frame.specimens![p.face.object - 6] : frame.frame;
-        const half = tile ? 0.5 : 0.766;
-        const bottom = project([-half, -half, 0], pose);
-        const top = project([half, half, 0], pose);
+      if (p.face.paint === "pane") {
+        const bottom = project([-0.766, -0.766, 0], frame.frame);
+        const top = project([0.766, 0.766, 0], frame.frame);
         const sheen = ctx.createLinearGradient(...bottom, ...top);
-        sheen.addColorStop(
-          0,
-          tile
-            ? dark
-              ? "rgba(61,40,81,.88)"
-              : "rgba(122,83,164,.64)"
-            : "rgba(138,107,172,.19)",
-        );
-        sheen.addColorStop(
-          0.52,
-          tile
-            ? dark
-              ? "rgba(80,61,102,.82)"
-              : "rgba(218,200,240,.72)"
-            : "rgba(194,171,225,.17)",
-        );
-        sheen.addColorStop(
-          0.64,
-          tile
-            ? dark
-              ? "rgba(143,117,163,.83)"
-              : "rgba(247,240,255,.82)"
-            : "rgba(245,234,255,.30)",
-        );
-        sheen.addColorStop(
-          1,
-          tile
-            ? dark
-              ? "rgba(76,50,103,.84)"
-              : "rgba(177,142,216,.63)"
-            : "rgba(174,148,207,.23)",
-        );
+        sheen.addColorStop(0, "rgba(138,107,172,.19)");
+        sheen.addColorStop(0.52, "rgba(194,171,225,.17)");
+        sheen.addColorStop(0.64, "rgba(245,234,255,.30)");
+        sheen.addColorStop(1, "rgba(174,148,207,.23)");
         ctx.fillStyle =
           Math.abs(p.face.normal[2]) === 1 ? sheen : "rgba(246,230,255,.84)";
         ctx.fill();
-        if (p.face.uv && decals)
-          paintTriangle(ctx, p.points, p.face.uv, decals);
       } else if (p.face.uv) {
         const strength = hero ? 1 : frame.occupied[p.face.object - 1];
         ctx.fillStyle = strength > 0.5 ? "#ef6573" : "#c9c5d5";
@@ -367,7 +461,12 @@ export function canvasRenderer(
         if (strength < 0.99) paintTriangle(ctx, p.points, p.face.uv, neutral);
         if (strength > 0.001) {
           ctx.globalAlpha = strength;
-          paintTriangle(ctx, p.points, p.face.uv, sheet, hero);
+          const i = p.face.object - 1;
+          const texture =
+            frame.specimens && p.face.normal[2] === 1
+              ? sampleFace(i, frame.specimens[i].size / frame.fruit[i].size)
+              : sheet;
+          paintTriangle(ctx, p.points, p.face.uv, texture, hero);
           ctx.globalAlpha = 1;
         }
       } else {
@@ -399,6 +498,14 @@ export function canvasRenderer(
         ctx.lineWidth = 0.55;
         ctx.stroke();
         ctx.fill();
+      }
+      const contact = frame.contacts?.[p.face.object - 1];
+      if (contact?.strength && p.face.grid?.length) {
+        ctx.save();
+        path(ctx, p.points);
+        ctx.clip();
+        drawContact(p.face, frame.fruit[p.face.object - 1], contact);
+        ctx.restore();
       }
     }
     if (!hero)
@@ -432,6 +539,7 @@ export function canvasRenderer(
       if (decals) {
         decals.width = 0;
         decals = specimenDecals(dark);
+        for (const entry of markedFaces) entry.size = -1;
       }
     },
     draw,
@@ -448,8 +556,7 @@ export function canvasRenderer(
       for (let i = visible.length - 1; i >= 0; i--) {
         path(ctx, visible[i].points);
         if (ctx.isPointInPath(x * w, y * h)) {
-          const id = visible[i].face.object;
-          return id > 5 ? id - 5 : id;
+          return visible[i].face.object;
         }
       }
       return 0;
@@ -459,6 +566,7 @@ export function canvasRenderer(
       sheet.width = 0;
       neutral.width = 0;
       if (decals) decals.width = 0;
+      for (const { layer } of markedFaces) layer.width = 0;
     },
   };
 }

@@ -128,8 +128,9 @@ test("selection answers structured queries locally and sends only safe evidence 
 });
 
 test("the simulation forwards a natural-language question while redacting secrets and addresses", async () => {
-  const { operationalReading } =
-    await import("../apps/server/operationalAnalysis.ts");
+  const { operationalReading } = await import(
+    "../apps/server/operationalAnalysis.ts"
+  );
   const { VseLlm } = await import("../apps/server/vsellm.ts");
   let body = "";
   const client = new VseLlm("test", "test", async (_, opts) => {
@@ -184,6 +185,38 @@ test("provider rejects new numbers even when the cited source is real", async ()
     counts: { tickets: 1 },
   });
   assert.ok("error" in result);
+});
+
+test("a post-resolution flag cannot substantiate a provider's claim that a ticket was escalated", async () => {
+  const { VseLlm } = await import("../apps/server/vsellm.ts");
+  const client = new VseLlm("test", "test", async () =>
+    Response.json({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              answer: "Заявка T1 эскалирована.",
+              nextCheck: "Проверьте группу.",
+              refs: ["T1.isNeedUp"],
+            }),
+          },
+        },
+      ],
+    }),
+  );
+  const result = await client.read({
+    task: "Проверьте заявку",
+    facts: { "T1.isNeedUp": true },
+  });
+  assert.ok("error" in result);
+  const { app, ask, wire } = await setup();
+  try {
+    const selection = await ask("Сколько заявок были эскалированы?");
+    assert.match(selection.json().overview.join(" "), /источнике нет поля/iu);
+    assert.equal(wire.length, 0);
+  } finally {
+    await app.close();
+  }
 });
 
 test("private cases return only source-backed references and reject invented citations", async () => {

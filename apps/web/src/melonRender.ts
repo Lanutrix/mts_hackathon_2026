@@ -7,7 +7,6 @@ import {
   modelPoses,
   orbit,
   pixels,
-  specimenPoses,
   trackingAnchor,
   world,
   type Vec,
@@ -83,7 +82,7 @@ export function mountMelon(
   let request = 0,
     lastTick = 0,
     lastDraw = 0,
-    phase = hero ? heroRestPhase : 0,
+    phase = hero && reduced.matches ? heroRestPhase : 0,
     pickFrame: SceneFrame | null = null;
   let shown = false,
     resetting = false,
@@ -133,8 +132,8 @@ export function mountMelon(
       points.forEach((p) => measure(world(p, poses.fruit[i]))),
     );
     framePoints.forEach((p) => measure(world(p, poses.frame)));
-    const specimens = hero ? specimenPoses(poses.fruit) : undefined;
-    specimens?.forEach((pose) => {
+    poses.specimens?.forEach((pose) => {
+      if (!pose.size) return;
       for (const x of [-0.5, 0.5])
         for (const y of [-0.5, 0.5]) measure(world([x, y, 0.04], pose));
     });
@@ -144,7 +143,7 @@ export function mountMelon(
       (backingHeight * 0.475) / Math.max(0.1, reachY),
     );
     scene.resize(backingWidth, backingHeight, scale);
-    pickFrame = { ...poses, specimens, focus, loads, occupied };
+    pickFrame = { ...poses, focus, loads, occupied };
     scene.draw(pickFrame);
     if (anchor) {
       const [x, y] = pixels(

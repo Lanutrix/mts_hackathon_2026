@@ -103,6 +103,61 @@ test("coordinator dispatch uses scoped evidence, requires confirmation versions 
   assert.ok(
     !view.teams.find((team: any) => team.name === "Координаторы").product,
   );
+  const suggest = (
+    headers: Record<string, string>,
+    body: object,
+    ns = "demo",
+  ) =>
+    app.inject({
+      method: "POST",
+      url: path + "/suggestions?ns=" + ns,
+      headers,
+      payload: body,
+    });
+  const suggestions = await suggest(writer, {
+    snapshot: view.snapshot,
+    team: best.name,
+  });
+  assert.equal(suggestions.statusCode, 200, suggestions.body);
+  assert.equal(suggestions.json().mode, "local");
+  assert.ok(suggestions.json().comments.length);
+  assert.ok(
+    suggestions
+      .json()
+      .teams.every((t: { name: string }) =>
+        view.teams.some((c: { name: string }) => t.name === c.name),
+      ),
+  );
+  assert.deepEqual((await get(writer)).json().history, []);
+  assert.equal(
+    (await suggest(viewer, { snapshot: view.snapshot })).statusCode,
+    403,
+  );
+  assert.equal(
+    (await suggest({ cookie: writer.cookie }, { snapshot: view.snapshot }))
+      .statusCode,
+    403,
+  );
+  assert.equal(
+    (await suggest(writer, { snapshot: "0".repeat(64) })).statusCode,
+    409,
+  );
+  assert.equal(
+    (await suggest(writer, { snapshot: view.snapshot, team: "Неизвестная" }))
+      .statusCode,
+    400,
+  );
+  assert.equal(
+    (await suggest(writer, { snapshot: view.snapshot }, "original")).statusCode,
+    403,
+  );
+  const link = await app.inject({
+    method: "GET",
+    url: "/api/incident/" + rows[0].id + "/itsm?ns=workspace",
+    headers: writer,
+  });
+  assert.equal(link.statusCode, 302);
+  assert.equal(link.headers.location, "/itsm/" + rows[0].id + "?ns=workspace");
   const payload = {
     requestId: randomUUID(),
     snapshot: view.snapshot,

@@ -1,10 +1,12 @@
+import { cutBand, cutGridPitch } from "./melonRenderGeometry";
+
 export const vertexSource = `
 attribute vec3 a_point;
 attribute vec3 a_normal;
 attribute float a_material;
 uniform vec3 u_rotation, u_camera, u_translation, u_pivot, u_origin;
 uniform vec2 u_scale;
-uniform float u_size, u_floor;
+uniform float u_size, u_floor, u_hero;
 varying vec3 v_local, v_normal, v_world;
 varying float v_material;
 vec3 rotate(vec3 p,vec3 angles) {
@@ -23,6 +25,8 @@ void main() {
   v_world=camera;
   float perspective=8./(8.-camera.z);
   gl_Position=vec4(camera.xy*perspective*u_scale,-camera.z/7.0,1.);
+  // Preserve perspective-correct depth between the sample and its cut face.
+  if(u_hero>.5) gl_Position=vec4(camera.xy*u_scale,-.04*camera.z,1.-camera.z/8.);
   if(u_floor>0.5) gl_Position=vec4(a_point.xy,0.99,1.);
 }
 `;
@@ -34,6 +38,8 @@ uniform float u_dark;
 uniform vec3 u_paper;
 uniform vec4 u_scannerPlane;
 uniform float u_glassSide;
+uniform vec4 u_cutPlane;
+uniform float u_cutStrength;
 uniform vec4 u_loads, u_selection, u_occupied;
 uniform vec2 u_viewport;
 uniform sampler2D u_backdrop, u_decal;
@@ -122,7 +128,10 @@ void main() {
       vec3 tint=tile ? vec3(.76,.63,.92) : vec3(.82,.73,.95);
       vec3 pane=paper*tint+vec3(.035,.022,.044);
       pane+=u_dark*vec3(.095,.048,.15);
-      if(tile) pane=mix(pane,pane*vec3(.43,.38,.53)+vec3(.048,.028,.086),u_dark*.80);
+      if(tile) {
+        pane=mix(pane,vec3(.69,.53,.83),.43);
+        pane=mix(pane,pane*vec3(.43,.38,.53)+vec3(.048,.028,.086),u_dark*.80);
+      }
       float stripe=exp(-pow((p.x+.69*p.y+.20*v_world.x-.30)*3.3,2.));
       pane=mix(pane,vec3(1.,.974,1.),stripe*(tile?.34:.19));
       pane=mix(pane,vec3(.99,.95,1.),bevel*(.40+.55*whiteStrip));
@@ -220,6 +229,18 @@ void main() {
   color=color*mix(1.,.86,u_dark)+u_dark*vec3(.13,.10,.16)*pow(1.-abs(normal.z),2.);
   color*=.95+.05*smoothstep(-.92,.14,v_world.y);
   color*=1.-.045*u_focus;
+  if(u_hero>.5 && u_cutStrength>0.) {
+    float d=abs(dot(u_cutPlane,vec4(v_local,1.)));
+    float contact=u_cutStrength*(1.-smoothstep(0.,${cutBand},d));
+    vec2 uv=skin ? vec2(atan(-local.y,local.x)*1.12,v_local.z)
+                 : top ? v_local.xz : v_local.xy;
+    vec2 cell=abs(fract(uv/${cutGridPitch}+.5)-.5)*${cutGridPitch};
+    float line=min(cell.x,cell.y);
+    float edge=1.-smoothstep(.006,.017,line);
+    float core=1.-smoothstep(.002,.007,line);
+    color=mix(color,vec3(.34,.09,.68),contact*edge*.98);
+    color=mix(color,vec3(.88,.65,1.),contact*core*.95);
+  }
   if(u_hero<.5 && !skin && radius>.77 && radius<.91) {
     vec4 group=1.-step(.45,abs(vec4(0.,1.,2.,3.)-u_index));
     float selected=dot(group,u_selection), load=dot(group,u_loads);

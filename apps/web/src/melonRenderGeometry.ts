@@ -1,6 +1,8 @@
 // Four sections of the same ellipsoid. The end faces, curved peel and top
 // are separate surfaces so every cut retains its own normal and material.
 export const radii = [1.16, 1.08, 1.82] as const;
+export const cutGridPitch = 0.16;
+export const cutBand = 0.24;
 const signalCuts = [0.16, -0.13, -0.425, -0.7, -0.984] as const;
 const brandCuts = [0.32, 0.1, -0.12, -0.34] as const;
 export const sectionCuts = (hero: boolean) => (hero ? brandCuts : signalCuts);

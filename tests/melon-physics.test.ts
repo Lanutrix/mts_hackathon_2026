@@ -10,7 +10,12 @@ import {
   type Pose,
   type Vec,
 } from "../apps/web/src/melonModel.ts";
-import { glassMesh, melonMesh } from "../apps/web/src/melonRenderGeometry.ts";
+import {
+  glassMesh,
+  melonMesh,
+  radii,
+  sectionCuts,
+} from "../apps/web/src/melonRenderGeometry.ts";
 
 test("The guest optic sweeps through the fruit and exposes separate registered cut faces", () => {
   const mesh = melonMesh(true);
@@ -42,9 +47,9 @@ test("The guest optic sweeps through the fruit and exposes separate registered c
     scannerDepth(atStart) > 0 && scannerDepth(atRest) < 0,
     "the scanner travels across the front face",
   );
-  const marks = specimenPoses(atRest.fruit);
+  const marks = atRest.specimens!;
   assert.equal(marks.length, 3);
-  const nextPass = specimenPoses(poses(23).fruit);
+  const nextPass = poses(23).specimens!;
   marks.forEach((mark, i) => {
     assert.ok(
       distance(mark.origin, nextPass[i].origin) < 1e-6,
@@ -54,7 +59,7 @@ test("The guest optic sweeps through the fruit and exposes separate registered c
       ...pose,
       origin: pose.origin.map((v) => (i === j ? v + 0.4 : v)) as Vec,
     }));
-    specimenPoses(shifted).forEach((m, j) => {
+    specimenPoses(shifted, [1, 1, 1]).forEach((m, j) => {
       const delta = m.origin[0] - marks[j].origin[0];
       assert.ok(
         Math.abs(delta - (i === j ? 0.4 : 0)) < 1e-6,
@@ -65,6 +70,130 @@ test("The guest optic sweeps through the fruit and exposes separate registered c
 });
 
 const dot = (a: Vec, b: Vec) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+test("Cut samples grow on the flesh only after the blade exits their section, then disappear on rewind", () => {
+  const centers = melonMesh(true).sections.map((s) => s.center);
+  const zero = [0, 0, 0, 0];
+  const scene = (time: number) =>
+    modelPoses(true, time, orbit(), orbit(), zero, zero, zero, centers);
+  const sizes = (time: number) => scene(time).specimens!.map((s) => s.size);
+  assert.deepEqual(
+    sizes(0),
+    [0, 0, 0],
+    "the assembled wedge has no sample squares",
+  );
+  assert.deepEqual(sizes(16), sizes(0));
+  assert.ok(sizes(7).every((size) => size > 0.3));
+  const counts = new Set<number>();
+  for (let t = 0; t < 4; t += 0.04) {
+    const frame = scene(t);
+    const marks = frame.specimens!;
+    const rewind = sizes(16 - t);
+    counts.add(marks.filter((mark) => mark.size > 0).length);
+    marks.forEach((mark, i) => {
+      assert.ok(Math.abs(mark.size - rewind[i]) < 1e-8);
+      if (mark.size === 0) return;
+      const normal = rotate([0, 0, 1], frame.frame.camera);
+      const back = world(
+        [0, -0.45, sectionCuts(true)[i + 1] * radii[2]],
+        frame.fruit[i],
+      );
+      assert.ok(
+        dot(back.map((v, j) => v - frame.frame.origin[j]) as Vec, normal) > 0,
+        "the blade must have cut through the section",
+      );
+    });
+  }
+  assert.deepEqual([...counts], [0, 1, 2, 3]);
+  const rest = scene(7);
+  rest.specimens!.forEach((mark, i) => {
+    const faceZ = sectionCuts(true)[i] * radii[2];
+    const section = rest.fruit[i];
+    const origin = world([0, 0, faceZ], section);
+    const axes = (
+      [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ] as Vec[]
+    ).map((a) => rotate(rotate(a, section.twist), section.camera));
+    for (const x of [-0.5, 0.5])
+      for (const y of [-0.5, 0.5]) {
+        const point = world([x, y, 0], mark).map(
+          (v, j) => v - origin[j],
+        ) as Vec;
+        const [u, v, depth] = axes.map(
+          (axis) => dot(point, axis) / section.size,
+        );
+        assert.ok(
+          v < 0 &&
+            (u / radii[0]) ** 2 +
+              (v / radii[1]) ** 2 +
+              (faceZ / radii[2]) ** 2 <
+              1,
+        );
+        assert.ok(
+          depth >= 0 && depth < 0.04,
+          "the glass sits flush on the cut face",
+        );
+      }
+  });
+});
+
+test("The violet contact grid is confined to sections crossing the actual scanner plane", () => {
+  const zero = [0, 0, 0, 0];
+  const mesh = melonMesh(true);
+  const centers = mesh.sections.map((s) => s.center);
+  for (const yaw of [0, 0.56]) {
+    const seen = new Set<number>();
+    for (let t = 0; t < 4; t += 0.08) {
+      const frame = modelPoses(
+        true,
+        t,
+        orbit(),
+        { ...orbit(), yaw },
+        zero,
+        zero,
+        zero,
+        centers,
+      );
+      const normal = rotate([0, 0, 1], frame.frame.camera);
+      mesh.sections.forEach(({ first, count }, i) => {
+        const contact = frame.contacts?.[i];
+        assert.ok(
+          contact,
+          "each section has a contact with the scanning plane",
+        );
+        let lo = Infinity,
+          hi = -Infinity;
+        for (let vertex = first; vertex < first + count; vertex += 7) {
+          const p = Array.from(
+            mesh.vertices.subarray(7 * vertex, 7 * vertex + 3),
+          ) as Vec;
+          const wp = world(p, frame.fruit[i]);
+          const distance = dot(
+            normal,
+            wp.map((v, j) => v - frame.frame.origin[j]) as Vec,
+          );
+          const projected =
+            dot(contact.plane.slice(0, 3) as Vec, p) + contact.plane[3];
+          assert.ok(
+            Math.abs(projected - distance) < 1e-6,
+            "grid must follow the rotated scanner",
+          );
+          lo = Math.min(lo, distance);
+          hi = Math.max(hi, distance);
+        }
+        if (hi < -0.01 || lo > 0.01) assert.equal(contact.strength, 0);
+        if (lo < -0.09 && hi > 0.09) {
+          assert.ok(contact.strength > 0.5);
+          seen.add(i);
+        }
+      });
+    }
+    assert.deepEqual([...seen].sort(), [0, 1, 2]);
+  }
+});
 
 test("Release inertia travels the same distance at different display refresh rates", () => {
   const duration = 2;

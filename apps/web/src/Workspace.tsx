@@ -163,7 +163,14 @@ function ConversationLog({
               <span className="cx-assistant-icon">
                 <Spark size={15} />
               </span>
-              <b>Срез</b>
+              <b>{result.provider}</b>
+              {result.mode === "model" && (
+                <span>
+                  {result.answer?.kind === "knowledge"
+                    ? "Выбор раздела справки"
+                    : "План запроса · расчёт по полям ITSM"}
+                </span>
+              )}
             </div>
             <p>
               <TicketMentions

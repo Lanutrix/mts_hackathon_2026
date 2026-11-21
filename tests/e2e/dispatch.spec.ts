@@ -26,6 +26,7 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
   }));
   Object.assign(rows[0], {
     assignedGroupName: "Координация",
+    customField: { empty: null, nested: ["образец", false] },
     priorityId: 4,
     priority: "Наивысший",
     deadline: new Date(Date.now() + 86400000).toISOString(),
@@ -63,13 +64,40 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     await expect(page).toHaveURL(origin + "/live");
     await page.getByRole("button", { name: "Назначить исполнителя для " + rows[0].id }).click();
     await expect(page).toHaveURL(new RegExp("/incident/" + rows[0].id));
+    const facts = page.getByRole("region", { name: "Текущее состояние" });
+    await expect(facts).toContainText("Координация");
+    await expect(facts).toContainText("Срок решения");
+    await expect(facts).toContainText("Исполнитель");
+    const raw = page.getByText("Исходная запись JSON", { exact: true });
+    await raw.focus();
+    await page.keyboard.press("Enter");
+    const source = page.getByRole("textbox", { name: "Исходный JSON инцидента" });
+    expect(JSON.parse(await source.inputValue())).toEqual(rows[0]);
+    await page.getByRole("button", { name: "Скопировать JSON" }).click();
+    await expect(page.getByRole("status").filter({ hasText: /JSON скопирован|JSON выделен/ })).toBeVisible();
+    await raw.press("Enter");
     const panel = page.getByRole("region", { name: "Маршрутизация" });
     await expect(panel).toBeVisible();
     const team = panel.getByRole("combobox", { name: "Команда назначения" });
     const search = panel.getByRole("searchbox", { name: "Найти исполнителя" });
     const review = panel.getByRole("button", { name: "Проверить решение" });
-    await expect(team).toHaveValue("Платформа");
+    await expect(team).toHaveValue("");
     await expect(review).toBeDisabled();
+    await panel.getByRole("button", { name: "Предложить команду решения" }).click();
+    await expect(panel.getByText("Совпали продукт и симптом в других инцидентах команды: 12.", { exact: true })).toBeVisible();
+    await expect(team).toHaveValue("");
+    await panel.getByRole("button", { name: "Выбрать команду Платформа" }).click();
+    await expect(team).toHaveValue("Платформа");
+    await expect(panel.getByRole("radio", {name: /Вся команда/})).toBeChecked();
+    const note = panel.getByRole("textbox", { name: "Комментарий" });
+    await note.fill("Мой текст");
+    await panel.getByRole("button", { name: "Предложить комментарий" }).click();
+    const suggestion = panel.getByRole("group", {name: "Зона ответственности"});
+    const proposedText = await suggestion.locator("p").innerText();
+    await expect(note).toHaveValue("Мой текст");
+    await suggestion.getByRole("button", { name: "Заменить комментарий", exact: true }).click();
+    await expect(note).toHaveValue(proposedText);
+    await panel.getByText("Выбрать сотрудника", { exact: true }).click();
     const laterMember = panel.getByRole("radio", { name: /Яна Сафонова/ });
     await expect(laterMember).toHaveCount(0);
     await panel.getByRole("button", { name: /Показать ещё/ }).click();
@@ -81,7 +109,7 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     await page.keyboard.press("Space");
     await expect(laterMember).toBeChecked();
     await team.selectOption("Архив");
-    await expect(review).toBeDisabled();
+    await expect(review).toBeEnabled();
     await expect(search).toHaveCount(0);
     await panel.getByRole("radio", { name: /Вся команда/ }).check();
     await review.click();
@@ -91,6 +119,7 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     await expect(preview).not.toContainText("Яна Сафонова");
     await preview.getByRole("button", { name: "Изменить выбор" }).click();
     await team.selectOption("Платформа");
+    await panel.getByText("Выбрать сотрудника", { exact: true }).click();
     await expect(search).toHaveValue("");
     await search.fill("сафонова");
     await laterMember.check();

@@ -27,6 +27,7 @@ import Loader from "./Loader";
 import { IncidentNotice, type IncidentSignal } from "./IncidentNotice";
 import { mergeSignals } from "./signalQueue";
 import CoordinatorDispatch from "./CoordinatorDispatch";
+import { ItsmLink, TicketDeadline, TicketSource } from "./TicketRecord";
 import { groups } from "./liveFeed";
 import { ProductBrand, MtsCaseBrand, Icon, type IconName } from "./Brand";
 import "./ops.css";
@@ -889,6 +890,7 @@ function Dashboard({
                     : undefined
                 }
                 item={extra}
+                now={tick}
                 dispatch={
                   <CoordinatorDispatch
                     key={
@@ -1148,8 +1150,8 @@ function fieldCaption(field: string) {
     deadline: "Срок",
     productName: "Продукт",
     assignedEmployee: "Исполнитель",
-    assignedGroupName: "Команда",
-    isNeedUp: "Эскалация",
+    assignedGroupName: "Команда назначения",
+    isNeedUp: "Устранение последствий",
     "history.changed": "История изменений",
     solution: "Решение",
   };
@@ -1160,6 +1162,7 @@ function Detail({
   item,
   dispatch,
   zone,
+  now,
   mock,
   itsmHref,
   write,
@@ -1170,6 +1173,7 @@ function Detail({
   canvasBack?: string;
   dispatch: React.ReactNode;
   zone: string;
+  now: number;
   mock: boolean;
   itsmHref: string;
   write: boolean;
@@ -1180,8 +1184,19 @@ function Detail({
   const [analysis, setAnalysis] = useState<Analysis | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const previous = useRef(i.revision);
-  const updated = i.revision !== previous.current;
+  const seenRevision = useRef(i.revision);
+  const [updated, setUpdated] = useState(false);
+  useEffect(() => {
+    if (i.revision === seenRevision.current) return;
+    seenRevision.current = i.revision;
+    setUpdated(true);
+    const clear = window.setTimeout(() => setUpdated(false), 4200);
+    return () => window.clearTimeout(clear);
+  }, [i.revision]);
+  const completed = i.stateId === 7 || i.stateId === 10;
+  const displayPerson = text(i.raw.assignedEmployee || i.raw.assignedEmployeeLogin, "Не указан");
+  const zoneLabel = zone === "Europe/Moscow" ? "МСК" : zone;
+  const backToTicket = location.pathname.replace("/itsm/", "/incident/") + location.search;
   return (
     <section className="content detail">
       {canvasBack && (
@@ -1203,46 +1218,57 @@ function Detail({
           <span aria-hidden="true">←</span> Вернуться на холст
         </a>
       )}
-      <div className="section-heading">
-        <div>
-          <p className="meta">{i.id}</p>
-          <h1>{text(i.raw.header)}</h1>
+      <header className="ticket-hero">
+        <div className="ticket-topline">
+          <p className="ticket-key"><span className="ticket-key-mark" aria-hidden="true" />Инцидент <b>{i.id}</b></p>
+          {!mock && <ItsmLink href={itsmHref} mock={item.itsmMock} navigate={onNavigate} className="button ticket-itsm">
+            {item.itsmMock ? "Открыть в ITSM (макет)" : "Открыть в ITSM"}
+          </ItsmLink>}
         </div>
-        {!mock && (
-          <a
-            tabIndex={0}
-            className="button"
-            href={itsmHref}
-            rel="noopener noreferrer"
-            onClick={
-              item.itsmMock
-                ? (e) => {
-                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)
-                      return;
-                    e.preventDefault();
-                    onNavigate(itsmHref);
-                  }
-                : undefined
-            }
-          >
-            Открыть в ITSM{item.itsmMock ? " (макет)" : ""}
-          </a>
-        )}
-      </div>
+        <h1>{text(i.raw.header, "Без темы")}</h1>
+        <div className="ticket-meta">
+          <span><small>Продукт</small><strong>{text(i.raw.productName)}</strong></span>
+          <span><small>Регистрация</small><time dateTime={i.dates.submitDate || undefined}>{i.dates.submitDate ? formatDate(i.dates.submitDate, zone) + " " + zoneLabel : "Не указана"}</time></span>
+          <span data-priority={completed ? undefined : i.priorityId}><small>Приоритет</small><strong>{i.priorityLabel}</strong></span>
+        </div>
+      </header>
       {mock && (
-        <div className="notice warning">
+        <div className="ticket-mock notice">
           <strong>Макет перехода в SimpleOne</strong>
-          <p>
-            Инстанс ITSM не предоставлен. Показан тот же инцидент {i.id}; запрос
-            в реальную систему не выполняется.
-          </p>
+          <p>Показан тот же инцидент {i.id}. Данные взяты из выгрузки.</p>
+          <a href={backToTicket} onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onNavigate(backToTicket);
+          }}>Вернуться к инциденту</a>
         </div>
       )}
-      {updated && (
-        <p role="status" className="notice">
-          Карточка обновлена
+      {updated && <p role="status" className="notice">Данные инцидента обновлены</p>}
+      {!i.sourcePresent && <p role="status" className="warning">Инцидент отсутствует в последней выгрузке. Проверьте данные в ITSM.</p>}
+      <section className="ticket-current" aria-label="Текущее состояние">
+        <dl>
+          <div><dt><Icon name="live" size={16} />Статус</dt>
+            <dd className="ticket-state" data-completed={completed}>{i.stateLabel}</dd></div>
+          <div><dt><Icon name="clock" size={16} />Срок решения</dt>
+            <TicketDeadline incident={i} now={now} stamp={formatDate(i.dates.deadline, zone) + " " + zoneLabel} /></div>
+          <div><dt><Icon name="coordinators" size={16} />Команда назначения</dt><dd>{i.team || "Не указана"}</dd></div>
+          <div><dt><Icon name="profile" size={16} />Исполнитель</dt><dd>{displayPerson}</dd></div>
+        </dl>
+      </section>
+      <div className="ticket-context">
+        <div className="ticket-description">
+          <h2>Описание</h2>
+          <p className="prose">{text(i.raw.description || i.raw.shortDescription, "Описание отсутствует в выгрузке.")}</p>
+        </div>
+        {!!i.raw.solution && <section className="ticket-solution">
+          <h2>{completed || i.stateId === 20 ? "Решение" : "Запись о решении"}</h2>
+          <p className="prose">{text(i.raw.solution)}</p>
+          {(i.stateId === 0 || i.stateId === 2) && <small>В выгрузке инцидент по-прежнему активен. Запись может описывать предыдущую попытку.</small>}
+        </section>}
+        <p className="ticket-consequences"><span>Устранение последствий</span>
+          <strong>{i.raw.isNeedUp === true ? "Требуется" : i.raw.isNeedUp === false ? "Не требуется" : "Не указано"}</strong>
         </p>
-      )}
+      </div>
       {!mock && dispatch}
       {write && !mock && (
         <section className="analysis detail-ai" aria-label="ИИ-сводка">
@@ -1286,7 +1312,7 @@ function Detail({
             <div className="detail-ai-result">
               {(analysis.stale || analysis.inputRevision !== i.revision) && (
                 <p role="status" className="warning">
-                  После разбора заявка изменилась.
+                  После разбора инцидент изменился.
                 </p>
               )}
               {analysis.mode === "fallback" && (
@@ -1317,48 +1343,6 @@ function Detail({
           )}
         </section>
       )}
-      <dl className="facts">
-        {[
-          ["Статус", i.stateLabel],
-          ["Приоритет", i.priorityLabel],
-          ["Продукт", i.raw.productName],
-          ["Команда", i.team],
-          ["Исполнитель", i.raw.assignedEmployee],
-          [
-            "Срок",
-            i.dates.deadline
-              ? formatDate(i.dates.deadline, zone)
-              : "Срок не задан",
-          ],
-        ].map(([name, value]) => (
-          <div key={String(name)}>
-            <dt>{String(name)}</dt>
-            <dd>{text(value)}</dd>
-          </div>
-        ))}
-      </dl>
-      {!!i.raw.description && (
-        <div className="ticket-description">
-          <h2>Описание</h2>
-          <p className="prose">{text(i.raw.description)}</p>
-        </div>
-      )}
-      {!i.sourcePresent && (
-        <p role="status" className="warning">
-          Тикет отсутствует в последней выгрузке. Проверьте данные в ITSM.
-        </p>
-      )}
-      {i.raw.isNeedUp === true && <p className="warning">Требует эскалации</p>}
-      {!!i.raw.solution && (
-        <>
-          <h2>
-            {i.stateId === 0 || i.stateId === 2
-              ? "Предыдущая попытка / несогласованные данные"
-              : "Текст решения"}
-          </h2>
-          <p className="prose">{text(i.raw.solution)}</p>
-        </>
-      )}
       {i.issues.length > 0 && (
         <details className="ticket-fold">
           <summary>Проверить данные · {i.issues.length}</summary>
@@ -1377,35 +1361,16 @@ function Detail({
               <time dateTime={e.at}>{formatDate(e.at, zone)}</time>
               <p>
                 {e.kind === "missing"
-                  ? "Запись исчезла из выписки; последнее состояние сохранено"
+                  ? "Запись исчезла из выписки. Сохранено последнее состояние."
                   : e.kind === "created"
                     ? "Первое наблюдение"
-                    : "Изменены поля: " + e.changed.join(", ")}
+                    : "Изменены поля: " + e.changed.map(fieldCaption).join(", ")}
               </p>
             </li>
           ))}
         </ol>
       </details>
-      <details className="ticket-fold">
-        <summary>Исходная запись</summary>
-        <p className="muted">
-          Зарегистрирован {formatDate(i.dates.submitDate, zone)}
-        </p>
-        <dl className="raw">
-          {Object.entries(i.raw).map(([k, v]) => (
-            <div key={k}>
-              <dt>{k}</dt>
-              <dd>
-                {v === null
-                  ? "null"
-                  : typeof v === "object"
-                    ? JSON.stringify(v)
-                    : String(v)}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </details>
+      <TicketSource incident={i} />
     </section>
   );
 }

@@ -9,6 +9,7 @@ type GroupPage = {
   unverified: number;
 };
 export type Dashboard = {
+  itsmMock?: boolean;
   namespace: string;
   revision: number;
   total: number;

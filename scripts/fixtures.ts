@@ -71,7 +71,7 @@ const design = generate(6).rows.map((r, i) => ({
   productName: titles[i].split(":")[0],
   stateId: i < 4 ? 2 : 20,
   stateEnum: i < 4 ? "WorkInProgress" : "Research",
-  state: i < 4 ? "Выполняется" : "Исследование",
+  state: i < 4 ? "Выполняется" : "Исследование ситуации",
   priorityId: i < 2 ? 4 : 3,
   priority: i < 2 ? "Наивысший" : "Высокий",
   assignedGroupName: [0, 2, 4].includes(i) ? TEAM : "Демо-команда платформы",

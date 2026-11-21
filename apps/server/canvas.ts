@@ -32,11 +32,11 @@ export interface CanvasSource {
 const titles: Record<CanvasDimension, string> = {
   symptom: "Похожие симптомы",
   team: "Нагрузка по командам",
-  product: "Заявки по продуктам",
-  priority: "Приоритеты заявок",
+  product: "Инциденты по продуктам",
+  priority: "Приоритеты инцидентов",
   deadline: "Сроки решения",
-  status: "Статусы заявок",
-  escalation: "Потребность в эскалации",
+  status: "Статусы инцидентов",
+  escalation: "Устранение последствий",
   ticket: "Заявки",
 };
 const deadlineLabels = {
@@ -46,7 +46,7 @@ const deadlineLabels = {
   unset: "Без срока",
 };
 const escalationLabels = {
-  yes: "Требуется эскалация",
+  yes: "Требуется устранение последствий",
   no: "Не требуется",
   unknown: "Нет отметки",
 };
@@ -380,7 +380,7 @@ export class CanvasService {
         total +
         ". Срок прошёл у " +
         overdue +
-        ", эскалация требуется у " +
+        ", устранение последствий требуется у " +
         escalated +
         ".";
     return {
@@ -392,7 +392,7 @@ export class CanvasService {
         { key: "total", label: "Заявки", value: total },
         { key: "overdue", label: "Срок прошёл", value: overdue },
         { key: "soon", label: "До 15 минут", value: soon },
-        { key: "escalated", label: "К эскалации", value: escalated },
+        { key: "escalated", label: "Устранение последствий", value: escalated },
       ],
       ...(primary.insights ? { insights: primary.insights } : {}),
       groups: primary.groups,

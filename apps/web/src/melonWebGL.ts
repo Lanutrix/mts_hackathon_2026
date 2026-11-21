@@ -1,6 +1,12 @@
 import { glassMesh, glassPlate, melonMesh } from "./melonRenderGeometry";
 import { fragmentSource, vertexSource } from "./melonRenderShaders";
-import { pixels, rotate, world, type Pose } from "./melonModel";
+import {
+  pixels,
+  rotate,
+  world,
+  type CutContact,
+  type Pose,
+} from "./melonModel";
 import { specimenDecals } from "./melonSpecimen";
 
 function makeProgram(gl: WebGLRenderingContext) {
@@ -37,6 +43,7 @@ export type SceneFrame = {
   loads: number[];
   occupied: number[];
   specimens?: Pose[];
+  contacts?: CutContact[];
 };
 export interface SceneRenderer {
   centers: number[];
@@ -116,6 +123,8 @@ export function webGLRenderer(
       "paper",
       "scannerPlane",
       "glassSide",
+      "cutPlane",
+      "cutStrength",
       "viewport",
       "loads",
       "selection",
@@ -222,6 +231,11 @@ export function webGLRenderer(
     gl.uniform1f(uniforms.floor, 0);
     mesh.sections.forEach((s, i) => {
       pose(frame.fruit[i]);
+      const contact = frame.contacts?.[i];
+      if (contact) {
+        gl.uniform4fv(uniforms.cutPlane, contact.plane);
+        gl.uniform1f(uniforms.cutStrength, contact.strength);
+      }
       gl.uniform1f(uniforms.index, i);
       gl.uniform1f(
         uniforms.focus,
@@ -237,13 +251,15 @@ export function webGLRenderer(
         index: -1,
         side: 0,
       },
-      ...(frame.specimens ?? []).map((p, i) => ({
-        pose: p,
-        first: specimenFirst,
-        count: specimen.length / 7,
-        index: i,
-        side: 0,
-      })),
+      ...(frame.specimens ?? [])
+        .map((p, i) => ({
+          pose: p,
+          first: specimenFirst,
+          count: specimen.length / 7,
+          index: i,
+          side: 0,
+        }))
+        .filter((sample) => sample.pose.size > 0),
     ];
     if (hero && !picking) {
       const normal = rotate([0, 0, 1], frame.frame.camera);

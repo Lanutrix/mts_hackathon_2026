@@ -8,6 +8,8 @@ import {
 import { facet } from "../../packages/domain/triage.ts";
 import type { Role } from "./auth.ts";
 import type { DB } from "./db.ts";
+import type { VseLlm } from "./vsellm.ts";
+import { dispatchSuggestions } from "./dispatchSuggestions.ts";
 
 export type DispatchMember = {
   id: string;
@@ -55,6 +57,7 @@ type EvidenceStore = {
 };
 type Session = { username: string; role: Role };
 type Context = {
+  remote?: VseLlm;
   db: DB;
   readStoreFor: (
     req: FastifyRequest,
@@ -261,6 +264,58 @@ export function registerDispatch(app: FastifyInstance, ctx: Context) {
       }
     }
     return view;
+  });
+
+  app.post(route + "/suggestions", { bodyLimit: 4096 }, async (req, reply) => {
+    if (!ctx.requireRole(req, reply, writers)) return;
+    const store = await ctx.readStoreFor(req, reply);
+    if (!store) return;
+    if (!writable(store.namespace))
+      return reply
+        .code(403)
+        .send({ message: "Источник доступен только для просмотра." });
+    const body = req.body as { snapshot?: unknown; team?: unknown } | null;
+    if (
+      !body ||
+      typeof body.snapshot !== "string" ||
+      !/^[a-f0-9]{64}$/.test(body.snapshot) ||
+      (body.team !== undefined && typeof body.team !== "string")
+    )
+      return reply
+        .code(400)
+        .send({ message: "Укажите текущую карточку и команду из списка." });
+    const id = (req.params as { id: string }).id;
+    const incident = [...store.rows.values()].find((i) => i.id === id);
+    if (!incident)
+      return reply.code(404).send({ message: "Инцидент не найден." });
+    if (unavailable(incident))
+      return reply.code(409).send({ message: unavailable(incident) });
+    const revision = () =>
+      sourceToken(
+        store.namespace,
+        id,
+        store.revision,
+        store.acceptedAt,
+        store.lastHash || "",
+      );
+    if (revision() !== body.snapshot) return fail(reply, conflict());
+    const catalog = evidence(store.rows, incident, false);
+    if (
+      body.team !== undefined &&
+      !catalog.teams.some((t) => t.name === body.team)
+    )
+      return reply
+        .code(400)
+        .send({ message: "Выберите команду из текущей выгрузки." });
+    const suggestions = await dispatchSuggestions(
+      incident,
+      catalog,
+      body.snapshot,
+      body.team as string | undefined,
+      ctx.remote,
+    );
+    if (revision() !== body.snapshot) return fail(reply, conflict());
+    return suggestions;
   });
 
   app.post(route, { bodyLimit: 16 * 1024 }, async (req, reply) => {

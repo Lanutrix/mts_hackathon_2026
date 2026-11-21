@@ -119,13 +119,13 @@ export default function TriageCases(props: Props) {
     setParam("case", id);
   };
   return (
-    <aside className="case-lens" aria-label="Группировка и разбор кейсов">
+    <aside className="case-lens" aria-label="Группировка и разбор инцидентов">
       <div className="case-heading">
         <h2>
-          Кейсы <small>{cases.length}</small>
+          Группы <small>{cases.length}</small>
         </h2>
         <select
-          aria-label="Группировка кейсов"
+          aria-label="Группировка инцидентов"
           value={dimension}
           onChange={(e) => {
             setOffset(0);
@@ -142,11 +142,11 @@ export default function TriageCases(props: Props) {
       </div>
       <div className="case-picker">
         <select
-          aria-label="Выбрать кейс"
+          aria-label="Выбрать группу"
           value={chosen?.id ?? ""}
           onChange={(e) => pick(e.target.value)}
         >
-          <option value="">Все тикеты · {amount}</option>
+          <option value="">Все инциденты · {amount}</option>
           {cases.map((k) => (
             <option key={k.id} value={k.id}>
               {k.label} · {k.count}
@@ -154,14 +154,14 @@ export default function TriageCases(props: Props) {
           ))}
         </select>
       </div>
-      <div className="case-ranks" role="group" aria-label="Кейсы по срочности">
+      <div className="case-ranks" role="group" aria-label="Группы по срочности">
         <button
           className="case-all"
           type="button"
           aria-pressed={!chosen}
           onClick={() => pick("")}
         >
-          Все тикеты <b>{amount}</b>
+          Все инциденты <b>{amount}</b>
         </button>
         {cases.slice(start, start + perPage).map((k) => (
           <button
@@ -183,9 +183,9 @@ export default function TriageCases(props: Props) {
                   </span>
                 )}
                 {k.escalations > 0 && (
-                  <span title={"К эскалации: " + k.escalations}>
+                  <span title={"Устранение последствий: " + k.escalations}>
                     <Icon name="escalation" size={15} />
-                    <span className="sr-only">К эскалации </span>
+                    <span className="sr-only">Устранение последствий </span>
                     {k.escalations}
                   </span>
                 )}
@@ -202,10 +202,10 @@ export default function TriageCases(props: Props) {
           </button>
         ))}
         {cases.length > perPage && (
-          <nav className="case-pages" aria-label="Страницы кейсов">
+          <nav className="case-pages" aria-label="Страницы групп">
             <button
               disabled={!start}
-              aria-label="Предыдущие кейсы"
+              aria-label="Предыдущие группы"
               onClick={() => setOffset(start - perPage)}
             >
               ←
@@ -216,7 +216,7 @@ export default function TriageCases(props: Props) {
             </span>
             <button
               disabled={start + perPage >= cases.length}
-              aria-label="Следующие кейсы"
+              aria-label="Следующие группы"
               onClick={() => setOffset(start + perPage)}
             >
               →
@@ -227,7 +227,7 @@ export default function TriageCases(props: Props) {
       {focus && (
         <div className="case-insight">
           <div className="case-insight-head">
-            <h3>{chosen ? "Выбранный кейс" : "В первую очередь"}</h3>
+            <h3>{chosen ? "Выбранная группа" : "В первую очередь"}</h3>
             <button className="case-analyze" onClick={() => setOpened(focus)}>
               {props.canAnalyze ? "ИИ-разбор" : "Разбор"}{" "}
               <span aria-hidden="true">↗</span>
@@ -250,7 +250,7 @@ export default function TriageCases(props: Props) {
               type="button"
               onClick={() => pick(focus.id)}
             >
-              Тикеты кейса · {focus.count} <span aria-hidden="true">→</span>
+              Инциденты группы · {focus.count} <span aria-hidden="true">→</span>
             </button>
           )}
           {props.canDispatch && (
@@ -344,7 +344,7 @@ function CaseDialog({
       onClose={close}
     >
       <div className="case-dialog-top">
-        <span>Разбор кейса</span>
+        <span>Разбор группы</span>
         <button aria-label="Закрыть разбор" onClick={close}>
           ×
         </button>
@@ -360,7 +360,7 @@ function CaseDialog({
       />
       <dl className="case-facts">
         <div>
-          <dt>Тикеты</dt>
+          <dt>Инциденты</dt>
           <dd>{record.count}</dd>
         </div>
         <div>
@@ -368,12 +368,12 @@ function CaseDialog({
           <dd>{record.overdue}</dd>
         </div>
         <div>
-          <dt>К эскалации</dt>
+          <dt>Устранение последствий</dt>
           <dd>{record.escalations}</dd>
         </div>
       </dl>
       {canAnalyze && !result && !fault && (
-        <Loader label="Сопоставляем описания тикетов…" />
+        <Loader label="Сопоставляем описания инцидентов…" />
       )}
       {fault && (
         <div role="alert">
@@ -388,13 +388,13 @@ function CaseDialog({
       )}
       {!inQueue && (
         <p role="status">
-          Кейс вышел из текущей выборки. Здесь сохранён его последний разбор.
+          Группа вышла из текущей выборки. Здесь сохранён её последний разбор.
         </p>
       )}
       {result && (
         <section className="case-result">
           <h3>
-            {result.mode === "model" ? "Вывод по кейсу" : "Сводка по полям"}
+            {result.mode === "model" ? "Вывод по группе" : "Сводка по полям"}
           </h3>
           {result.summary.map((line, i) => (
             <p key={i}>
@@ -410,7 +410,7 @@ function CaseDialog({
           {result.mode === "fallback" && result.error && <p>{result.error}</p>}
           {stale && (
             <p role="status">
-              Состав кейса изменился.{" "}
+              Состав группы изменился.{" "}
               <button
                 className="case-inline"
                 onClick={() => setAttempt((n) => n + 1)}
@@ -463,7 +463,7 @@ function CaseDialog({
           <p>{[result.provider, result.model].filter(Boolean).join(" · ")}</p>
           {result.sampled > 0 && (
             <p>
-              В выборке {result.sampled} из {record.count} тикетов.
+              В выборке {result.sampled} из {record.count} инцидентов.
             </p>
           )}
           {result.uncertainties.map((line, i) => (

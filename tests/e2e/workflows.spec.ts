@@ -217,7 +217,7 @@ test("jury viewers receive the same observed events and dismiss them independent
     const detail = page.locator("main .detail");
     await expect(detail).toContainText("Рекомендация координатору");
     await expect(banner).toHaveCount(0);
-    await expect(detail.getByText("Команда", { exact: true })).toBeVisible();
+    await expect(detail.getByText("Команда назначения", { exact: true }).first()).toBeVisible();
     await expect(banner).toContainText("Критический инцидент завершён", {
       timeout: 27000,
     });
@@ -367,8 +367,8 @@ test("cases rank the filtered queue, explain the source tickets and fit the view
     .click();
   await expect.poll(ids).not.toEqual(before);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
-  const dimension = page.getByLabel("Группировка кейсов"),
-    pick = page.getByLabel("Выбрать кейс");
+  const dimension = page.getByLabel("Группировка инцидентов"),
+    pick = page.getByLabel("Выбрать группу");
   for (const value of ["team", "product", "priority", "symptom"]) {
     const load = page.waitForResponse(
       (r) =>
@@ -736,7 +736,7 @@ test("F08 F14 F28 exact deadline, null and untrusted HTML stay visible without e
   await mutate("deadline", "null");
   await expect(card).toContainText("Срок не задан");
   await mutate("flags");
-  await expect(card).toContainText("Требует эскалации");
+  await expect(card).toContainText("Требуется устранение последствий");
   const dialogs: string[] = [];
   page.on("dialog", (d) => {
     dialogs.push(d.message());

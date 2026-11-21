@@ -201,6 +201,7 @@ export async function createApp(o: AppOptions) {
     "/api/triage/:id",
     "/api/incidents",
     "/api/incident/:id",
+    "/api/incident/:id/itsm",
     "/api/notifications",
     "/api/export",
     "/api/stream",
@@ -259,7 +260,7 @@ export async function createApp(o: AppOptions) {
     }
   });
   juryReadRoutes.add(
-    registerDispatch(app, { db, identity, readStoreFor, requireRole }),
+    registerDispatch(app, { db, identity, readStoreFor, requireRole, remote: o.ai?.remote }),
   );
   const canvas = new CanvasService(o.ai?.remote);
   app.get("/api/canvas", async (req, reply) => {
@@ -531,6 +532,7 @@ export async function createApp(o: AppOptions) {
       ...("simulation" in s ? { simulation: s.simulation } : {}),
       unique: new Set(relevant.map((r) => r.key)).size,
       total: all.length,
+      itsmMock: s.namespace === "simulation" || !o.itsmUrl,
       groups,
       triage: {
         ...triage,
@@ -656,6 +658,22 @@ export async function createApp(o: AppOptions) {
       total: rows.length,
       items: rows.slice(offset, offset + 50).map(summarize),
     };
+  });
+  app.get("/api/incident/:id/itsm", async (req, reply) => {
+    const source = await readStoreFor(req, reply);
+    if (!source) return;
+    const id = (req.params as { id: string }).id;
+    if (![...source.rows.values()].some((row) => row.id === id))
+      return reply.code(404).send({ message: "Инцидент не найден" });
+    const base = source.namespace === "simulation" ? undefined : o.itsmUrl;
+    const url = safeItsm(id, base);
+    const path =
+      source.namespace === "simulation"
+        ? "/simulation" + url
+        : !base && source.namespace !== "demo"
+          ? url + "?ns=" + encodeURIComponent(source.namespace)
+          : url;
+    return reply.redirect(path);
   });
   app.get("/api/incident/:id", async (req, reply) => {
     const s = await readStoreFor(req, reply);

@@ -53,11 +53,11 @@ test("each named answer insight can be independently requested and computed, inc
     assert.equal(buildAnswerInsights(q, [], now)[0].id, id);
   }
   const compound = readAnswerInsightRequest(
-    "Для продукта Платёж покажи возраст очереди и полноту отметки эскалации",
+    "Для продукта Платёж покажи возраст очереди и полноту отметки об устранении последствий",
   );
   assert.deepEqual(compound.ids, ["age-bands", "escalation-known"]);
   assert.match(compound.rest, /продукта платеж/);
-  assert.doesNotMatch(compound.rest, /эскалаци/);
+  assert.doesNotMatch(compound.rest, /последств/);
 });
 test("closed durations and SLA shares use only records with eligible dates", () => {
   const rows = [
