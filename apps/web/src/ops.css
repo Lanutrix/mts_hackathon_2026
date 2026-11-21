@@ -369,7 +369,6 @@
   font-weight: 400;
   color: var(--muted);
 }
-.signal-short { display: none; }
 .signal-tabs .signal-meter {
   position: absolute;
   inset: auto 0 11px;
@@ -832,8 +831,7 @@
     font-size: .73rem;
     padding: 4px 0 10px;
   }
-  .signal-tabs .signal-long { display: none; }
-  .signal-tabs .signal-short { display: block; grid-row: 2; grid-column: 1/-1; }
+  .signal-tabs .signal-long { grid-row: 2; grid-column: 1/-1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .signal-tabs .signal-meter { bottom: 6px; }
   .signal-tabs button small { grid-column: 2; grid-row: 1; }
   .signal-tabs button i {

@@ -19,13 +19,6 @@ const label: Record<Signal, string> = {
   high: "Высокие",
   research: "Исследование",
 };
-const shortLabel: Record<Signal, string> = {
-  all: "Все",
-  critical: "Критич.",
-  coordinators: "Коорд.",
-  high: "Высокие",
-  research: "Исслед.",
-};
 const reasons: Record<Group, string> = {
   critical: "Критический",
   coordinators: "У координаторов",
@@ -354,17 +347,12 @@ export default function LiveBoard({
               key={g}
               data-testid={"group-" + g}
               aria-pressed={signal === g}
-              aria-label={
-                g === "all" ? label[g] : label[g] + ", " + data.groups[g].count
-              }
+              title={label[g]}
               className={"tab-" + g}
               onClick={() => setSignal(g)}
             >
               <SignalMark signal={g} />
               <span className="signal-long">{label[g]}</span>
-              <span className="signal-short" aria-hidden="true">
-                {shortLabel[g]}
-              </span>
               {g !== "all" && (
                 <>
                   <small data-testid={"count-" + g}>

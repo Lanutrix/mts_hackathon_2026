@@ -211,7 +211,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       const dashboard = await read("/dashboard?" + q);
       if (gen !== generation.current) return;
       const serverTime = Date.parse(dashboard.serverTime);
-      if (Number.isFinite(serverTime)) {
+      if (training && Number.isFinite(serverTime)) {
         serverClockOffset.current = serverTime - Date.now();
         setTick(serverTime);
       }
