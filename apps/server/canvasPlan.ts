@@ -7,6 +7,28 @@ import {
   type CanvasDimension,
   type CanvasResult,
 } from "../../packages/contracts/canvas.ts";
+import {
+  answerInsightIds,
+  type AnswerInsightId,
+} from "../../packages/contracts/answerInsights.ts";
+import { readAnswerInsightRequest } from "./answerInsights.ts";
+import {
+  answerExhibits,
+  answerPresentations,
+  type AnswerExhibitId,
+  type AnswerPresentation,
+} from "../../packages/contracts/answerCatalog.ts";
+import {
+  guideTopics,
+  type GuideFocus,
+} from "../../packages/domain/assistantGuide.ts";
+import {
+  isGuideTopic,
+  guideFocuses,
+  makeAnswer,
+  readGuide,
+} from "./canvasGuide.ts";
+import { validVisual, readVisual, withVisual } from "./canvasVisuals.ts";
 import { spaces, type Incident } from "../../packages/domain/index.ts";
 import {
   safeOperationalWord,
@@ -43,6 +65,52 @@ const cleanString = (v: unknown) =>
   v.length <= 500 &&
   !/[\u0000-\u001f]/u.test(v);
 
+const finishedInsights = new Set<AnswerInsightId>([
+  "resolve-median",
+  "resolve-mean",
+  "resolve-tail",
+  "resolve-bands",
+  "missed-max",
+  "reserve-median",
+  "no-completion",
+  "no-solution",
+  "finished-on-time",
+  "done-days",
+  "by-fix",
+]);
+const intakeInsights = new Set<AnswerInsightId>([
+  "intake-hours",
+  "intake-days",
+  "weekday-intake",
+  "workday-intake",
+]);
+function applyInsights(
+  intent: CanvasIntent,
+  ids: AnswerInsightId[] | undefined,
+  explicitStates?: number[],
+) {
+  if (!ids?.length) return;
+  intent.insightIds = ids;
+  // Ordinary canvas queries start with open work. Completed-time measures and
+  // intake history have different denominators unless the user set a scope.
+  if (explicitStates || intent.filters.ids) return;
+  if (ids.some((id) => intakeInsights.has(id)))
+    intent.filters.states = [0, 2, 20, 7, 10];
+  else if (ids.every((id) => finishedInsights.has(id)))
+    intent.filters.states = [7, 10];
+  else if (ids.some((id) => finishedInsights.has(id)))
+    intent.filters.states = [0, 2, 20, 7, 10];
+  if (ids.some((id) => finishedInsights.has(id) || intakeInsights.has(id)))
+    intent.automaticStates = true;
+}
+function validInsightIds(v: unknown): v is AnswerInsightId[] {
+  return (
+    Array.isArray(v) &&
+    v.length <= 3 &&
+    v.every((id) => member(id, answerInsightIds)) &&
+    new Set(v).size === v.length
+  );
+}
 function validFilters(value: unknown): value is CanvasFilters {
   if (!record(value) || !keys(value, filterFields)) return false;
   for (const [key, filter] of Object.entries(value)) {
@@ -67,7 +135,14 @@ function validBlocks(v: unknown): v is CanvasView[] {
     v.every(
       (b) =>
         record(b) &&
-        keys(b, ["groupBy", "layout", "weightBy"]) &&
+        keys(b, [
+          "groupBy",
+          "layout",
+          "weightBy",
+          "presentation",
+          "exhibits",
+        ]) &&
+        validVisual(b) &&
         (b.weightBy === undefined || member(b.weightBy, canvasWeights)) &&
         member(b.groupBy, canvasDimensions) &&
         member(b.layout, layouts),
@@ -77,7 +152,38 @@ function validBlocks(v: unknown): v is CanvasView[] {
 export function validContext(v: unknown): v is CanvasIntent {
   return (
     record(v) &&
-    keys(v, ["groupBy", "layout", "filters", "blocks", "weightBy"]) &&
+    keys(v, [
+      "groupBy",
+      "layout",
+      "filters",
+      "blocks",
+      "weightBy",
+      "presentation",
+      "exhibits",
+      "topic",
+      "focus",
+      "guideOnly",
+      "related",
+      "automaticStates",
+      "insightIds",
+    ]) &&
+    (v.automaticStates === undefined ||
+      (v.automaticStates === true &&
+        validInsightIds(v.insightIds) &&
+        v.insightIds.length > 0)) &&
+    (v.insightIds === undefined || validInsightIds(v.insightIds)) &&
+    validVisual(v) &&
+    (v.topic === undefined || isGuideTopic(v.topic)) &&
+    (v.related === undefined ||
+      (isGuideTopic(v.topic) &&
+        Array.isArray(v.related) &&
+        v.related.length <= 2 &&
+        v.related.every(isGuideTopic) &&
+        new Set(v.related).size === v.related.length)) &&
+    (v.focus === undefined ||
+      (isGuideTopic(v.topic) && member(v.focus, guideFocuses))) &&
+    (v.guideOnly === undefined ||
+      (isGuideTopic(v.topic) && typeof v.guideOnly === "boolean")) &&
     (v.weightBy === undefined || member(v.weightBy, canvasWeights)) &&
     member(v.groupBy, canvasDimensions) &&
     member(v.layout, layouts) &&
@@ -211,6 +317,31 @@ const dimensions: [RegExp, CanvasDimension, string][] = [
 // Preserve operational distinctions in private questions using fixed output
 // strings, regardless of the spelling of input or contents of source fields.
 const planTerms: [RegExp, string][] = [
+  [/^инц[ие]дент|^авари|^сбо[йяеию]/u, "инцидент"],
+  [/^клиент|^пользовател/u, "пользователь"],
+  [/^сообщени|^обращен/u, "обращение"],
+  [/^escalat|^эскал/u, "эскалация"],
+  [/^провер|^свер|^уточн/u, "проверить"],
+  [/^массов/u, "массовый"],
+  [/^проблем/u, "проблема"],
+  [/^заявк|^тикет/u, "заявка"],
+  [/^объясн|^поясн|^расскаж|^разъясн/u, "объясни"],
+  [/^нагруз/u, "нагрузка"],
+  [/^канал/u, "каналы"],
+  [/^возраст/u, "возраст"],
+  [/^поступ/u, "поступление"],
+  [/^медиан/u, "медиана"],
+  [/^гистограм/u, "гистограмма"],
+  [/^заполн/u, "заполненность"],
+  [/^сотрудник/u, "сотрудники"],
+  [/^влиян/u, "влияние"],
+  [/^проанализ/u, "проанализируй"],
+  [/^назнач/u, "назначение"],
+  [/^автомат/u, "автоматически"],
+  [/^уведомлен|^пуш/u, "уведомления"],
+  [/^отлич|^разниц/u, "отличие"],
+  [/^пример/u, "пример"],
+  [/^справк/u, "справка"],
   [/^просроч/u, "просроченные"],
   [/^истек/u, "истёк"],
   [/^истека/u, "истекает"],
@@ -409,6 +540,8 @@ function localReading(
     clear,
     filterOnly,
     explicitView,
+    explicitGroup: !!explicitGroup,
+    explicitLayout: comparison || explicitList,
     recognized: recognized || clear.size > 0,
     base,
   } as const;
@@ -421,13 +554,23 @@ const instructions = [
   'Для составного запроса выбери основное представление и добавь blocks (до двух дополнительных представлений с общими фильтрами). Например «по командам и рядом покажи сроки»: {"supported":true,"groupBy":"team","layout":"groups","blocks":[{"groupBy":"deadline","layout":"groups"}]}. Для одного представления не дублируй его в blocks.',
   "Значения localHints.filters установлены из явно заданных условий. Сохраняй их. deadline: overdue — заданный срок уже прошёл, soon — в течение 15 минут, normal — позже, unset — срок не задан. escalation: yes,no,unknown. priorities: массив чисел 1..4; 4 наивысший. states: массив чисел 0 (назначен),2 (в работе),20 (исследование),7 (решён),10 (закрыт). По умолчанию открыты 0,2,20. Активны 0,2.",
   "teams,products,ids,symptoms: массивы ссылок E1 и т.п. только из entities и только соответствующего типа. Остальные имена скрыты. Не угадывай скрытые слова. Числа, суммы ущерба, первопричины, прогнозы и история не доступны. Вопрос «а по командам?» меняет только группировку и сохраняет фильтры. «Только просроченные» меняет только фильтр. Сравнение двух продуктов группирует по продуктам.",
+  "Для справочного вопроса выбери раздел справки и верни только {supported:true,guide:{topic,focus}}. Темы: " +
+    guideTopics.join(", ") +
+    ". focus: overview, example, steps, distinction. Не подменяй вопрос о конкретных данных объяснением.",
+  "В каждом аналитическом представлении можно указать presentation. По просьбе пользователя выбирай из " +
+    answerPresentations.join(", ") +
+    ". bars для рейтинга, orbit для долей, flow для структуры, matrix для карты, cards для групп, register для списка, deadline для шкалы сроков, compare для сравнительной таблицы, brief для выводов, spotlight для одной заявки. Квадраты подходят для группировки по площади.",
+  "Показатели по исходным полям выбирай через insightIds. Используй 1–3 идентификатора из availableInsights, когда вопрос касается этих показателей. Не сочиняй значения.",
+  "exhibits: до трёх дополнительных показателей из " +
+    answerExhibits.join(", ") +
+    ". median-load и mean-load — размер групп. median-overdue — число просрочек на группу. Статистика берётся из всего среза; интерес к доле или числу просрочек сам по себе не отбирает только просроченные заявки.",
 ].join("\n");
-const planVersion = "canvas-plan-3";
+const planVersion = "canvas-plan-4";
 const unsupportedText =
   "Для этого вопроса данных текущего среза недостаточно. Можно сопоставить заявки по симптомам, срокам, приоритетам, командам и продуктам.";
 type Decision = Pick<
   CanvasResult,
-  "intent" | "mode" | "provider" | "model" | "notice"
+  "intent" | "mode" | "provider" | "model" | "notice" | "answer"
 >;
 const unsupported = (
   intent: CanvasIntent,
@@ -441,40 +584,150 @@ export async function planCanvas(
   previous?: CanvasIntent,
   client?: VseLlm,
 ): Promise<Decision> {
+  const reading = readGuide(question, previous);
+  const priorData = previous && { ...previous };
+  if (priorData) {
+    delete priorData.topic;
+    delete priorData.related;
+    delete priorData.focus;
+    delete priorData.guideOnly;
+  }
+  if (reading) {
+    const { topic, focus, data, related } = reading;
+    const guide = { topic, focus, ...(related?.length ? { related } : {}) };
+    if (!data)
+      return {
+        intent: {
+          ...(priorData ?? initialIntent),
+          ...guide,
+          guideOnly: true,
+        },
+        answer: makeAnswer(topic, focus, "knowledge", related),
+        mode: "knowledge",
+        provider: "Справка Среза",
+      };
+    const result = await planData(data, rows, ns, priorData, client);
+    // Keep an independently answerable explanation when the requested statistic is unavailable.
+    if (result.mode === "unsupported" || result.answer)
+      return {
+        intent: {
+          ...(priorData ?? initialIntent),
+          ...guide,
+          guideOnly: true,
+        },
+        answer: makeAnswer(topic, focus, "knowledge", related),
+        mode: "knowledge",
+        provider: "Справка Среза",
+        notice: result.notice,
+      };
+    return {
+      ...result,
+      intent: { ...result.intent, ...guide },
+      answer: makeAnswer(topic, focus, "mixed", related),
+    };
+  }
+  return planData(question, rows, ns, priorData, client);
+}
+
+async function planData(
+  question: string,
+  rows: Incident[],
+  ns: string,
+  previous?: CanvasIntent,
+  client?: VseLlm,
+): Promise<Decision> {
+  // Derive metric-specific state scopes afresh on each turn. Explicit user filters persist.
+  if (previous?.automaticStates) {
+    previous = { ...previous, filters: { ...previous.filters } };
+    delete previous.automaticStates;
+    delete previous.filters.states;
+  }
   const source = sourceMentions(question, rows, previous);
-  const [first, ...parts] = source.shaped
+  const { ids: detectedInsights, rest } = readAnswerInsightRequest(
+    source.shaped,
+  );
+  // A metric name describes what to measure, not what rows qualify. For example
+  // «полнота отметки эскалации» must include tickets with an unknown flag.
+  const textForFilters = detectedInsights.length ? rest : source.shaped;
+  const [first = "", ...parts] = textForFilters
     .split(
       /\s*(?:[;,]?\s*(?:и\s+)?(?:рядом|отдельно|справа|слева|дополнительно)|а (?:также|во втором блоке)|и (?:покажи|добавь|выведи))\s+/u,
     )
     .filter(Boolean);
-  const local = localReading(
-    first ?? source.shaped,
-    source.mentioned,
-    previous,
-  );
+  const local = localReading(first, source.mentioned, previous);
   if (parts.length > 2)
     return unsupported(
       local.base,
       "В одном холсте можно сопоставить до трёх представлений. Уточните, какие из них нужны.",
     );
-  const secondary = parts.map((part) => {
+  const visual = readVisual(first);
+  if (
+    !visual.presentation &&
+    local.filters.ids?.length === 1 &&
+    local.layout === "list" &&
+    !/спис|реестр|таблиц/u.test(source.shaped)
+  )
+    visual.presentation = "spotlight";
+  const exhibits = visual.exhibits ?? [];
+  // In "доля просрочек" the word names the numerator; "среди просроченных" scopes the denominator.
+  const overdueMeasure = exhibits.some((id) =>
+    /overdue|late|on-time|clean-groups/.test(id),
+  );
+  const escalationMeasure = exhibits.some((id) =>
+    /escalat|clean-groups/.test(id),
+  );
+  const explicitLate =
+    /(?:только|среди|отфильтр|из числа|для)\s+(?:всех\s+)?просроч/u.test(
+      source.shaped,
+    );
+  const explicitUp =
+    /(?:только|среди|отфильтр|из числа|для)\s+(?:заявок\s+)?(?:к |с )?эскалац/u.test(
+      source.shaped,
+    );
+  if (local.filters.deadline === "overdue" && overdueMeasure && !explicitLate)
+    delete local.filters.deadline;
+  if (escalationMeasure && !explicitUp) delete local.filters.escalation;
+  const secondary: CanvasView[] = parts.map((part) => {
     const { groupBy, layout, weightBy } = localReading(part, {}, undefined);
-    return { groupBy, layout, ...(weightBy ? { weightBy } : {}) };
+    return withVisual(
+      { groupBy, layout, ...(weightBy ? { weightBy } : {}) },
+      readVisual(part),
+    );
   });
   const blocks = secondary.length
     ? secondary
-    : local.explicitView
+    : local.explicitView || detectedInsights.length
       ? undefined
       : local.base.blocks;
-  const localIntent: CanvasIntent = {
-    groupBy: local.groupBy,
-    layout: local.layout,
-    ...((local.weightBy ?? local.base.weightBy)
-      ? { weightBy: local.weightBy ?? local.base.weightBy }
-      : {}),
-    filters: { ...local.base.filters, ...local.filters },
-    ...(blocks?.length ? { blocks } : {}),
-  };
+  const localIntent: CanvasIntent = withVisual(
+    {
+      groupBy: local.groupBy,
+      layout: local.layout,
+      ...((local.weightBy ?? local.base.weightBy)
+        ? { weightBy: local.weightBy ?? local.base.weightBy }
+        : {}),
+      filters: { ...local.base.filters, ...local.filters },
+      ...(blocks?.length ? { blocks } : {}),
+    },
+    Object.keys(visual).length
+      ? visual
+      : !local.explicitView && !detectedInsights.length
+        ? {
+            presentation: local.base.presentation,
+            exhibits: local.base.exhibits,
+          }
+        : {},
+  );
+  const chosenInsights = detectedInsights.length
+    ? detectedInsights
+    : local.filterOnly
+      ? previous?.insightIds
+      : undefined;
+  applyInsights(
+    localIntent,
+    chosenInsights,
+    local.filters.states ?? local.base.filters.states,
+  );
   for (const key of local.clear) delete localIntent.filters[key];
   if (
     Object.values(local.filters).some((v) => Array.isArray(v) && v.length > 10)
@@ -484,12 +737,25 @@ export async function planCanvas(
       "Выберите до десяти значений одного поля для сравнения.",
     );
   if (
-    /денег|выручк|ущерб|убыт|рубл|первопричин|прогноз|погод[ауы]|вчера|недел|месяц|динамик|по дням|средн\p{L}* врем|сколько (?:клиент|пользовател)|географ|регион|геолокац|mttr|процентиль/u.test(
+    /денег|выручк|ущерб|убыт|рубл|первопричин|прогноз|погод[ауы]|сколько (?:клиент|пользовател)|географ|регион|геолокац/u.test(
+      source.shaped,
+    ) ||
+    (!detectedInsights.length &&
+      /вчера|недел|месяц|динамик|по дням|средн\p{L}* врем|mttr|процентиль/u.test(
+        source.shaped,
+      ))
+  )
+    return unsupported(local.base);
+  if (
+    /почему.*(?:вырос|упал|произош|накопил|сломал|перестал|столько|возник|увеличил)|кто виноват/u.test(
       source.shaped,
     )
   )
-    return unsupported(local.base);
-  if (/(?:не |кроме |без )просроч/u.test(source.shaped))
+    return unsupported(
+      local.base,
+      "По текущему снимку нельзя установить причину изменения. Откройте карточку и сверьте описание и историю исходной заявки.",
+    );
+  if (!overdueMeasure && /(?:не |кроме |без )просроч/u.test(source.shaped))
     return unsupported(
       local.base,
       "Укажите нужный срок: ближайшие 15 минут, позже или без срока.",
@@ -517,6 +783,8 @@ export async function planCanvas(
     .map((word) => {
       const term = planTerms.find(([pattern]) => pattern.test(word));
       if (term) return term[1];
+      if (/^(?:что|как|ли|где|какие|почему|или|зачем)$/u.test(word))
+        return word;
       if (
         source.entities.some((e) => e.ref === word) ||
         safeOperationalWord(word)
@@ -530,7 +798,7 @@ export async function planCanvas(
     .replace(/(?:…\s*){2,}/gu, "… ")
     .trim();
   const fallback = (notice: string): Decision =>
-    local.recognized
+    local.recognized || visual.presentation || detectedInsights.length
       ? {
           intent: localIntent,
           mode: "fallback",
@@ -542,6 +810,7 @@ export async function planCanvas(
   if (
     ns !== "simulation" &&
     !local.recognized &&
+    !detectedInsights.length &&
     !safeShape.replace(/[.…\s]/gu, "")
   )
     return unsupported(local.base);
@@ -559,13 +828,22 @@ export async function planCanvas(
         ref: "E" + (source.entities.length + 1),
       });
   }
+  const needsSourceMetrics =
+    !!detectedInsights.length ||
+    /регистрац|время решен|влияни|возраст|давност|истори|поступ|канал|назначен|владел|исполнител|заполн|пропуск|полнот|дубл|корнев|головн|данн\p{L}* отсутств|перцентил|длительн|нагруз|недел|(?:что|чего) не хвата/u.test(
+      source.shaped,
+    );
+  const availableInsights = needsSourceMetrics ? answerInsightIds : [];
   const packet = {
+    ...(availableInsights.length ? { availableInsights } : {}),
     question:
       ns === "simulation" ? scrubRehearsalQuestion(source.shaped) : safeShape,
     localHints: {
       groupBy: local.groupBy,
       layout: local.layout,
       weightBy: local.weightBy,
+      ...visual,
+      ...(detectedInsights.length ? { insightIds: detectedInsights } : {}),
       blocks,
       filters: {
         ...local.filters,
@@ -597,6 +875,10 @@ export async function planCanvas(
     !record(p) ||
     !keys(p, [
       "supported",
+      "guide",
+      "presentation",
+      "exhibits",
+      "insightIds",
       "groupBy",
       "layout",
       "filters",
@@ -606,9 +888,44 @@ export async function planCanvas(
       "weightBy",
     ]) ||
     typeof p.supported !== "boolean" ||
+    !validVisual(p) ||
+    (p.insightIds !== undefined && !validInsightIds(p.insightIds)) ||
     (p.blocks !== undefined && !validBlocks(p.blocks))
   )
     return malformed();
+  if (
+    validInsightIds(p.insightIds) &&
+    p.insightIds.some((id) => !availableInsights.includes(id))
+  )
+    return malformed();
+  if (p.guide !== undefined) {
+    const g = p.guide;
+    if (
+      !p.supported ||
+      !keys(p, ["supported", "guide"]) ||
+      !record(g) ||
+      !keys(g, ["topic", "focus"]) ||
+      !isGuideTopic(g.topic) ||
+      (g.focus !== undefined && !member(g.focus, guideFocuses)) ||
+      local.explicitView ||
+      detectedInsights.length ||
+      visual.presentation
+    )
+      return malformed();
+    const focus = (g.focus ?? "overview") as GuideFocus;
+    return {
+      intent: { ...local.base, topic: g.topic, focus, guideOnly: true },
+      mode: "model",
+      provider: "VseLLM",
+      model: client.model,
+      answer: makeAnswer(g.topic, focus),
+    };
+  }
+  if (
+    !p.supported &&
+    (visual.presentation || local.recognized || detectedInsights.length)
+  )
+    return fallback("Применены условия запроса.");
   if (!p.supported)
     return {
       ...unsupported(local.base),
@@ -624,6 +941,9 @@ export async function planCanvas(
       "filters",
       "blocks",
       "weightBy",
+      "presentation",
+      "exhibits",
+      "insightIds",
     ].some((k) => Object.hasOwn(p, k))
   )
     return malformed();
@@ -650,20 +970,34 @@ export async function planCanvas(
     }
   // Model proposals may fill in an ambiguous question. Explicit operands
   // and context-removal commands come from the user's turn on this server.
-  const inherited = local.filterOnly
-    ? { ...resolved, ...local.base.filters }
-    : { ...local.base.filters, ...resolved };
+  const inherited = detectedInsights.length
+    ? local.base.filters
+    : local.filterOnly
+      ? { ...resolved, ...local.base.filters }
+      : { ...local.base.filters, ...resolved };
   const filters: CanvasFilters = { ...inherited, ...local.filters };
   for (const key of local.clear) delete filters[key];
   const intent: CanvasIntent = {
     groupBy:
-      !local.filterOnly && member(p.groupBy, canvasDimensions)
+      !local.filterOnly &&
+      !local.explicitGroup &&
+      member(p.groupBy, canvasDimensions)
         ? p.groupBy
         : local.groupBy,
     layout:
-      !local.filterOnly && member(p.layout, layouts) ? p.layout : local.layout,
+      !local.filterOnly && !local.explicitLayout && member(p.layout, layouts)
+        ? p.layout
+        : local.layout,
     filters,
   };
+  const insightIds =
+    chosenInsights ??
+    (validInsightIds(p.insightIds) ? p.insightIds : undefined);
+  applyInsights(
+    intent,
+    insightIds,
+    local.filters.states ?? local.base.filters.states,
+  );
   const weightBy =
     local.weightBy ??
     (!local.filterOnly && member(p.weightBy, canvasWeights)
@@ -678,21 +1012,63 @@ export async function planCanvas(
     !local.base.filters.escalation
   )
     delete filters.escalation;
-  const nextBlocks =
-    local.filterOnly && !secondary.length
-      ? local.base.blocks
-      : validBlocks(p.blocks)
-        ? p.blocks
-        : blocks;
+  if (overdueMeasure && !local.filters.deadline && !local.base.filters.deadline)
+    delete filters.deadline;
+  if (
+    escalationMeasure &&
+    !local.filters.escalation &&
+    !local.base.filters.escalation
+  )
+    delete filters.escalation;
+  const freshMetric =
+    detectedInsights.length > 0 ||
+    (!chosenInsights?.length && !!insightIds?.length);
+  const proposedBlocks = validBlocks(p.blocks) ? p.blocks : [];
+  const nextBlocks: CanvasView[] | undefined = secondary.length
+    ? secondary.map((view) => {
+        const suggested = proposedBlocks.find(
+          (b) => b.groupBy === view.groupBy,
+        );
+        return { ...suggested, ...view };
+      })
+    : freshMetric
+      ? undefined
+      : local.filterOnly
+        ? local.base.blocks
+        : validBlocks(p.blocks)
+          ? p.blocks
+          : blocks;
   if (nextBlocks?.length)
-    intent.blocks = nextBlocks.filter(
-      (b, index) =>
-        ![intent, ...nextBlocks.slice(0, index)].some(
-          (v) =>
-            v.groupBy === b.groupBy &&
-            v.layout === b.layout &&
-            (v.weightBy ?? "count") === (b.weightBy ?? "count"),
-        ),
-    );
-  return { intent, mode: "model", provider: "VseLLM", model: client.model };
+    intent.blocks = nextBlocks
+      .map((b, i) => withVisual(b, parts[i] ? readVisual(parts[i]) : {}))
+      .filter(
+        (b, index) =>
+          ![intent, ...nextBlocks.slice(0, index)].some(
+            (v) =>
+              v.groupBy === b.groupBy &&
+              v.layout === b.layout &&
+              v.presentation === b.presentation &&
+              JSON.stringify(v.exhibits ?? []) ===
+                JSON.stringify(b.exhibits ?? []) &&
+              (v.weightBy ?? "count") === (b.weightBy ?? "count"),
+          ),
+      );
+  const requested = freshMetric
+    ? visual
+    : {
+        presentation:
+          visual.presentation ??
+          (p.presentation as AnswerPresentation | undefined) ??
+          localIntent.presentation,
+        exhibits:
+          visual.exhibits ??
+          (p.exhibits as AnswerExhibitId[] | undefined) ??
+          localIntent.exhibits,
+      };
+  return {
+    intent: withVisual(intent, requested),
+    mode: "model",
+    provider: "VseLLM",
+    model: client.model,
+  };
 }

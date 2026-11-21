@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { guidePages } from "../../../packages/domain/assistantGuide";
 import AccessIcon, { accessLabels } from "./AccessIcon";
 import { Icon, iconLabels, type IconName } from "./Brand";
 import { screenLink } from "./routes";
 import "./help.css";
 
 const sections = [
+  ["incident", "Что такое инцидент"],
   ["shift", "Эфир и симптомы"],
   ["assistant", "ИИ-помощник"],
   ["ticket", "Карточка и назначение"],
@@ -42,6 +44,16 @@ export default function Help({
   ns: string;
   go: (path: string) => void;
 }) {
+  useEffect(() => {
+    const scrollToTopic = () => {
+      const id = location.hash.slice(1);
+      if (sections.some(([key]) => key === id))
+        document.getElementById(id)?.scrollIntoView();
+    };
+    scrollToTopic();
+    window.addEventListener("hashchange", scrollToTopic);
+    return () => window.removeEventListener("hashchange", scrollToTopic);
+  }, []);
   function jump(path: string, label: string) {
     const href = path === "/preferences" ? path : screenLink(path, ns);
     return (
@@ -85,6 +97,18 @@ export default function Help({
         </nav>
         <div>
           {topic(
+            "incident",
+            "research",
+            <>
+              <p>{guidePages.incident.lead}</p>
+              <p>{guidePages.incident.sections[0].body}</p>
+              <p>{guidePages.incident.sections[1].body}</p>
+              <p>{guidePages.massIncident.lead}</p>
+              <p>{guidePages.problem.lead}</p>
+              {jump("/live", "Посмотреть заявки")}
+            </>,
+          )}
+          {topic(
             "shift",
             "live",
             <>
@@ -100,12 +124,6 @@ export default function Help({
                 откройте пример и прочитайте исходный текст. Если важнее
                 ответственность, переключите группировку на команды.
               </p>
-              <p>
-                В «Рисках кейса» высота трёх столбцов показывает, сколько заявок
-                просрочено, у скольких срок наступит в ближайшие 15 минут и
-                сколько требуют эскалации. Рядом указаны точные значения. Ссылка
-                «Пример» ведёт в исходную заявку.
-              </p>
               {jump("/live", "Открыть эфир")}
             </>,
           )}
@@ -116,8 +134,9 @@ export default function Help({
               <p>
                 Введите вопрос внизу холста. Попробуйте «Сгруппируй по командам
                 и рядом покажи сроки», затем «А теперь только просроченные».
-                Нажмите на группу, чтобы увидеть её обращения и открыть
-                карточку.
+                Можно начать и со справочного вопроса, например «Что такое
+                инцидент?». Нажмите на группу, чтобы увидеть её обращения и
+                открыть карточку.
               </p>
               <p>
                 ИИ выбирает представление, а числа рассчитываются по снимку

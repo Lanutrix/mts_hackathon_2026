@@ -1,3 +1,4 @@
+import { answerElement as elPart } from "../../../packages/contracts/answerCatalog";
 import { useEffect, useRef, useState } from "react";
 import type {
   CanvasGroup,
@@ -65,6 +66,7 @@ export function CanvasTicketLink({
     }).format(new Date(ticket.deadline));
   return (
     <a
+      {...elPart("ticket-reference")}
       className="cx-ticket-link"
       title={ticket.header}
       href={screenLink("/incident/" + encodeURIComponent(ticket.id), ns)}
@@ -74,12 +76,18 @@ export function CanvasTicketLink({
         open(ticket.id);
       }}
     >
-      <span className="cx-ticket-id">{ticket.id}</span>
-      <strong>{ticket.header || "Без заголовка"}</strong>
-      <span className="cx-ticket-facts">
+      <span {...elPart("ticket-id")} className="cx-ticket-id">
+        {ticket.id}
+      </span>
+      <strong {...elPart("subject")}>{ticket.header || "Без заголовка"}</strong>
+      <span {...elPart("owner-priority")} className="cx-ticket-facts">
         {ticket.team} · {ticket.priority}
       </span>
-      <span className="cx-ticket-date" data-overdue={ticket.overdue}>
+      <span
+        {...elPart("deadline-stamp")}
+        className="cx-ticket-date"
+        data-overdue={ticket.overdue}
+      >
         {date ? (ticket.overdue ? "Просрочен · " : "") + date : "Без срока"}
       </span>
     </a>
@@ -157,6 +165,7 @@ export function CanvasDrawer({
   return (
     <dialog
       ref={dialog}
+      {...elPart("selection-drawer")}
       className="cx-drawer"
       aria-labelledby="cx-drawer-title"
       onCancel={(e) => {
@@ -171,9 +180,7 @@ export function CanvasDrawer({
         <header>
           <div>
             <h2 id="cx-drawer-title">{group?.label || "Все заявки"}</h2>
-            <p>
-              {formatCount(total)} заявок · версия {result.revision}
-            </p>
+            <p {...elPart("selection-size")}>{formatCount(total)} заявок</p>
           </div>
           <button
             type="button"
@@ -187,11 +194,17 @@ export function CanvasDrawer({
         </header>
         <div className="cx-drawer-list" ref={ref}>
           {error ? (
-            <div className="cx-note" role="alert">
+            <div
+              {...elPart("failed-selection")}
+              className="cx-note"
+              role="alert"
+            >
               {error.message}{" "}
               {error instanceof CanvasRequestError &&
               [409, 410].includes(error.status) ? (
-                <button onClick={refresh}>Обновить срез</button>
+                <button {...elPart("refresh-selection")} onClick={refresh}>
+                  Обновить срез
+                </button>
               ) : (
                 <button onClick={() => setRetry((r) => r + 1)}>
                   Повторить

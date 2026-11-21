@@ -207,10 +207,7 @@ test("jury viewers receive the same observed events and dismiss them independent
     await expect(banner).toHaveCount(0);
     await expect(secondNotice).toBeVisible();
     await page.reload();
-    await expect(page.getByTestId("risk-ticket")).toHaveAttribute(
-      "data-ticket",
-      "SIM-001",
-    );
+    await expect(page.getByTestId("live-register")).toBeVisible();
     await expect(banner).toHaveCount(0);
     await expect(banner).toContainText("Назначен группе координаторов", {
       timeout: 16000,
@@ -243,8 +240,8 @@ test("jury viewers receive the same observed events and dismiss them independent
     await page.reload();
     await page.getByRole("button", { name: "Дополнительные разделы" }).click();
     await expect(page.getByTestId("source-status")).toBeVisible();
-    await expect(page.getByTestId("source-status")).toContainText(
-      "Учебный эфир",
+    await expect(page.getByTestId("source-status")).not.toContainText(
+      /Демо-данные|Версия/i,
     );
     await page.getByRole("link", { name: "История", exact: true }).click();
     await expect(page).toHaveURL("/simulation/history");
@@ -298,18 +295,26 @@ test("system and explicit themes persist from the landing to help and authentica
   await expect(page.getByRole("tooltip")).toHaveCount(0);
 });
 
-test("live risk profile follows the selected signal and opens source evidence", async ({
+test("live embeds a quiet 3D slice with the active count and opens evidence from cases", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/live");
-  const profile = page.getByTestId("risk-profile");
-  await expect(profile).toBeVisible();
+  const count = page.locator(".metric-live-count");
+  await expect(count.getByTestId("shift-slice")).toHaveAttribute(
+    "data-ready",
+    "true",
+  );
+  const still = () =>
+    count
+      .locator("canvas")
+      .evaluate((el) => (el as HTMLCanvasElement).toDataURL());
+  const image = await still();
+  await expect(page.getByText("Риски кейса", { exact: true })).toHaveCount(0);
   await page.getByTestId("group-critical").click();
-  await expect(profile).toHaveAttribute("data-signal", "critical");
-  const ticket = page.getByTestId("risk-ticket");
-  await expect(ticket).toHaveAttribute("data-ticket", /DEMO-/);
-  const id = await ticket.getAttribute("data-ticket");
+  expect(await still()).toBe(image);
+  const ticket = page.locator(".case-source").first();
+  const id = (await ticket.innerText()).split(/\s/)[0];
   await ticket.click();
   await expect(page).toHaveURL(new RegExp("/incident/" + id));
   await expect(
@@ -389,10 +394,7 @@ test("cases rank the filtered queue, explain the source tickets and fit the view
     "data-testid",
     "card-" + detail.items[0].id,
   );
-  await expect(page.getByTestId("risk-ticket")).toHaveAttribute(
-    "data-ticket",
-    c.lead.id,
-  );
+  await expect(page.locator(".case-source").first()).toContainText(c.lead.id);
   await page.goto("/simulation");
   await expect(rows.first()).toBeVisible();
   await page.locator(".case-analyze").click();
@@ -656,7 +658,9 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   const raw = await page.request.get("/api/export");
   expect(await raw.json()).toEqual(rows);
   await page.getByRole("button", { name: "Профиль: demo-admin" }).click();
-  await page.getByRole("link", { name: "Демонстрация", exact: true }).click();
+  await page
+    .getByRole("link", { name: "Управление сценарием", exact: true })
+    .click();
   await page.getByRole("button", { name: "Следующий шаг" }).click();
   await page.getByRole("link", { name: "Уведомления", exact: true }).click();
   await expect(

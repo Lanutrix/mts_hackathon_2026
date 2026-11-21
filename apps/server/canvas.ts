@@ -20,6 +20,8 @@ import {
 } from "../../packages/domain/index.ts";
 import { facet, urgent } from "../../packages/domain/triage.ts";
 import { initialIntent, planCanvas } from "./canvasPlan.ts";
+import { buildAnswerInsights } from "./answerInsights.ts";
+import { makeAnswer } from "./canvasGuide.ts";
 import type { VseLlm } from "./vsellm.ts";
 
 export interface CanvasSource {
@@ -268,12 +270,35 @@ export class CanvasService {
       byId.set(r.id, r);
     }
     const rows = [...byId.values()];
+    const starter: CanvasIntent =
+      !question && !context && rows.some((r) => openStates.includes(r.stateId!))
+        ? {
+            ...initialIntent,
+            blocks: [
+              {
+                groupBy: "deadline",
+                layout: "groups",
+                presentation: "deadline",
+              },
+            ],
+          }
+        : initialIntent;
     const decision = question
       ? await planCanvas(question, rows, namespace, context, this.client)
       : {
-          intent: context ?? initialIntent,
-          mode: "snapshot" as const,
-          provider: "Поля ITSM",
+          intent: context ?? starter,
+          mode: context?.guideOnly
+            ? ("knowledge" as const)
+            : ("snapshot" as const),
+          provider: context?.guideOnly ? "Справка Среза" : "Поля ITSM",
+          answer: context?.topic
+            ? makeAnswer(
+                context.topic,
+                context.focus,
+                context.guideOnly ? "knowledge" : "mixed",
+                context.related,
+              )
+            : undefined,
         };
     const { intent } = decision;
     const sourceTotal = rows.length;
@@ -285,11 +310,14 @@ export class CanvasService {
       sourceTotal,
       suggestions,
     };
-    if (decision.mode === "unsupported")
+    if (
+      decision.mode === "unsupported" ||
+      decision.answer?.kind === "knowledge"
+    )
       return {
         ...base,
-        title: "Нужно уточнение",
-        summary: decision.notice ?? "",
+        title: decision.answer?.title ?? "Нужно уточнение",
+        summary: decision.answer?.lead ?? decision.notice ?? "",
         metrics: [],
         groups: [],
         blocks: [],
@@ -308,11 +336,17 @@ export class CanvasService {
         groupBy: intent.groupBy,
         layout: intent.layout,
         weightBy: intent.weightBy,
+        presentation: intent.presentation,
+        exhibits: intent.exhibits,
       },
       matches,
       tickets,
       now,
     );
+    const insights = intent.insightIds?.length
+      ? buildAnswerInsights("", matches, now, intent.insightIds)
+      : [];
+    if (insights.length) primary.insights = insights;
     const blocks = (intent.blocks ?? []).map((v) =>
       this.block(namespace, actor, v, matches, tickets, now),
     );
@@ -360,6 +394,7 @@ export class CanvasService {
         { key: "soon", label: "До 15 минут", value: soon },
         { key: "escalated", label: "К эскалации", value: escalated },
       ],
+      ...(primary.insights ? { insights: primary.insights } : {}),
       groups: primary.groups,
       tickets: primary.tickets,
       selection: primary.selection,

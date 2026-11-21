@@ -4,6 +4,9 @@ import type {
   CanvasResult,
   CanvasWeight,
 } from "../../../packages/contracts/canvas";
+import { answerElement as el } from "../../../packages/contracts/answerCatalog";
+import { DataChart, Spotlight } from "./AnswerCharts";
+import { Briefing, ExhibitTray } from "./AnswerEvidence";
 import { formatCount, PageControls, useBox } from "./CanvasControls";
 import { CanvasTicketLink } from "./CanvasTickets";
 
@@ -133,7 +136,9 @@ function CutSquare({ group }: { group: CanvasGroup }) {
         </linearGradient>
       </defs>
       <rect x="0" y="0" width="100" height="100" fill={`url(#${id}base)`} />
-      {late > 0 && <path d={cutPath} fill={`url(#${id}cut)`} />}
+      {late > 0 && (
+        <path {...el("overdue-cut")} d={cutPath} fill={`url(#${id}cut)`} />
+      )}
       {late > 0 && late < 1 && (
         <g fill="none">
           <path
@@ -163,6 +168,7 @@ function CutSquare({ group }: { group: CanvasGroup }) {
       />
       {raised > 0 && (
         <path
+          {...el("escalation-notch")}
           d={`M0 1H${100 * raised}`}
           stroke="var(--cx-ink)"
           strokeWidth="3"
@@ -214,6 +220,7 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
     <div
       ref={ref}
       className="cx-squares"
+      {...el("area-map")}
       data-testid="group-field"
       data-weight={weight}
     >
@@ -222,6 +229,7 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
         return (
           <button
             type="button"
+            {...el("group-square")}
             className="cx-square"
             data-stacked-label={rect.width < 192 && rect.caption >= 55}
             key={g.key}
@@ -249,6 +257,7 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
           >
             <span
               aria-hidden="true"
+              {...(g[weight] ? {} : el("zero-square"))}
               className="cx-square-ink"
               data-zero={!g[weight]}
             >
@@ -264,15 +273,23 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
       {reserve > 0 && (
         <div className="cx-figure-foot">
           <div className="cx-key">
-            {weight !== "count" && <b>Размер · {weights[weight]}</b>}
-            <span title="Площадь цветного среза соответствует доле просроченных заявок внутри группы">
+            {weight !== "count" && (
+              <b {...el("weight-key")}>Размер · {weights[weight]}</b>
+            )}
+            <span
+              {...el("cut-key")}
+              title="Площадь цветного среза соответствует доле просроченных заявок внутри группы"
+            >
               <i className="cx-key-cut" />
               Просрочено{" "}
               {formatCount(
                 result.metrics.find((m) => m.key === "overdue")?.value ?? 0,
               )}
             </span>
-            <span title="Длина верхней отметки соответствует доле заявок к эскалации внутри группы">
+            <span
+              {...el("notch-key")}
+              title="Длина верхней отметки соответствует доле заявок к эскалации внутри группы"
+            >
               <i className="cx-key-line" />К эскалации{" "}
               {formatCount(
                 result.metrics.find((m) => m.key === "escalated")?.value ?? 0,
@@ -297,16 +314,25 @@ function DeadlineAxis({
     (a, b) => slots.indexOf(a.key) - slots.indexOf(b.key),
   );
   return (
-    <div className="cx-axis" data-testid="deadline-windows">
+    <div
+      {...el("time-axis")}
+      className="cx-axis"
+      data-testid="deadline-windows"
+    >
       {groups.map((g) => (
         <button
           key={g.key}
           type="button"
+          {...el("time-window")}
           style={paint([0, 1, 2, 3][slots.indexOf(g.key)])}
           onClick={() => choose(g)}
         >
-          <b>{formatCount(g.count)}</b>
-          <span className="cx-axis-tick" aria-hidden="true" />
+          <b {...el("window-count")}>{formatCount(g.count)}</b>
+          <span
+            {...el("milestone")}
+            className="cx-axis-tick"
+            aria-hidden="true"
+          />
           <span>{g.label}</span>
         </button>
       ))}
@@ -325,7 +351,7 @@ function Comparison({
   const max = Math.max(1, ...result.groups.map((g) => g.count));
   return (
     <div ref={ref} className="cx-compare" data-testid="group-comparison">
-      <table>
+      <table {...el("comparison-table")}>
         <thead>
           <tr>
             {["Группа", "Всего", "Просрочено", "Эскалации"].map((h) => (
@@ -340,7 +366,7 @@ function Comparison({
             .slice(page * perPage, (page + 1) * perPage)
             .map((g) => (
               <tr key={g.key}>
-                <th scope="row">
+                <th scope="row" {...el("row-heading")}>
                   <button
                     type="button"
                     title={g.label}
@@ -351,8 +377,9 @@ function Comparison({
                 </th>
                 {[g.count, g.overdue, g.escalated].map((n, i) => (
                   <td key={i}>
-                    <span>{formatCount(n)}</span>
+                    <span {...el("cell-value")}>{formatCount(n)}</span>
                     <i
+                      {...el("cell-bar")}
                       aria-hidden="true"
                       style={{
                         ...paint([1, 0, 2][i]),
@@ -372,10 +399,39 @@ function Comparison({
   );
 }
 
-export function CanvasFigure({ result, choose, ns, open, zone }: FigureProps) {
+export function CanvasFigure(props: FigureProps) {
+  const { result, choose } = props;
+  const kind = result.intent.presentation,
+    ids = result.intent.exhibits;
+  if (result.total && kind === "brief")
+    return <Briefing result={result} choose={choose} ids={ids} />;
+  let figure;
+  if (result.total && kind === "spotlight" && result.tickets.length)
+    figure = <Spotlight {...props} />;
+  else if (
+    result.total &&
+    kind &&
+    ["bars", "orbit", "flow", "matrix", "cards"].includes(kind) &&
+    result.groups.length
+  )
+    figure = <DataChart kind={kind} result={result} choose={choose} />;
+  else figure = <StandardFigure {...props} />;
+  return ids?.length && result.total ? (
+    <div className="ar-composed">
+      {figure}
+      <ExhibitTray result={result} choose={choose} ids={ids} />
+    </div>
+  ) : (
+    figure
+  );
+}
+function StandardFigure({ result, choose, ns, open, zone }: FigureProps) {
   if (!result.total)
     return (
-      <div className="cx-empty">
+      <div
+        className="cx-empty"
+        {...el(result.sourceTotal ? "empty-selection" : "no-source")}
+      >
         <h3>
           {result.sourceTotal ? "Инцидентов не найдено" : "Источник пока пуст"}
         </h3>
@@ -383,12 +439,16 @@ export function CanvasFigure({ result, choose, ns, open, zone }: FigureProps) {
       </div>
     );
   if (
+    result.intent.presentation === "register" ||
     result.intent.layout === "list" ||
     (result.intent.groupBy === "ticket" &&
       result.intent.layout !== "comparison")
   )
     return <TicketPreview {...{ result, choose, ns, open, zone }} />;
-  if (result.intent.layout === "comparison")
+  if (
+    result.intent.presentation === "compare" ||
+    result.intent.layout === "comparison"
+  )
     return <Comparison {...{ result, choose }} />;
   if (result.intent.groupBy === "deadline")
     return <DeadlineAxis {...{ result, choose }} />;
@@ -398,12 +458,21 @@ function TicketPreview({ result, choose, ns, open, zone }: FigureProps) {
   const { ref, height } = useBox();
   const shown = Math.min(6, Math.max(1, Math.floor((height - 37) / 54)));
   return (
-    <div className="cx-preview" data-testid="ticket-register" ref={ref}>
+    <div
+      {...el("ticket-list")}
+      className="cx-preview"
+      data-testid="ticket-register"
+      ref={ref}
+    >
       {result.tickets.slice(0, shown).map((ticket) => (
         <CanvasTicketLink key={ticket.id} {...{ ticket, ns, open, zone }} />
       ))}
       {result.total > Math.min(shown, result.tickets.length) && (
-        <button className="cx-open-all" onClick={() => choose(null)}>
+        <button
+          {...el("entire-selection")}
+          className="cx-open-all"
+          onClick={() => choose(null)}
+        >
           Все {formatCount(result.total)} заявок ↗
         </button>
       )}

@@ -10,13 +10,17 @@ import type {
   CanvasGroup,
   CanvasResult,
 } from "../../../packages/contracts/canvas";
+import AnswerInsightBoard from "./AnswerInsightBoard";
+import { GuideAnswer } from "./GuideAnswer";
 import { CanvasFigure } from "./CanvasFigure";
 import { CanvasDrawer, canvasJson } from "./CanvasTickets";
 import { TicketMentions } from "./IncidentSources";
 import { formatCount, PageControls, useBox } from "./CanvasControls";
 import "./workspace.css";
+import "./answer.css";
 
 type Props = {
+  go?: (path: string) => void;
   ns: string;
   userKey: string;
   zone: string;
@@ -48,28 +52,39 @@ const emptyConversation = (): Conversation => ({
 });
 // Ticket navigation remounts this screen. Keep a short, session-scoped history in tab memory.
 const conversations = new Map<string, Conversation>();
-const sources: Record<string, string> = {
-  demo: "Демо-данные",
-  original: "Оригинал",
-  workspace: "Рабочая копия",
-  simulation: "Учебный эфир",
-};
-const panels = (result: CanvasResult) => [
-  result,
-  ...result.blocks.map(
-    (block): CanvasResult => ({
+function panels(result: CanvasResult): CanvasResult[] {
+  const article = result.answer;
+  const views: CanvasResult[] = [];
+  if (article) {
+    views.push({
       ...result,
+      insights: undefined,
+      title: article.title,
+      total: 0,
+      blocks: [],
+    });
+    if (article.kind === "knowledge") return views;
+  }
+  const { answer: _article, insights, ...data } = result;
+  if (insights?.length) views.push({ ...data, insights, blocks: [] });
+  if (!insights?.length || result.intent.presentation) views.push(data);
+  for (const block of result.blocks) {
+    views.push({
+      ...data,
       ...block,
       intent: {
         ...result.intent,
         groupBy: block.groupBy,
         layout: block.layout,
         weightBy: block.weightBy,
+        presentation: block.presentation,
+        exhibits: block.exhibits,
       },
       blocks: [],
-    }),
-  ),
-];
+    });
+  }
+  return views;
+}
 
 function Spark({ size = 18 }: { size?: number }) {
   return (
@@ -106,18 +121,6 @@ function SendIcon() {
     </svg>
   );
 }
-function SourceMode({ result }: { result: CanvasResult }) {
-  return (
-    <span className="cx-mode">
-      {result.mode === "model"
-        ? result.model || result.provider || "ИИ"
-        : result.mode === "unsupported"
-          ? "Уточнение"
-          : "По полям источника"}
-    </span>
-  );
-}
-
 function ConversationLog({
   turns,
   active,
@@ -161,7 +164,6 @@ function ConversationLog({
                 <Spark size={15} />
               </span>
               <b>Срез</b>
-              <SourceMode result={result} />
             </div>
             <p>
               <TicketMentions
@@ -261,6 +263,7 @@ export default function Workspace(props: Props) {
 }
 
 function WorkspaceScreen({
+  go,
   ns,
   zone,
   csrf,
@@ -430,33 +433,24 @@ function WorkspaceScreen({
     composer.current?.focus();
   }
 
-  const stale = !!result && revision > result.revision;
+  const stale =
+    !!result &&
+    result.answer?.kind !== "knowledge" &&
+    revision > result.revision;
   const views = useMemo(() => (result ? panels(result) : []), [result]);
   const switching =
     views.length > 1 &&
-    ((stage.width < 660 && (views.length > 2 || stage.height < 450)) ||
+    (views.length > 3 ||
+      (stage.width < 660 &&
+        (result?.answer || views.length > 2 || stage.height < 450)) ||
       stage.height < 245);
   const panel = Math.min(chat.panel ?? 0, Math.max(0, views.length - 1));
   const visible = switching ? views.slice(panel, panel + 1) : views;
-  const stamp =
-    result &&
-    new Intl.DateTimeFormat("ru-RU", {
-      timeZone: zone,
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(result.asOf));
   const choose = (view: CanvasResult, group: CanvasGroup | null) =>
     setChat((c) => ({ ...c, selection: { result: view, group, offset: 0 } }));
   const reply = last?.mode === "unsupported" ? last.summary : result?.notice;
   const busyText =
     busy === null ? "" : busy ? "Собираю срез…" : "Читаю источник…";
-  const sourceInfo = [
-    sources[ns] ?? ns,
-    stamp && stamp + " " + (zone === "UTC" ? "UTC" : "МСК"),
-    result && "версия " + result.revision,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   return (
     <section
       ref={screen}
@@ -467,11 +461,7 @@ function WorkspaceScreen({
       <h1 id="cx-title" className="sr-only">
         Холст смены
       </h1>
-      <div className="cx-top">
-        <span className="cx-source" title={sourceInfo}>
-          <i aria-hidden="true" />
-          {sourceInfo}
-        </span>
+      <div className="cx-top" hidden={!stale && !result?.total}>
         {stale && (
           <button
             type="button"
@@ -502,7 +492,14 @@ function WorkspaceScreen({
         {visible.map((view, i) => (
           <section
             className="cx-plot"
-            key={switching ? panel : i}
+            data-guide={!!view.answer}
+            key={
+              (switching ? panel : i) +
+              ":" +
+              view.intent.groupBy +
+              ":" +
+              (view.intent.presentation || view.intent.layout)
+            }
             aria-label={
               i === 0
                 ? "Визуализация среза"
@@ -510,7 +507,12 @@ function WorkspaceScreen({
             }
           >
             <div className="cx-plot-title">
-              <h2 title={view.title}>{view.title}</h2>
+              <h2
+                className={view.insights?.length ? "sr-only" : undefined}
+                title={view.title}
+              >
+                {view.title}
+              </h2>
               {switching && (
                 <PageControls
                   page={panel}
@@ -520,11 +522,26 @@ function WorkspaceScreen({
                 />
               )}
             </div>
-            <CanvasFigure
-              result={view}
-              choose={(g) => choose(view, g)}
-              {...{ ns, zone, open }}
-            />
+            {view.answer ? (
+              <GuideAnswer
+                key={view.answer.topic + view.answer.lead}
+                answer={view.answer}
+                ns={ns}
+                go={go}
+              />
+            ) : view.insights?.length ? (
+              <AnswerInsightBoard
+                insights={view.insights}
+                ns={ns}
+                open={open}
+              />
+            ) : (
+              <CanvasFigure
+                result={view}
+                choose={(g) => choose(view, g)}
+                {...{ ns, zone, open }}
+              />
+            )}
           </section>
         ))}
         {!visible.length && (
@@ -558,7 +575,9 @@ function WorkspaceScreen({
               title={reply}
               onClick={() => setHistoryOpen(true)}
             >
-              {reply}
+              {result?.mode === "fallback" && last?.mode !== "unsupported"
+                ? "Локальный расчёт · подробнее"
+                : reply}
             </button>
           ) : null}
         </div>

@@ -16,9 +16,7 @@
 .cx button:disabled {opacity:.44;cursor:default;}
 .cx :is(button,input,a):focus-visible,.cx-log:focus-visible {outline:2px solid var(--wm-violet,#7858a1);outline-offset:3px;}
 .cx-top {display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;padding:clamp(12px,2.1vh,23px) 0 0;}
-.cx-source,.cx-scope,.cx-refresh,.cx-status,.cx-figure-foot,.cx-pager,.cx-drawer header p {font:500 .72rem/1.35 var(--cx-mono);}
-.cx-source {display:flex;align-items:center;gap:7px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--cx-muted);}
-.cx-source i {height:6px;width:6px;background:var(--wm-green,#468674);border-radius:50%;flex:none;}
+.cx-scope,.cx-refresh,.cx-status,.cx-figure-foot,.cx-pager,.cx-drawer header p {font:500 .72rem/1.35 var(--cx-mono);}
 .cx .cx-scope,.cx .cx-refresh {font-size:.78rem;min-height:28px;white-space:nowrap;}
 .cx .cx-refresh {margin-left:auto;color:var(--cx-muted);}
 .cx .cx-scope:hover,.cx .cx-refresh:hover,.cx .cx-open-all:hover,.cx .cx-new:hover {text-decoration:underline;text-underline-offset:4px;}
@@ -125,7 +123,7 @@
 .cx-author {display:flex;align-items:center;gap:8px;font-size:.8rem;}
 .cx-assistant-icon {display:inline-flex;color:var(--wm-violet,#7858a1);}
 .cx .cx-question {font-size:.95rem;font-weight:600;margin-bottom:10px;overflow-wrap:anywhere;}
-.cx-mode,.cx-answer small,.cx button.cx-transcript-view,.cx-thinking,.cx-new {color:var(--cx-muted);font-size:.75rem;}
+.cx-answer small,.cx button.cx-transcript-view,.cx-thinking,.cx-new {color:var(--cx-muted);font-size:.75rem;}
 .cx-answer p {font-size:.92rem;line-height:1.52;margin:5px 0;overflow-wrap:anywhere;}
 .cx-answer small {display:block;}
 .cx-answer a {color:var(--cx-ink);}
@@ -139,7 +137,6 @@
   .cx-plot-title h2 {font-size:clamp(1.7rem,7.7vw,2.55rem);}
   .cx-plot-title {padding-top:8px;}
   .cx-top {padding-top:6px;}
-  .cx-source {font-size:.62rem;}
   .cx .cx-scope,.cx .cx-refresh {font-size:.68rem;}
   .cx-square-caption {gap:5px;padding-top:4px;}
   .cx-square-caption b {font-size:clamp(1.04rem,5vw,1.7rem);}

@@ -1,3 +1,12 @@
+import type {
+  CanvasAnswer,
+  GuideFocus,
+  GuideTopic,
+} from "../domain/assistantGuide.ts";
+import type { AnswerInsight, AnswerInsightId } from "./answerInsights.ts";
+import type { AnswerExhibitId, AnswerPresentation } from "./answerCatalog.ts";
+export type { CanvasAnswer } from "../domain/assistantGuide.ts";
+
 export const canvasDimensions = [
   "symptom",
   "team",
@@ -24,11 +33,19 @@ export interface CanvasFilters {
   escalation?: "yes" | "no" | "unknown";
 }
 export interface CanvasView {
+  presentation?: AnswerPresentation;
+  exhibits?: AnswerExhibitId[];
   groupBy: CanvasDimension;
   layout: CanvasLayout;
   weightBy?: CanvasWeight;
 }
 export interface CanvasIntent extends CanvasView {
+  insightIds?: AnswerInsightId[];
+  automaticStates?: true;
+  topic?: GuideTopic;
+  related?: GuideTopic[];
+  focus?: GuideFocus;
+  guideOnly?: boolean;
   filters: CanvasFilters;
   blocks?: CanvasView[];
 }
@@ -51,16 +68,19 @@ export interface CanvasGroup {
   escalated: number;
 }
 export interface CanvasBlock extends CanvasView {
+  insights?: AnswerInsight[];
   title: string;
   groups: CanvasGroup[];
   tickets: CanvasTicket[];
   selection: string;
 }
 export interface CanvasResult {
+  insights?: AnswerInsight[];
   namespace: string;
   revision: number;
   asOf: string;
-  mode: "snapshot" | "model" | "fallback" | "unsupported";
+  answer?: CanvasAnswer;
+  mode: "knowledge" | "snapshot" | "model" | "fallback" | "unsupported";
   provider: string;
   model?: string;
   notice?: string;

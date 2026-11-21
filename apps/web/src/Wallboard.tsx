@@ -127,14 +127,6 @@ export default function Wallboard({ data, now, zone, online }: Props) {
       }),
     [zone],
   );
-  const source =
-    data.namespace === "demo"
-      ? "Демо-данные"
-      : data.namespace === "simulation"
-        ? "Учебный эфир"
-        : data.namespace === "original"
-          ? "Оригинал"
-          : "Рабочая копия";
   const status =
     data.status?.state === "error"
       ? "Ошибка источника"
@@ -149,8 +141,6 @@ export default function Wallboard({ data, now, zone, online }: Props) {
         <div className="observe-brand">
           <Mark />
           <span>Срез</span>
-          <i aria-hidden="true" />
-          <span>{source}</span>
         </div>
         <div className="observe-source">
           <span>

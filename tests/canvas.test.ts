@@ -4,6 +4,11 @@ import type { LightMyRequestResponse } from "fastify";
 import { createApp } from "../apps/server/api.ts";
 import { Auth } from "../apps/server/auth.ts";
 import { AnalysisService } from "../apps/server/analysis.ts";
+import {
+  answerInsightIds,
+  insightDefinitions,
+} from "../packages/contracts/answerInsights.ts";
+import { CanvasService } from "../apps/server/canvas.ts";
 import { VseLlm } from "../apps/server/vsellm.ts";
 import { Store } from "../apps/worker/ingestion.ts";
 import type { DB } from "../apps/server/db.ts";
@@ -116,6 +121,16 @@ test("canvas counts all open source IDs, pages stable selections and validates m
     const start = response.json<CanvasResult>();
     assert.equal(start.mode, "snapshot");
     assert.equal(start.total, 47);
+    assert.equal(start.blocks[0]?.presentation, "deadline");
+    assert.equal(
+      start.blocks[0].groups.reduce((sum, group) => sum + group.count, 0),
+      start.total,
+    );
+    const emptyStarter = await new CanvasService().read(
+      { namespace: "unused", revision: 0, rows: new Map() },
+      "viewer",
+    );
+    assert.deepEqual(emptyStarter.blocks, []);
     assert.equal(prompts.length, 0);
     const compared = (
       await ask("Сравни продукты по числу заявок")
@@ -496,6 +511,388 @@ test("refresh keeps the intent, recalculates fresh rows without a model, and pin
       assert.equal(page.json<CanvasPage>().total, block.groups[0].count);
     }
     assert.equal(prompts.length, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("definitions, examples and platform actions answer immediately from help and keep the analytical scope", async () => {
+  const { app, ask, prompts, headers } = await setup();
+  try {
+    const filtered = {
+      groupBy: "team",
+      layout: "groups",
+      filters: { deadline: "overdue" },
+    };
+    const incident = (
+      await ask("Что такое инцидент?", filtered)
+    ).json<CanvasResult>();
+    assert.equal(incident.mode, "knowledge");
+    assert.equal(incident.answer?.topic, "incident");
+    assert.match(incident.answer!.lead, /незапланированный сбой/);
+    assert.ok(
+      incident.answer!.links.some((link) => link.anchor === "incident"),
+    );
+    assert.equal(incident.selection, "");
+    assert.deepEqual(incident.groups, []);
+    assert.deepEqual(incident.metrics, []);
+    assert.deepEqual(incident.intent.filters, filtered.filters);
+    const follow = (
+      await ask("А можешь привести пример?", incident.intent)
+    ).json<CanvasResult>();
+    assert.equal(follow.answer?.topic, "incident");
+    assert.deepEqual(
+      follow.answer?.sections.map((section) => section.role),
+      ["example"],
+    );
+    const refreshed = (
+      await app.inject({
+        method: "POST",
+        url: "/api/canvas?ns=workspace",
+        headers: headers(),
+        payload: { refresh: true, context: follow.intent },
+      })
+    ).json<CanvasResult>();
+    assert.deepEqual(refreshed.answer, follow.answer);
+    assert.equal(refreshed.total, 0);
+    for (const [question, topic] of [
+      ["Инцидент — это что?", "incident"],
+      ["Объясни разницу между проблемой и инцидентом", "problem"],
+      ["Чем отличается инцидент от запроса на обслуживание?", "serviceRequest"],
+      ["Что означает массовый сбой?", "massIncident"],
+      ["Срез сам закрывает инциденты, верно?", "recommendation"],
+      ["Как назначить исполнителя?", "assignment"],
+      ["Что означает SLA?", "sla"],
+      ["Что делать с инцидентом?", "lifecycle"],
+      ["Привет!", "assistant"],
+    ]) {
+      const reply = (await ask(question)).json<CanvasResult>();
+      assert.equal(reply.answer?.topic, topic, question);
+      assert.ok(reply.answer!.sections.length, question);
+    }
+    for (const [question, topic, role] of [
+      [
+        "Как объяснить коллеге, чем авария в сервисе отличается от сообщения пользователя?",
+        "incident",
+        "distinction",
+      ],
+      [
+        "Что именно я должен проверить перед эскалацией?",
+        "escalation",
+        "steps",
+      ],
+      [
+        "Коллега спрашивает, чем отказ услуги отличается от обращения?",
+        "incident",
+        "distinction",
+      ],
+      [
+        "Какие шаги нужны перед передачей тикета другому уровню поддержки для эскалации?",
+        "escalation",
+        "steps",
+      ],
+    ]) {
+      const response = (await ask(question)).json<CanvasResult>();
+      assert.equal(response.answer?.topic, topic, question);
+      assert.ok(
+        response.answer.sections.some((section) => section.role === role),
+        question,
+      );
+      assert.ok(
+        response.answer.links.some((link) => link.anchor === "ticket"),
+        question,
+      );
+    }
+    const double = (
+      await ask("Что такое инцидент и что такое эскалация?")
+    ).json<CanvasResult>();
+    assert.deepEqual(double.intent.related, ["escalation"]);
+    assert.ok(
+      double.answer!.sections.some((section) =>
+        section.body?.includes("другого уровня поддержки"),
+      ),
+    );
+    assert.equal(prompts.length, 0);
+    const data = (
+      await ask("А теперь по командам", follow.intent)
+    ).json<CanvasResult>();
+    assert.equal(data.answer, undefined);
+    assert.equal(data.intent.topic, undefined);
+    assert.equal(data.total, 24);
+  } finally {
+    await app.close();
+  }
+});
+
+test("mixed questions preserve explanatory links and calculate only from the requested analytical clause", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    respond({ supported: true, groupBy: "team", layout: "groups" });
+    for (const question of [
+      "Что такое эскалация и покажи просроченные по командам",
+      "Покажи просроченные по командам, а затем объясни что такое эскалация",
+    ]) {
+      const r = (await ask(question)).json<CanvasResult>();
+      assert.equal(r.answer?.topic, "escalation", question);
+      assert.equal(r.answer?.kind, "mixed");
+      assert.equal(r.mode, "model");
+      assert.deepEqual(r.intent.filters, { deadline: "overdue" });
+      assert.equal(r.total, 24);
+      assert.equal(r.groups[0].count, 24);
+      assert.ok(r.selection);
+    }
+    const r = (
+      await ask("Что такое инцидент и сколько денег мы потеряли?")
+    ).json<CanvasResult>();
+    assert.equal(r.answer?.kind, "knowledge");
+    assert.match(r.notice ?? "", /недостаточно/);
+    assert.equal(r.metrics.length, 0);
+    const unknown = (
+      await ask("Почему выросло число инцидентов?")
+    ).json<CanvasResult>();
+    assert.equal(unknown.mode, "unsupported");
+    assert.equal(unknown.answer, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test("model routing accepts reviewed help ids only and never renders model-supplied prose or URLs", async () => {
+  const { app, ask, respond, prompts } = await setup();
+  try {
+    respond({
+      supported: true,
+      guide: { topic: "assignment", focus: "steps" },
+    });
+    const reply = (
+      await ask("Кому передают ответственность?")
+    ).json<CanvasResult>();
+    assert.equal(reply.mode, "model");
+    assert.equal(reply.answer?.topic, "assignment");
+    assert.ok(reply.answer?.sections[0].items?.length);
+    assert.ok(prompts.length);
+    respond({
+      supported: true,
+      guide: { topic: "assignment", href: "https://invalid.test" },
+    });
+    const invalid = (
+      await ask("Кто берет ответственность?")
+    ).json<CanvasResult>();
+    assert.equal(invalid.answer, undefined);
+    assert.doesNotMatch(JSON.stringify(invalid), /invalid\.test/);
+    for (const context of [
+      { topic: "__proto__" },
+      { guideOnly: true },
+      { presentation: "raw-svg" },
+      { exhibits: ["median-load", "median-load"] },
+    ])
+      assert.equal(
+        (
+          await ask("Ещё", {
+            groupBy: "team",
+            layout: "groups",
+            filters: {},
+            ...context,
+          })
+        ).statusCode,
+        400,
+      );
+  } finally {
+    await app.close();
+  }
+});
+
+test("presentation and evidence follow the question in model and offline paths; charts retain real group membership", async () => {
+  const { app, ask, stores, respond } = await setup();
+  try {
+    respond({
+      supported: true,
+      groupBy: "product",
+      layout: "groups",
+      presentation: "squares",
+    });
+    const q = "Покажи схему по командам с медианой нагрузки";
+    const model = (await ask(q)).json<CanvasResult>();
+    assert.equal(model.intent.groupBy, "team");
+    assert.equal(model.intent.presentation, "flow");
+    assert.deepEqual(model.intent.exhibits, ["median-load"]);
+    assert.equal(model.total, 47);
+    const service = new CanvasService();
+    const store = stores.get("workspace")!;
+    for (const [question, presentation] of [
+      ["Нарисуй круговую диаграмму по продуктам", "orbit"],
+      ["Покажи рейтинг команд", "bars"],
+      ["Выведи по командам тепловую карту", "matrix"],
+      ["Нарисуй группы карточками", "cards"],
+      ["Покажи команды в виде карточек групп", "cards"],
+      [q, "flow"],
+      ["Покажи шкалу сроков", "deadline"],
+      ["Покажи заявки реестром", "register"],
+      ["Резюме нагрузки", "brief"],
+      ["Покажи одну конкретную заявку", "spotlight"],
+    ]) {
+      const result = await service.read(store, "operator", question);
+      assert.equal(result.intent.presentation, presentation, question);
+      assert.equal(result.total, 47, question);
+    }
+    const stats = await service.read(
+      store,
+      "operator",
+      "Какова доля просрочек по командам?",
+    );
+    assert.equal(stats.total, 47);
+    assert.equal(stats.intent.filters.deadline, undefined);
+    assert.deepEqual(stats.intent.exhibits, ["overdue-rate"]);
+    const follow = await service.read(
+      store,
+      "operator",
+      "А теперь только просроченные",
+      model.intent,
+    );
+    assert.equal(follow.intent.presentation, "flow");
+    assert.deepEqual(follow.intent.exhibits, ["median-load"]);
+    assert.equal(follow.total, 24);
+    const knowledge = await service.read(
+      store,
+      "operator",
+      "Что такое инцидент?",
+    );
+    assert.equal(knowledge.answer?.topic, "incident");
+  } finally {
+    await app.close();
+  }
+});
+
+test("every source metric can be requested by its name, including completed and historical denominators", async () => {
+  const { app, stores, ask, respond } = await setup();
+  try {
+    const store = stores.get("workspace")!;
+    const row = [...store.rows.values()][0];
+    store.rows.set("CLOSED", {
+      ...row,
+      key: "CLOSED",
+      id: "CLOSED",
+      stateId: 10,
+    });
+    store.rows.set("RESOLVED", {
+      ...row,
+      key: "RESOLVED",
+      id: "RESOLVED",
+      stateId: 7,
+    });
+    const offline = new CanvasService();
+    for (const id of answerInsightIds) {
+      const r = await offline.read(
+        store,
+        "operator",
+        insightDefinitions[id].title,
+      );
+      assert.equal(r.insights?.[0]?.id, id, insightDefinitions[id].title);
+      assert.deepEqual(r.intent.insightIds, [id], id);
+    }
+    const finished = await offline.read(
+      store,
+      "operator",
+      "Медианное время решения",
+    );
+    assert.deepEqual(finished.intent.filters.states, [7, 10]);
+    assert.equal(finished.total, 2);
+    const latest = await offline.read(
+      store,
+      "operator",
+      "Возраст очереди",
+      finished.intent,
+    );
+    assert.equal(latest.total, 47);
+    assert.equal(latest.intent.filters.states, undefined);
+    const cards = await offline.read(
+      store,
+      "operator",
+      "Покажи команды в виде карточек групп",
+      (await offline.read(store, "operator")).intent,
+    );
+    const newMetric = await offline.read(
+      store,
+      "operator",
+      "Возраст очереди",
+      cards.intent,
+    );
+    assert.ok(newMetric.insights?.length);
+    assert.equal(newMetric.intent.presentation, undefined);
+    assert.deepEqual(newMetric.blocks, []);
+    respond({ supported: true, groupBy: "team", presentation: "cards" });
+    const modelNewMetric = (
+      await ask("Возраст очереди", cards.intent)
+    ).json<CanvasResult>();
+    assert.equal(modelNewMetric.intent.presentation, undefined);
+    assert.equal(modelNewMetric.insights?.[0].id, newMetric.insights?.[0].id);
+    const combined = await offline.read(
+      store,
+      "operator",
+      "Возраст очереди и тепловая карта команд",
+      cards.intent,
+    );
+    assert.equal(combined.intent.presentation, "matrix");
+    assert.equal(combined.insights?.[0].id, newMetric.insights?.[0].id);
+    const intake = await offline.read(
+      store,
+      "operator",
+      "Поступления за семь дней",
+    );
+    assert.equal(intake.total, 49);
+    const explicit = await offline.read(
+      store,
+      "operator",
+      "Медианное время решения среди открытых заявок",
+    );
+    assert.deepEqual(explicit.intent.filters.states, [0, 2, 20]);
+    const ratio = await offline.read(
+      store,
+      "operator",
+      "Полнота отметки эскалации",
+    );
+    assert.equal(ratio.intent.filters.escalation, undefined);
+    assert.equal(ratio.total, 47);
+    const scoped = await offline.read(
+      store,
+      "operator",
+      "А теперь только просроченные",
+      ratio.intent,
+    );
+    assert.deepEqual(scoped.intent.insightIds, ratio.intent.insightIds);
+    assert.equal(scoped.total, 24);
+    const refreshed = await offline.read(
+      store,
+      "operator",
+      undefined,
+      scoped.intent,
+    );
+    assert.deepEqual(refreshed.insights, scoped.insights);
+    respond({
+      supported: true,
+      groupBy: "symptom",
+      layout: "groups",
+      insightIds: ["by-owner"],
+    });
+    const route = (await ask("Проанализируй нагрузку")).json<CanvasResult>();
+    assert.equal(route.insights?.[0].id, "by-owner");
+    assert.equal(route.mode, "model");
+    respond({
+      supported: true,
+      groupBy: "status",
+      filters: { escalation: "yes", states: [2] },
+      insightIds: ["escalation-known"],
+    });
+    const corrected = (
+      await ask("Полнота отметки эскалации")
+    ).json<CanvasResult>();
+    assert.equal(corrected.total, 47);
+    const denied = (
+      await ask(
+        "Покажи доход и сколько денег потеряли, медианный возраст заявок",
+      )
+    ).json<CanvasResult>();
+    assert.equal(denied.mode, "unsupported");
   } finally {
     await app.close();
   }

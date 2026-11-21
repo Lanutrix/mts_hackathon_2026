@@ -144,7 +144,7 @@ function SearchFilters({
                 {sources.map((s) => (
                   <option key={s} value={s}>
                     {s === "demo"
-                      ? "Демо"
+                      ? "Сценарий"
                       : s === "original"
                         ? "Оригинал"
                         : "Рабочая копия"}
@@ -190,10 +190,6 @@ export default function LiveBoard({
   const chosen = triage.cases.find(
     (item) => item.id === search.params.get("case"),
   );
-  const focus =
-    chosen ??
-    triage.cases.find((c) => c.lead.id === triage.tracking?.id) ??
-    triage.cases[0];
   const amount = triage.unique;
   return (
     <section className="broadcast" aria-labelledby="shift-name">
@@ -202,10 +198,7 @@ export default function LiveBoard({
           <h1 id="shift-name">Эфир смены</h1>
           <ShiftClock now={now} zone={zone} />
         </div>
-        <ShiftMetrics triage={triage} hints />
-        {focus && !filtering && (
-          <RiskProfile record={focus} signal={signal} open={open} />
-        )}
+        <ShiftMetrics triage={triage} sliceRevision={data.revision} hints />
       </header>
       <div className="feed-tools">
         <div
@@ -291,99 +284,6 @@ export default function LiveBoard({
     </section>
   );
 }
-function RiskProfile({
-  record,
-  signal,
-  open,
-}: {
-  record: TriageCase;
-  signal: Signal;
-  open: (id: string) => void;
-}) {
-  const measures = [
-    { label: "Просрочены", value: record.overdue, color: "overdue" },
-    { label: "Срок ≤ 15 мин", value: record.soon, color: "soon" },
-    { label: "Эскалация", value: record.escalations, color: "up" },
-  ];
-  const peak = Math.max(1, ...measures.map((m) => m.value));
-  return (
-    <figure
-      className="risk-profile"
-      data-testid="risk-profile"
-      data-signal={signal}
-      aria-label={"Риски кейса «" + record.label + "»"}
-    >
-      <figcaption>
-        <strong>Риски кейса</strong>
-        <span title={record.label}>{record.label}</span>
-      </figcaption>
-      <div className="risk-volume">
-        <svg
-          viewBox="0 0 112 78"
-          preserveAspectRatio="xMidYMid meet"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path
-            className="risk-base-side"
-            d="m3 51 78 17 27-14v5L81 73 3 56Z"
-          />
-          <path className="risk-base-top" d="m3 51 27-14 78 17-27 14Z" />
-          {measures.map((measure, i) => {
-            const x = 10 + i * 24,
-              y = 51 + i * 5.2;
-            const h = (44 * measure.value) / peak;
-            return (
-              <g
-                key={measure.color}
-                transform={`translate(${x} ${y})`}
-                className={"risk-prism risk-" + measure.color}
-              >
-                {h > 0 && (
-                  <>
-                    <path
-                      className="risk-prism-front"
-                      d={`M0 0 15 3.25V${3.25 - h}L0 ${-h}Z`}
-                    />
-                    <path
-                      className="risk-prism-side"
-                      d={`M15 3.25 27 -3V${-3 - h}L15 ${3.25 - h}Z`}
-                    />
-                  </>
-                )}
-                <path
-                  className={h > 0 ? "risk-prism-cap" : "risk-prism-empty"}
-                  d="M0 0 12 -6.25 27 -3 15 3.25Z"
-                  transform={`translate(0 ${-h})`}
-                />
-              </g>
-            );
-          })}
-        </svg>
-        <ul>
-          {measures.map((m) => (
-            <li key={m.color} className={"risk-" + m.color}>
-              <i aria-hidden="true" />
-              <span>{m.label}</span>
-              <b>{m.value}</b>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <button
-        type="button"
-        data-testid="risk-ticket"
-        data-ticket={record.lead.id}
-        onClick={() => open(record.lead.id)}
-        title={record.lead.header}
-      >
-        Пример <strong>{record.lead.id}</strong>{" "}
-        <span aria-hidden="true">↗</span>
-      </button>
-    </figure>
-  );
-}
-
 function Ledger({
   data,
   signal,

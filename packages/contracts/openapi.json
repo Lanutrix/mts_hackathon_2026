@@ -25,9 +25,310 @@
       }
     },
     "schemas": {
+      "AnswerPresentation": {
+        "enum": [
+          "squares",
+          "bars",
+          "orbit",
+          "flow",
+          "matrix",
+          "cards",
+          "register",
+          "deadline",
+          "compare",
+          "brief",
+          "spotlight"
+        ]
+      },
+      "AnswerExhibit": {
+        "enum": [
+          "first-group",
+          "mean-load",
+          "median-load",
+          "load-range",
+          "overdue-metric",
+          "soon-metric",
+          "escalation-metric",
+          "concentration",
+          "top-two",
+          "pareto",
+          "median-overdue",
+          "leader-gap",
+          "tied-leaders",
+          "singletons",
+          "clean-groups",
+          "groups-overdue",
+          "groups-escalated",
+          "highest-late-rate",
+          "late-leader",
+          "escalation-leader",
+          "on-time",
+          "overdue-rate",
+          "escalation-rate",
+          "soon-rate",
+          "scope-share",
+          "group-count"
+        ]
+      },
+      "GuideTopic": {
+        "enum": [
+          "incident",
+          "ticket",
+          "massIncident",
+          "problem",
+          "serviceRequest",
+          "triage",
+          "lifecycle",
+          "sla",
+          "priority",
+          "deadline",
+          "escalation",
+          "symptom",
+          "assignment",
+          "recommendation",
+          "status",
+          "signals",
+          "assistant",
+          "shift",
+          "monitor",
+          "devices",
+          "icons"
+        ]
+      },
+      "GuideFocus": {
+        "enum": [
+          "overview",
+          "example",
+          "steps",
+          "distinction"
+        ]
+      },
+      "AnswerInsightId": {
+        "enum": [
+          "age-median",
+          "age-tail",
+          "age-oldest",
+          "age-bands",
+          "delay-max",
+          "delay-median",
+          "delay-sum",
+          "delay-bands",
+          "remaining-min",
+          "remaining-median",
+          "remaining-bands",
+          "assignment-median",
+          "assignment-tail",
+          "team-age-max",
+          "team-age-bands",
+          "resolve-median",
+          "resolve-mean",
+          "resolve-tail",
+          "resolve-bands",
+          "budget-median",
+          "missed-max",
+          "reserve-median",
+          "waiting-min",
+          "by-channel",
+          "by-impact",
+          "by-urgency",
+          "by-type",
+          "by-service",
+          "by-service-class",
+          "by-scenario",
+          "by-state-reason",
+          "by-fix",
+          "by-owner",
+          "by-team-overdue",
+          "by-product-raised",
+          "by-owner-critical",
+          "channel-team",
+          "product-team",
+          "service-product",
+          "priority-impact",
+          "urgency-impact",
+          "team-state",
+          "intake-priority",
+          "product-scenario",
+          "unowned",
+          "unteamed",
+          "no-deadline",
+          "no-description",
+          "no-product",
+          "no-service",
+          "no-priority",
+          "no-channel",
+          "no-impact",
+          "no-urgency",
+          "no-completion",
+          "no-solution",
+          "quality-issues",
+          "invalid-order",
+          "duplicates",
+          "masters",
+          "roots",
+          "effects",
+          "causes",
+          "unknown-escalation",
+          "late-escalated",
+          "critical-unowned",
+          "late-unowned",
+          "research-late",
+          "pending-assign",
+          "reused-solution",
+          "finished-on-time",
+          "has-owner",
+          "has-deadline",
+          "escalation-known",
+          "intake-hours",
+          "intake-days",
+          "done-days",
+          "due-days",
+          "weekday-intake",
+          "workday-intake",
+          "unassigned-critical-path"
+        ]
+      },
+      "AnswerInsight": {
+        "type": "object",
+        "required": [
+          "id",
+          "value",
+          "note",
+          "points"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/AnswerInsightId"
+          },
+          "value": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "label",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "number"
+                },
+                "ticket": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "CanvasAnswer": {
+        "type": "object",
+        "required": [
+          "kind",
+          "topic",
+          "title",
+          "lead",
+          "sections",
+          "links"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "knowledge",
+              "mixed"
+            ]
+          },
+          "topic": {
+            "$ref": "#/components/schemas/GuideTopic"
+          },
+          "title": {
+            "type": "string"
+          },
+          "lead": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "role",
+                "heading"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "enum": [
+                    "detail",
+                    "example",
+                    "steps",
+                    "distinction"
+                  ]
+                },
+                "heading": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "label",
+                "anchor"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "anchor": {
+                  "enum": [
+                    "incident",
+                    "shift",
+                    "assistant",
+                    "ticket",
+                    "signals",
+                    "monitor",
+                    "devices",
+                    "icons"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "CanvasView": {
         "type": "object",
         "properties": {
+          "presentation": {"$ref":"#/components/schemas/AnswerPresentation"},
+          "exhibits": {"type":"array","maxItems":3,"uniqueItems":true,"items":{"$ref":"#/components/schemas/AnswerExhibit"}},
           "weightBy": { "enum": ["count", "overdue", "escalated"] },
           "groupBy": {
             "enum": [
@@ -58,6 +359,14 @@
       "CanvasIntent": {
         "type": "object",
         "properties": {
+          "topic":{"$ref":"#/components/schemas/GuideTopic"},
+          "focus":{"$ref":"#/components/schemas/GuideFocus"},
+          "guideOnly":{"type":"boolean"},
+          "automaticStates":{"enum":[true]},
+          "related":{"type":"array","maxItems":2,"uniqueItems":true,"items":{"$ref":"#/components/schemas/GuideTopic"}},
+          "insightIds":{"type":"array","maxItems":3,"uniqueItems":true,"items":{"$ref":"#/components/schemas/AnswerInsightId"}},
+          "presentation": {"$ref":"#/components/schemas/AnswerPresentation"},
+          "exhibits": {"type":"array","maxItems":3,"uniqueItems":true,"items":{"$ref":"#/components/schemas/AnswerExhibit"}},
           "weightBy": { "enum": ["count", "overdue", "escalated"] },
           "groupBy": {
             "enum": [
@@ -262,6 +571,9 @@
       "CanvasBlock": {
         "type": "object",
         "properties": {
+          "insights":{"type":"array","maxItems":3,"items":{"$ref":"#/components/schemas/AnswerInsight"}},
+          "presentation": {"$ref":"#/components/schemas/AnswerPresentation"},
+          "exhibits": {"type":"array","maxItems":3,"uniqueItems":true,"items":{"$ref":"#/components/schemas/AnswerExhibit"}},
           "weightBy": { "enum": ["count", "overdue", "escalated"] },
           "groupBy": {
             "enum": [
@@ -313,6 +625,8 @@
       "CanvasResult": {
         "type": "object",
         "properties": {
+          "insights":{"type":"array","maxItems":3,"items":{"$ref":"#/components/schemas/AnswerInsight"}},
+          "answer":{"$ref":"#/components/schemas/CanvasAnswer"},
           "title": {
             "type": "string"
           },
@@ -344,6 +658,7 @@
           },
           "mode": {
             "enum": [
+              "knowledge",
               "snapshot",
               "model",
               "fallback",

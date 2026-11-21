@@ -513,8 +513,7 @@ export default function CoordinatorDispatch(props: Props) {
               {view.history[0].note && <p>{view.history[0].note}</p>}
               <small>
                 {view.history[0].actor} ·{" "}
-                {formattedTime(view.history[0].at, zone)} · версия обращения{" "}
-                {view.history[0].incidentRevision}
+                {formattedTime(view.history[0].at, zone)}
               </small>
               <DecisionHandoff
                 key={view.history[0].version}

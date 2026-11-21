@@ -72,7 +72,7 @@ type Device = {
   sources: string[];
 };
 const sourceNames: Record<string, string> = {
-  demo: "Демоданные",
+  demo: "Сценарий",
   workspace: "Рабочая копия",
   original: "Оригинальный источник",
 };

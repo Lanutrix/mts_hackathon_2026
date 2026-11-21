@@ -251,13 +251,9 @@ function App({ initialRoute }: { initialRoute: URL }) {
       "/live": "Эфир смены",
       "/workspace": "ИИ-помощник",
       "/wallboard": "Общий экран",
-      "/simulation": "Учебный эфир",
       "/login": "Вход",
     };
-    document.title =
-      (names[path] ?? "Дашборд координатора") +
-      (isTrainingPath(route.pathname) ? " · Учебный эфир" : "") +
-      " · Срез";
+    document.title = (names[path] ?? "Дашборд координатора") + " · Срез";
   }, [route.pathname]);
   useEffect(() => {
     const update = () => setRoute(readRoute());
@@ -615,13 +611,6 @@ function Dashboard({
       setError((e as Error).message);
     }
   };
-  const sourceName = training
-    ? "Учебный эфир"
-    : ns === "demo"
-      ? "Демо-данные"
-      : ns === "original"
-        ? "Оригинал · только чтение"
-        : "Рабочая копия";
   const sourceProblem =
     error ||
     data?.status.state === "error" ||
@@ -710,7 +699,6 @@ function Dashboard({
                 data-testid="source-status"
                 aria-label="Состояние источника"
               >
-                <strong>{sourceName}</strong>
                 <span>{connection}</span>
                 {data?.acceptedAt && (
                   <span>
@@ -718,7 +706,6 @@ function Dashboard({
                     {zone === "UTC" ? "UTC" : "МСК"}
                   </span>
                 )}
-                <span data-testid="revision">Версия {data?.revision ?? 0}</span>
               </div>
             </div>
             {user ? (
@@ -745,7 +732,7 @@ function Dashboard({
                   {!training && user.role === "demo-admin" && (
                     <>
                       {nav("/import", "Импорт")}
-                      {nav("/demo", "Демонстрация")}
+                      {nav("/demo", "Управление сценарием")}
                     </>
                   )}
                   <button
@@ -821,6 +808,7 @@ function Dashboard({
               fallback={<Loader label="Открываем холст…" stage />}
             >
               <Workspace
+                go={go}
                 ns={ns}
                 userKey={JSON.stringify([
                   user.username,
@@ -956,9 +944,7 @@ function Dashboard({
                         {n.header && <span>{n.header} · </span>}
                         <span>{n.id}</span>
                       </button>
-                      <p className="muted">
-                        {formatDate(n.at, zone)} · версия {n.revision}
-                      </p>
+                      <p className="muted">{formatDate(n.at, zone)}</p>
                     </div>
                     {n.snapshot && (
                       <details className="event-facts">
@@ -1028,7 +1014,7 @@ function Dashboard({
               <p className="muted">
                 {path === "/quality"
                   ? "Исходные значения сохранены. Конфликты исключены из автоматических групп до сверки."
-                  : "Завершённые и закрытые инциденты. Полная история версий доступна в карточке."}
+                  : "Завершённые и закрытые инциденты."}
               </p>
               <p>Записей: {extra?.total ?? 0}</p>
               {extra?.items?.map((i: Incident) => (
@@ -1093,21 +1079,16 @@ function Dashboard({
           ) : path === "/demo" ? (
             user?.role === "demo-admin" ? (
               <section className="content">
-                <h1>Демонстрация</h1>
+                <h1>Управление сценарием</h1>
                 <p>
-                  Отдельный источник DEMO. Шаг {extra?.step ?? 0}. Часы
-                  сценария: {extra?.clock ?? "—"}.
-                </p>
-                <p>
-                  Новый критический → координаторы → срок → выполнение →
-                  завершение → возврат → исследование → закрытие → новый ID.
+                  Шаг {extra?.step ?? 0}. Часы сценария: {extra?.clock ?? "—"}.
                 </p>
                 <div className="toolbar">
                   {[
                     ["play", "Запустить"],
                     ["pause", "Пауза"],
                     ["step", "Следующий шаг"],
-                    ["reset", "Сбросить демо"],
+                    ["reset", "Сбросить сценарий"],
                   ].map(([action, label]) => (
                     <button
                       tabIndex={0}
@@ -1259,7 +1240,7 @@ function Detail({
       )}
       {updated && (
         <p role="status" className="notice">
-          Карточка обновлена · версия {i.revision}
+          Карточка обновлена
         </p>
       )}
       {!mock && dispatch}
@@ -1305,7 +1286,7 @@ function Detail({
             <div className="detail-ai-result">
               {(analysis.stale || analysis.inputRevision !== i.revision) && (
                 <p role="status" className="warning">
-                  Составлен по предыдущей версии тикета.
+                  После разбора заявка изменилась.
                 </p>
               )}
               {analysis.mode === "fallback" && (
@@ -1329,8 +1310,7 @@ function Detail({
                   <p key={n}>{s}</p>
                 ))}
                 <small>
-                  {analysis.provider} · {analysis.model} · версия тикета{" "}
-                  {analysis.inputRevision}
+                  {analysis.provider} · {analysis.model}
                 </small>
               </details>
             </div>
@@ -1394,7 +1374,7 @@ function Detail({
         <ol className="history">
           {item.history.map((e: any) => (
             <li key={e.revision}>
-              <strong>Версия {e.revision}</strong> · {formatDate(e.at, zone)}
+              <time dateTime={e.at}>{formatDate(e.at, zone)}</time>
               <p>
                 {e.kind === "missing"
                   ? "Запись исчезла из выписки; последнее состояние сохранено"
@@ -1409,8 +1389,7 @@ function Detail({
       <details className="ticket-fold">
         <summary>Исходная запись</summary>
         <p className="muted">
-          Версия {i.revision} · Зарегистрирован{" "}
-          {formatDate(i.dates.submitDate, zone)}
+          Зарегистрирован {formatDate(i.dates.submitDate, zone)}
         </p>
         <dl className="raw">
           {Object.entries(i.raw).map(([k, v]) => (
@@ -1455,8 +1434,9 @@ function ImportPanel({
     <section className="content">
       <h1>Импорт снимка</h1>
       <p>
-        Источник: {ns}. Исходный JSON-массив; до 20 МиБ и 20 000 записей.
-        Сначала проверка, затем запись рабочей копии.
+        Назначение — {ns === "demo" ? "сценарий" : "рабочая копия"}. JSON-массив
+        до 20 МиБ и 20 000 записей. Сначала проверка, затем запись рабочей
+        копии.
       </p>
       <label>
         JSON-файл

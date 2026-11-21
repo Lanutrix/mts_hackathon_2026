@@ -476,3 +476,87 @@ for (const view of ["map", "selection"] as const) {
     ).toEqual([]);
   });
 }
+
+test("a definition opens relevant help and a conversation can change into diagrams and evidence", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await enter(page);
+  const article = await ask(page, "Что такое инцидент?");
+  expect(article.answer?.kind).toBe("knowledge");
+  const guide = page.getByTestId("answer-guide");
+  await expect(guide).toContainText("незапланированный сбой");
+  await expect(page.getByTestId("group-field")).toHaveCount(0);
+  await expect(page.locator(".cx")).not.toContainText(
+    /демо-данные|версия [0-9]/i,
+  );
+  const help = guide.getByRole("link").first();
+  await expect(help).toHaveAttribute("href", /\/help#incident$/);
+  const composer = page.getByRole("textbox", { name: "Вопрос об инцидентах" });
+  await expect
+    .poll(async () => (await composer.boundingBox())!.y)
+    .toBeGreaterThan(720);
+  await expect(guide.getByRole("heading", { name: "Например" })).toBeVisible();
+  await capture(page, "answer-definition");
+  await help.click();
+  await expect(page).toHaveURL(/\/help#incident$/);
+  await page.goBack();
+  await expect(guide).toBeVisible();
+  for (const [question, kind] of [
+    ["Покажи доли команд круговой диаграммой", "orbit"],
+    ["Построй схему по командам", "flow"],
+    ["Покажи матрицу по командам", "matrix"],
+    ["Покажи карточки групп по командам", "cards"],
+  ]) {
+    const answer = await ask(page, question);
+    expect(answer.intent.presentation, question).toBe(kind);
+    const chart = page.getByTestId("answer-" + kind);
+    await expect(chart).toBeVisible();
+    await capture(page, "answer-" + kind);
+    const first = chart.getByRole("button").first();
+    await first.click();
+    await expect(
+      page.getByRole("dialog").getByRole("link").first(),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+  }
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 320, height: 568 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const [question, id] of [
+      ["Возраст очереди", "age-bands"],
+      ["Решения в срок", "finished-on-time"],
+      ["Связи продуктов и команд", "product-team"],
+    ]) {
+      const response = await ask(page, question);
+      expect(
+        response.insights?.some((item) => item.id === id),
+        question,
+      ).toBe(true);
+      const item = page.locator('[data-insight="' + id + '"]');
+      await expect(item).toBeVisible();
+      await expect(
+        page.getByRole("textbox", { name: "Вопрос об инцидентах" }),
+      ).toBeInViewport();
+      expect(
+        await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth <= innerWidth &&
+            document.documentElement.scrollHeight <= innerHeight + 1,
+        ),
+      ).toBe(true);
+      for (const visual of [
+        item,
+        page.locator(".cx-stage"),
+        page.locator(".cx-plot").first(),
+      ]) {
+        const box = await visual.boundingBox();
+        expect(box!.x + box!.width).toBeLessThanOrEqual(size.width + 1);
+      }
+      if (id === "product-team")
+        await capture(page, "answer-links-" + size.width);
+    }
+  }
+});

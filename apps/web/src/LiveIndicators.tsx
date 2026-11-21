@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { Triage } from "../../../packages/domain/triage";
+import ShiftSlice from "./ShiftSlice";
 import "./liveIndicators.css";
 
 export function ShiftClock({ now, zone }: { now: number; zone: string }) {
@@ -27,9 +28,11 @@ export function ShiftClock({ now, zone }: { now: number; zone: string }) {
 export function ShiftMetrics({
   triage,
   hints = false,
+  sliceRevision,
 }: {
   triage: Pick<Triage, "unique" | "overdue" | "escalations">;
   hints?: boolean;
+  sliceRevision?: number;
 }) {
   const metrics = [
     {
@@ -63,10 +66,15 @@ export function ShiftMetrics({
         >
           <dt>{m.name}</dt>
           <dd>
-            <strong data-testid={m.testId}>
-              {m.count.toLocaleString("ru-RU")}
-            </strong>
-            <span>{m.definition}</span>
+            <div className="metric-reading">
+              <strong data-testid={m.testId}>
+                {m.count.toLocaleString("ru-RU")}
+              </strong>
+              {m.testId === "live-count" && sliceRevision !== undefined && (
+                <ShiftSlice revision={sliceRevision} />
+              )}
+            </div>
+            {!hints && <span>{m.definition}</span>}
           </dd>
         </div>
       ))}

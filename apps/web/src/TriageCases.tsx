@@ -460,15 +460,7 @@ function CaseDialog({
       {result && (
         <details className="case-method">
           <summary>Как получен разбор</summary>
-          <p>
-            {[
-              result.provider,
-              result.model,
-              "Версия данных " + result.inputRevision,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+          <p>{[result.provider, result.model].filter(Boolean).join(" · ")}</p>
           {result.sampled > 0 && (
             <p>
               В выборке {result.sampled} из {record.count} тикетов.
