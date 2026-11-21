@@ -4,9 +4,10 @@
 
 | Каталог | Назначение | Статус |
 |---|---|---|
-| [meetings/2026-11-20](meetings/2026-11-20/README.md) | Первичные материалы: три расшифровки и единое саммари | Заполнено |
-| [requirements/incident-coordinator](requirements/incident-coordinator/README.md) | Выделенная из дискуссии постановка, схема, user flow и открытые вопросы | Черновик |
-| [research/incident-coordinator](research/incident-coordinator/README.md) | Аналитическое задание, план исследования и будущие обоснованные результаты | Ожидает исполнения |
+| [Встречи 20 ноября](meetings/2026-11-20/README.md) | Первоначальная постановка задачи. Записи 152, 153 и 154 | Три расшифровки и саммари |
+| [Встречи 21 ноября](meetings/2026-11-21/README.md) | Разбор архитектуры командой и обратная связь о работе координатора. Записи 151 и 156 | Две расшифровки Whisper с таймкодами и конспект |
+| [Требования](requirements/incident-coordinator/README.md) | [Официальная редакция MVP](requirements/incident-coordinator/official-case-revision.md), исполняемые спецификации и исходная постановка | Приоритет источников указан в официальной редакции |
+| [Исследование](research/incident-coordinator/README.md) | [12 аналитических отчётов](research/incident-coordinator/results/README.md), библиография и открытые вопросы | Отчёты подготовлены |
 
 ## Правила структуры и статусов
 

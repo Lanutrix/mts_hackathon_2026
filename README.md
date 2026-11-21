@@ -4,6 +4,12 @@
 
 [Открыть демо](https://mts-watermelon.ru/) · [Figma](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe) · [Требования](docs/requirements/incident-coordinator/official-case-revision.md) · [Статус и блокеры](docs/implementation/progress.md) · [Проверки](docs/qa/test-report.md) · [Матрица F01–F40](docs/qa/flow-coverage.csv) · [Деплой](docs/deploy/runbook.md)
 
+## Обсуждения и интерфейс
+
+21 ноября команда разобрала архитектуру и прототип, а затем обсудила повседневную работу дежурного. Из этого разбора следует практический критерий для дашборда. По карточке должно быть видно, **почему именно этот инцидент требует внимания сейчас**. Координатор может перейти к записи в ITSM и проверить предложенное действие. [Конспект и две расшифровки с таймкодами](docs/meetings/2026-11-21/README.md) · [Официальные требования к MVP](docs/requirements/incident-coordinator/official-case-revision.md)
+
+В Figma собраны 300 компонентов и 17 макетов системы «Срез», включая мобильный обзор и видеостену. [Каталог компонентов](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Watermelon?node-id=41-1191) · [Оглавление экранов](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Watermelon?node-id=41-1269)
+
 ## Локальный запуск
 
 Node **24.18.0**, npm **11.16.0**. Установка зависимостей строго по package-lock.json:
