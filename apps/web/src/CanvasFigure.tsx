@@ -252,7 +252,7 @@ function OpticalAtlas({
             onFocus={() => setHovered(group.key)}
             onBlur={() => setHovered(null)}
             onClick={() => choose(group)}
-            aria-label={group.label + ", инцидентов " + group.count}
+            title={"Открыть инциденты · " + group.label}
           >
             <span className="cx-key-number">
               {String(index + 1).padStart(2, "0")}

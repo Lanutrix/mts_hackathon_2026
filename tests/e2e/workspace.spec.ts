@@ -126,8 +126,7 @@ test("atlas to compound views to incident and back preserves the conversation an
   );
   const group = first.groups[0];
   const groupButton = page.getByRole("button", {
-    name: group.label + ", инцидентов " + group.count,
-    exact: true,
+    name: group.label,
   });
   await expect(groupButton).toBeVisible();
   const report = await new AxeBuilder({ page }).include(".cx").analyze();

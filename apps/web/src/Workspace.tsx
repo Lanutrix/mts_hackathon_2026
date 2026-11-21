@@ -520,7 +520,7 @@ function WorkspaceScreen({
                     <h2>{view.title || labels[view.intent.groupBy]}</h2>
                     <button
                       className="cx-view-total"
-                      aria-label={"Открыть все инциденты, " + view.total}
+                      title="Открыть все инциденты"
                       onClick={() => choose(null)}
                       disabled={!view.total}
                     >
