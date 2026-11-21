@@ -18,7 +18,10 @@ export type Dashboard = {
 
 function compare(a: Incident, b: Incident, sort: string) {
   if (sort === "registered")
-    return String(b.dates.submitDate).localeCompare(String(a.dates.submitDate));
+    return (
+      String(b.dates.submitDate).localeCompare(String(a.dates.submitDate)) ||
+      a.id.localeCompare(b.id)
+    );
   if (sort === "id") return a.id.localeCompare(b.id);
   const date = (value: string | null) => (value ? Date.parse(value) : Infinity);
   return (

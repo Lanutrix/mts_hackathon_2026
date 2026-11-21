@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  coast,
   modelPoses,
   orbit,
   rotate,
@@ -64,6 +65,56 @@ test("The guest optic sweeps through the fruit and exposes separate registered c
 });
 
 const dot = (a: Vec, b: Vec) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+test("Release inertia travels the same distance at different display refresh rates", () => {
+  const duration = 2;
+  for (const fps of [24, 30, 60, 90, 120, 144]) {
+    const turn = { ...orbit(), vx: 2.6, vy: -1.3 };
+    for (let i = 0; i < fps * duration; i++) coast(turn, 1 / fps);
+    assert.ok(
+      Math.abs(turn.yaw - (2.6 * (1 - Math.exp(-3.2 * duration))) / 3.2) < 1e-9,
+    );
+    assert.ok(Math.abs(turn.pitch + turn.yaw / 2) < 1e-9);
+  }
+});
+
+test("The guest scanner has continuous clearance through a loop and an independent drag", () => {
+  const centers = melonMesh(true).sections.map((s) => s.center);
+  const zero = [0, 0, 0, 0];
+  for (const manual of [false, true]) {
+    let previous: Vec[] | undefined;
+    for (let i = 0; i <= 1980; i++) {
+      const t = i / 120;
+      const hand = orbit();
+      if (manual) {
+        hand.yaw = 0.55 * Math.sin(0.7 * t);
+        hand.pitch = 0.33 * Math.sin(0.4 * t);
+      }
+      const frame = modelPoses(
+        true,
+        t,
+        hand,
+        orbit(),
+        zero,
+        zero,
+        zero,
+        centers,
+      );
+      const points = [
+        world([0.79, 0.79, 0], frame.frame),
+        ...frame.fruit.map((slice, k) => world([0, -0.45, centers[k]], slice)),
+      ];
+      for (let j = 0; previous && j < points.length; j++) {
+        const last = previous[j];
+        assert.ok(
+          Math.hypot(...points[j].map((v, k) => v - last[k])) < 0.026,
+          `jump at ${t} s, manual=${manual}`,
+        );
+      }
+      previous = points;
+    }
+  }
+});
 
 for (const hero of [true, false]) {
   const [clearX, clearY, back] = hero

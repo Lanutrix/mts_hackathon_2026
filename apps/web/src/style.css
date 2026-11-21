@@ -2,20 +2,20 @@
   font-family: "Golos Text", sans-serif;
   color: var(--text);
   background: var(--background);
-  --case-paper: #e2e0ee;
-  --background: var(--case-paper);
-  --surface: #fff;
-  --stage: var(--case-paper);
-  --tint: #eeebf4;
-  --text: #211d2c;
-  --muted: #5d5868;
-  --border: #bfb8cc;
-  --control-border: #817b8b;
-  --critical: #c50032;
-  --warning: #664693;
-  --resolved: #28665c;
-  --accent: #664693;
-  --research: #56516a;
+  --case-paper: var(--wm-bg);
+  --background: var(--wm-bg);
+  --surface: var(--wm-surface);
+  --stage: var(--wm-bg);
+  --tint: var(--wm-tint);
+  --text: var(--wm-ink);
+  --muted: var(--wm-muted);
+  --border: var(--wm-line);
+  --control-border: var(--wm-control);
+  --critical: var(--wm-pink);
+  --warning: var(--wm-violet);
+  --resolved: var(--wm-green);
+  --accent: var(--wm-violet);
+  --research: var(--wm-muted);
   --space-4: 4px;
   --space-8: 8px;
   --space-12: 12px;
@@ -32,7 +32,7 @@
   font-size: 16px;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
-  color-scheme: light;
+
 }
 * {
   box-sizing: border-box;
@@ -56,7 +56,7 @@ button,
   cursor: pointer;
   border: var(--border-width) solid var(--accent);
   background: var(--accent);
-  color: white;
+  color: var(--wm-on-accent);
   padding: 11px 16px;
   border-radius: var(--radius-8);
   text-decoration: none;
@@ -66,6 +66,7 @@ button,
 button:hover,
 .button:hover {
   background: var(--text);
+  color: var(--wm-on-ink);
 }
 button:disabled {
   opacity: 0.55;
@@ -87,7 +88,7 @@ summary:focus-visible {
   outline-offset: 3px;
 }
 ::selection {
-  background: #ded1f1;
+  background: var(--wm-selection);
   color: var(--text);
 }
 input,
@@ -388,10 +389,11 @@ h2 {
 .content :is(.button, button:not(.link)) {
   background: var(--text);
   border-color: var(--text);
+  color: var(--wm-on-ink);
   border-radius: 2rem;
 }
 .content :is(.button, button:not(.link)):hover:not(:disabled) {
-  background: #44334f;
+  background: var(--wm-solid-hover);
 }
 .content > .pager {
   display: flex;
@@ -543,7 +545,7 @@ footer {
   position: absolute;
   left: 16px;
   top: -100px;
-  background: white;
+  background: var(--wm-surface);
   padding: 12px;
   z-index: 50;
 }

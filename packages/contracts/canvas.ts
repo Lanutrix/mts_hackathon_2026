@@ -10,6 +10,8 @@ export const canvasDimensions = [
 ] as const;
 export type CanvasDimension = (typeof canvasDimensions)[number];
 export type CanvasLayout = "groups" | "list" | "comparison";
+export const canvasWeights = ["count", "overdue", "escalated"] as const;
+export type CanvasWeight = (typeof canvasWeights)[number];
 export type CanvasDeadline = "overdue" | "soon" | "normal" | "unset";
 export interface CanvasFilters {
   teams?: string[];
@@ -24,6 +26,7 @@ export interface CanvasFilters {
 export interface CanvasView {
   groupBy: CanvasDimension;
   layout: CanvasLayout;
+  weightBy?: CanvasWeight;
 }
 export interface CanvasIntent extends CanvasView {
   filters: CanvasFilters;

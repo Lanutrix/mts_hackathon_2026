@@ -1,444 +1,411 @@
-import { useId, useState, type CSSProperties } from "react";
+import { useId, useMemo, useState, type CSSProperties } from "react";
 import type {
   CanvasGroup,
   CanvasResult,
+  CanvasWeight,
 } from "../../../packages/contracts/canvas";
+import { formatCount, PageControls, useBox } from "./CanvasControls";
 import { CanvasTicketLink } from "./CanvasTickets";
 
-const colors = ["#fe83a5", "#bda4ff", "#8ae4c7", "#98c8ff", "#f0a5e3"];
-const shades = ["#ac204b", "#714ac4", "#1b8f79", "#4283c2", "#97519e"];
-const lensPositions: Record<number, number[][]> = {
-  1: [[302, 130]],
-  2: [
-    [224, 133],
-    [383, 101],
-  ],
-  3: [
-    [169, 127],
-    [308, 103],
-    [443, 119],
-  ],
-  4: [
-    [121, 127],
-    [251, 96],
-    [375, 137],
-    [486, 100],
-  ],
-  5: [
-    [104, 133],
-    [211, 93],
-    [310, 133],
-    [413, 91],
-    [504, 131],
-  ],
+const tones = [
+  "var(--wm-pink)",
+  "var(--wm-violet)",
+  "var(--wm-green)",
+  "var(--cx-blue)",
+  "var(--cx-orchid)",
+  "var(--cx-teal)",
+];
+const weights: Record<CanvasWeight, string> = {
+  count: "все заявки",
+  overdue: "просроченные",
+  escalated: "к эскалации",
 };
-const tone = (index: number) =>
-  ({ "--tone": colors[index % colors.length] }) as CSSProperties;
-const number = (value: number) => value.toLocaleString("ru-RU");
-
-function OpticalAtlas({
-  groups,
-  choose,
-}: {
-  groups: CanvasGroup[];
-  choose: (group: CanvasGroup) => void;
-}) {
-  const id = useId().replace(/[^a-z0-9_-]/gi, "");
-  const [hovered, setHovered] = useState<string | null>(null);
-  const [shown, setShown] = useState(5);
-  const visible = groups.slice(0, 5);
-  const max = Math.max(1, ...visible.map((group) => group.count));
-  const positions = lensPositions[visible.length];
-  return (
-    <>
-      <div className="cx-atlas" data-testid="symptom-atlas">
-        <svg
-          aria-hidden="true"
-          focusable="false"
-          viewBox="0 0 600 236"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <defs>
-            <pattern
-              id={id + "grid"}
-              width="26"
-              height="26"
-              patternUnits="userSpaceOnUse"
-            >
-              <path
-                d="M26 0H0V26"
-                fill="none"
-                stroke="#e2d7ff"
-                strokeOpacity=".13"
-                strokeWidth=".6"
-              />
-              <circle r="1" fill="#d9caff" opacity=".2" />
-            </pattern>
-            <linearGradient
-              id={id + "shine"}
-              x1=".1"
-              x2=".9"
-              y1="0"
-              y2="1"
-              gradientUnits="objectBoundingBox"
-            >
-              <stop stopColor="#fff" stopOpacity=".7" />
-              <stop offset=".4" stopColor="#fff" stopOpacity=".03" />
-              <stop offset=".74" stopColor="#fff" stopOpacity="0" />
-              <stop offset="1" stopColor="#fff" stopOpacity=".44" />
-            </linearGradient>
-            {visible.map((group, i) => (
-              <g key={group.key}>
-                <radialGradient id={id + "face" + i} cx="25%" cy="12%" r="100%">
-                  <stop stopColor={colors[i]} stopOpacity=".95" />
-                  <stop offset=".43" stopColor={shades[i]} stopOpacity=".68" />
-                  <stop offset=".75" stopColor={shades[i]} stopOpacity=".54" />
-                  <stop offset="1" stopColor={colors[i]} stopOpacity=".86" />
-                </radialGradient>
-                <linearGradient
-                  id={id + "edge" + i}
-                  x1="0"
-                  y1="0"
-                  x2="1"
-                  y2=".8"
-                >
-                  <stop stopColor={colors[i]} stopOpacity=".98" />
-                  <stop offset=".17" stopColor={shades[i]} />
-                  <stop offset=".48" stopColor={shades[i]} stopOpacity=".42" />
-                  <stop offset=".8" stopColor={colors[i]} />
-                  <stop offset="1" stopColor={shades[i]} />
-                </linearGradient>
-              </g>
-            ))}
-          </defs>
-          <rect width="600" height="236" fill={`url(#${id}grid)`} />
-          <g className="cx-orbits" fill="none" stroke="#b6a0dc">
-            <ellipse
-              cx="300"
-              cy="131"
-              rx="268"
-              ry="70"
-              transform="rotate(-7 300 131)"
-            />
-            <ellipse
-              cx="300"
-              cy="131"
-              rx="222"
-              ry="47"
-              transform="rotate(-7 300 131)"
-              strokeDasharray="3 7"
-            />
-            <path d="M22 179 579 71" strokeDasharray="2 6" />
-            <path d="m24 25 0 9m-4-4h8m542 170v9m-4-4h8" />
-          </g>
-          {visible.map((group, i) => {
-            const [x, y] = positions[i];
-            const factor = Math.min(1.08, 3.3 / Math.max(3, visible.length));
-            const rx = factor * 104 * Math.sqrt(group.count / max);
-            const ry = rx * 0.55;
-            const depth = rx * 0.19;
-            return (
-              <g
-                key={group.key}
-                className="cx-lens-point"
-                transform={`translate(${x} ${y})`}
-                style={{ "--enter-delay": i * 45 + "ms" } as CSSProperties}
-                data-dim={
-                  visible.some((item) => item.key === hovered) &&
-                  hovered !== group.key
-                }
-                data-pointed={hovered === group.key}
-                onClick={() => choose(group)}
-                onMouseEnter={() => setHovered(group.key)}
-                onMouseLeave={() => setHovered(null)}
-              >
-                <title>
-                  {group.label} · {group.count}
-                </title>
-                <g className="cx-glass" transform="rotate(-35)">
-                  <path
-                    d={`M ${-rx} 0 A ${rx} ${ry} 0 0 0 ${rx} 0 L ${rx} ${depth} A ${rx} ${ry} 0 0 1 ${-rx} ${depth} Z`}
-                    fill={`url(#${id}edge${i})`}
-                    stroke={colors[i]}
-                    strokeWidth=".9"
-                  />
-                  {[0.22, 0.65, 0.9].map((fraction) => (
-                    <path
-                      key={fraction}
-                      d={`M ${-rx} ${fraction * depth} a ${rx} ${ry} 0 0 0 ${2 * rx} 0`}
-                      fill="none"
-                      stroke={colors[i]}
-                      strokeOpacity=".57"
-                      strokeWidth=".65"
-                    />
-                  ))}
-                  <ellipse
-                    rx={rx}
-                    ry={ry}
-                    fill={`url(#${id}face${i})`}
-                    stroke={colors[i]}
-                    strokeWidth="2"
-                  />
-                  <ellipse
-                    rx={rx * 0.97}
-                    ry={ry * 0.94}
-                    fill="none"
-                    stroke={`url(#${id}shine)`}
-                    strokeWidth="2"
-                  />
-                  <ellipse
-                    rx={rx * 0.88}
-                    ry={ry * 0.79}
-                    fill="none"
-                    stroke={colors[i]}
-                    strokeOpacity=".53"
-                    strokeWidth=".8"
-                  />
-                  <path
-                    d={`M ${-0.92 * rx} ${-0.11 * ry} Q ${-0.75 * rx} ${-0.94 * ry} ${0.14 * rx} ${-0.97 * ry} Q ${-0.48 * rx} ${-0.72 * ry} ${-0.92 * rx} ${-0.11 * ry} Z`}
-                    fill="white"
-                    opacity=".48"
-                  />
-                  <ellipse
-                    rx={rx * 0.14}
-                    ry={ry * 0.15}
-                    fill="#1b142c"
-                    fillOpacity=".3"
-                    stroke={colors[i]}
-                    strokeOpacity=".85"
-                  />
-                  <path
-                    d={`M ${-0.22 * rx} 0 H ${0.22 * rx} M 0 ${-0.21 * ry} V ${0.21 * ry}`}
-                    stroke="#fff"
-                    strokeWidth=".8"
-                    opacity=".76"
-                  />
-                </g>
-                <g
-                  transform={`translate(${rx * 0.55} ${-ry * 0.83})`}
-                  className="cx-lens-tag"
-                >
-                  <rect
-                    x="-14"
-                    y="-9"
-                    width="28"
-                    height="18"
-                    rx="6"
-                    fill="#252035"
-                    stroke={colors[i]}
-                    strokeWidth=".8"
-                  />
-                  <text y="3.5" fill={colors[i]} textAnchor="middle">
-                    {String(i + 1).padStart(2, "0")}
-                  </text>
-                </g>
-              </g>
-            );
-          })}
-        </svg>
-        <p className="cx-scale">
-          Площадь линзы показывает число заявок
-          {groups.length > 5 ? " · 5 крупнейших групп" : ""}
-        </p>
-      </div>
-      <div className="cx-atlas-key">
-        {groups.slice(0, shown).map((group, index) => (
-          <button
-            type="button"
-            style={tone(index)}
-            key={group.key}
-            onMouseEnter={() => setHovered(group.key)}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={() => setHovered(group.key)}
-            onBlur={() => setHovered(null)}
-            onClick={() => choose(group)}
-            title={"Открыть инциденты · " + group.label}
-          >
-            <span className="cx-key-number">
-              {String(index + 1).padStart(2, "0")}
-            </span>
-            <span>{group.label}</span>
-            <b>{number(group.count)}</b>
-            <span className="cx-key-arrow" aria-hidden="true">
-              ↗
-            </span>
-          </button>
-        ))}
-      </div>
-      {groups.length > shown && (
-        <button className="cx-figure-more" onClick={() => setShown(shown + 10)}>
-          Показать ещё · {shown} из {groups.length}
-        </button>
-      )}
-    </>
-  );
-}
-
-function Comparison({
-  groups,
-  choose,
-}: {
-  groups: CanvasGroup[];
-  choose: (g: CanvasGroup) => void;
-}) {
-  const max = Math.max(1, ...groups.map((group) => group.count));
-  return (
-    <div className="cx-comparison" data-testid="group-comparison">
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Группа</th>
-            <th scope="col">Всего</th>
-            <th scope="col">Просрочено</th>
-            <th scope="col">Эскалации</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((g) => (
-            <tr key={g.key}>
-              <th scope="row">
-                <button type="button" onClick={() => choose(g)}>
-                  {g.label} <span aria-hidden="true">↗</span>
-                </button>
-              </th>
-              {[g.count, g.overdue, g.escalated].map((value, i) => (
-                <td key={i}>
-                  <b>{number(value)}</b>
-                  <i
-                    style={{
-                      ...tone([1, 0, 2][i]),
-                      width: (100 * value) / max + "%",
-                    }}
-                  />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Ranked({
-  groups,
-  choose,
-}: {
-  groups: CanvasGroup[];
-  choose: (g: CanvasGroup) => void;
-}) {
-  const max = Math.max(1, ...groups.map((group) => group.count));
-  return (
-    <div className="cx-ranked" data-testid="group-ranking">
-      {groups.map((group, index) => (
-        <button
-          key={group.key}
-          type="button"
-          onClick={() => choose(group)}
-          style={tone(index)}
-        >
-          <span>{group.label}</span>
-          <b>
-            {number(group.count)} <small aria-hidden="true">↗</small>
-          </b>
-          <i>
-            <i style={{ width: (group.count / max) * 100 + "%" }} />
-          </i>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function TimeWindows({
-  groups,
-  choose,
-}: {
-  groups: CanvasGroup[];
-  choose: (g: CanvasGroup) => void;
-}) {
-  const slots = ["overdue", "soon", "normal", "unset"];
-  const ordered = [...groups].sort(
-    (a, b) => slots.indexOf(a.key) - slots.indexOf(b.key),
-  );
-  return (
-    <div className="cx-windows" data-testid="deadline-windows">
-      {ordered.map((group) => (
-        <button
-          type="button"
-          key={group.key}
-          style={tone(slots.indexOf(group.key))}
-          onClick={() => choose(group)}
-        >
-          <span className="cx-time-node" aria-hidden="true" />
-          <span>{group.label}</span>
-          <b>{number(group.count)}</b>
-          <small aria-hidden="true">↗</small>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-export function CanvasFigure({
-  result,
-  choose,
-  ns,
-  open,
-  zone,
-}: {
+const paint = (index: number) =>
+  ({ "--tone": tones[index % tones.length] }) as CSSProperties;
+type FigureProps = {
   result: CanvasResult;
-  choose: (g: CanvasGroup | null) => void;
+  choose: (group: CanvasGroup | null) => void;
   ns: string;
   open: (id: string) => void;
   zone: string;
-}) {
-  const { groups, intent, tickets, total } = result;
-  const [shown, setShown] = useState(8);
-  if (!total)
+};
+type Square = {
+  x: number;
+  y: number;
+  side: number;
+  width: number;
+  caption: number;
+};
+
+// Try the row breaks permitted by the viewport. Each mark's area is linear in the
+// selected field. Labels reserve their own space even for very small or zero values.
+function packSquares(
+  groups: CanvasGroup[],
+  weight: CanvasWeight,
+  width: number,
+  height: number,
+  maximum: number,
+  ceiling = 326,
+): Square[] {
+  if (!width || !height || !groups.length) return [];
+  const fractions = groups.map((g) =>
+    Math.sqrt(g[weight] / Math.max(1, maximum)),
+  );
+  const gap = width < 450 ? 15 : Math.min(42, width * 0.035);
+  const compact = height < 240 || width < 500;
+  const caption = compact ? 39 : 59;
+  const labelWidth = Math.min(width, compact ? 94 : 132);
+  let bestSide = -1,
+    best: Square[] = [];
+  for (let columns = 1; columns <= groups.length; columns++) {
+    function place(scale: number) {
+      const list: Square[] = [];
+      let bottom = 0;
+      for (let start = 0; start < groups.length; start += columns) {
+        const row = fractions.slice(start, start + columns);
+        const sides = row.map((r) => r * scale);
+        const widths = sides.map((side) => Math.max(side, labelWidth));
+        const usedWidth =
+          widths.reduce((a, b) => a + b, 0) + gap * (row.length - 1);
+        if (usedWidth > width) return null;
+        let x = (width - usedWidth) / 2;
+        let rowHeight = 0;
+        sides.forEach((side, j) => {
+          // Stagger columns to keep equal-sized groups individually legible.
+          const step =
+            row.length > 1 && !compact
+              ? [0.14, 0, 0.2, 0.06][j % 4] * scale
+              : 0;
+          list.push({ x, y: bottom + step, side, width: widths[j], caption });
+          x += widths[j] + gap;
+          rowHeight = Math.max(rowHeight, step + side + caption);
+        });
+        bottom += rowHeight + (start + columns < groups.length ? gap : 0);
+      }
+      if (bottom > height) return null;
+      for (const item of list) item.y += (height - bottom) * 0.44;
+      return list;
+    }
+    let lo = 0,
+      hi = Math.min(width, height, ceiling);
+    for (let i = 0; i < 11; i++) {
+      const mid = (lo + hi) / 2;
+      if (place(mid)) lo = mid;
+      else hi = mid;
+    }
+    const positions = place(lo);
+    if (positions && lo > bestSide) {
+      bestSide = lo;
+      best = positions;
+    }
+  }
+  return best;
+}
+
+function CutSquare({ group }: { group: CanvasGroup }) {
+  const id = useId().replace(/[^a-z0-9_-]/gi, "");
+  const late = group.count ? group.overdue / group.count : 0;
+  const raised = group.count ? group.escalated / group.count : 0;
+  // Intersect x + (1-y) <= cut with a unit square. The coloured part
+  // has exactly the overdue share as its area on both sides of 50%.
+  const cut = late <= 0.5 ? Math.sqrt(2 * late) : 2 - Math.sqrt(2 * (1 - late));
+  const p = 100 * cut;
+  const cutPath =
+    cut <= 1
+      ? "M0 100 V" + (100 - p) + " L" + p + " 100 Z"
+      : "M0 100 V0 H" + (p - 100) + " L100 " + (200 - p) + " V100 Z";
+  const edge =
+    cut <= 1
+      ? "M0 " + (100 - p) + " L" + p + " 100"
+      : "M" + (p - 100) + " 0 L100 " + (200 - p);
+  return (
+    <svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={id + "base"} x1="0" y1="1" x2="1" y2="0">
+          <stop stopColor="var(--cx-face-a)" />
+          <stop offset=".7" stopColor="var(--cx-face-b)" />
+          <stop offset="1" stopColor="var(--cx-face-a)" />
+        </linearGradient>
+        <linearGradient id={id + "cut"} x1="0" y1="1" x2="1" y2="0">
+          <stop stopColor="var(--cx-cut-a)" />
+          <stop offset=".63" stopColor="var(--cx-cut-b)" />
+          <stop offset="1" stopColor="var(--cx-cut-a)" />
+        </linearGradient>
+      </defs>
+      <rect x="0" y="0" width="100" height="100" fill={`url(#${id}base)`} />
+      {late > 0 && <path d={cutPath} fill={`url(#${id}cut)`} />}
+      {late > 0 && late < 1 && (
+        <g fill="none">
+          <path
+            d={edge}
+            stroke="var(--cx-edge)"
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          />
+          <path
+            d={edge}
+            transform="translate(0 1.5)"
+            stroke="var(--cx-edge)"
+            opacity=".6"
+            strokeWidth=".55"
+            vectorEffect="non-scaling-stroke"
+          />
+        </g>
+      )}
+      <rect
+        x=".1"
+        y=".1"
+        width="99.8"
+        height="99.8"
+        fill="none"
+        stroke="var(--cx-border)"
+        vectorEffect="non-scaling-stroke"
+      />
+      {raised > 0 && (
+        <path
+          d={`M0 1H${100 * raised}`}
+          stroke="var(--cx-ink)"
+          strokeWidth="3"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
+    </svg>
+  );
+}
+
+function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
+  const { ref, width, height } = useBox();
+  const [requestedPage, setPage] = useState(0);
+  const weight = result.intent.weightBy ?? "count";
+  const groups = result.groups;
+  const cols = Math.max(
+    1,
+    Math.floor((width + 12) / (width < 500 ? 113 : 154)),
+  );
+  const rows = Math.max(
+    1,
+    Math.floor((height - 30) / (width < 500 ? 113 : 160)),
+  );
+  const perPage = Math.max(1, Math.min(12, cols * rows));
+  const pages = Math.ceil(groups.length / perPage);
+  const page = Math.max(0, Math.min(requestedPage, pages - 1));
+  const visible = useMemo(
+    () => groups.slice(page * perPage, (page + 1) * perPage),
+    [groups, page, perPage],
+  );
+  const reserve = width < 430 && (pages > 1 || weight !== "count") ? 53 : 32;
+  const geometry = useMemo(() => {
+    const available = Math.max(0, height - reserve);
+    // The API sorts groups by this metric. Calibrating once on the largest
+    // page keeps the meaning of a square's area stable during pagination.
+    const max = groups[0]?.[weight] ?? 0;
+    const first = packSquares(
+      groups.slice(0, perPage),
+      weight,
+      width,
+      available,
+      max,
+    );
+    return page
+      ? packSquares(visible, weight, width, available, max, first[0]?.side ?? 0)
+      : first;
+  }, [groups, visible, perPage, page, weight, width, height, reserve]);
+  return (
+    <div
+      ref={ref}
+      className="cx-squares"
+      data-testid="group-field"
+      data-weight={weight}
+    >
+      {geometry.map((rect, i) => {
+        const g = visible[i];
+        return (
+          <button
+            type="button"
+            className="cx-square"
+            key={g.key}
+            onClick={() => choose(g)}
+            title={
+              g.label +
+              " · Всего " +
+              g.count +
+              " · Просрочено " +
+              g.overdue +
+              " · К эскалации " +
+              g.escalated
+            }
+            style={
+              {
+                ...paint(page * perPage + i),
+                left: rect.x,
+                top: rect.y,
+                width: rect.width,
+                height: rect.side + rect.caption,
+                "--side": rect.side + "px",
+                "--delay": i * 28 + "ms",
+              } as CSSProperties
+            }
+          >
+            <span
+              aria-hidden="true"
+              className="cx-square-ink"
+              data-zero={!g[weight]}
+            >
+              {g[weight] > 0 && <CutSquare group={g} />}
+            </span>
+            <span className="cx-square-caption">
+              <b>{formatCount(g[weight])}</b>
+              <span>{g.label}</span>
+            </span>
+          </button>
+        );
+      })}
+      {reserve > 0 && (
+        <div className="cx-figure-foot">
+          <div className="cx-key">
+            {weight !== "count" && <b>Размер · {weights[weight]}</b>}
+            <span title="Площадь цветного среза соответствует доле просроченных заявок внутри группы">
+              <i className="cx-key-cut" />
+              Просрочено{" "}
+              {formatCount(
+                result.metrics.find((m) => m.key === "overdue")?.value ?? 0,
+              )}
+            </span>
+            <span title="Длина верхней отметки соответствует доле заявок к эскалации внутри группы">
+              <i className="cx-key-line" />К эскалации{" "}
+              {formatCount(
+                result.metrics.find((m) => m.key === "escalated")?.value ?? 0,
+              )}
+            </span>
+          </div>
+          <PageControls
+            {...{ page, pages, goto: setPage, label: "Страницы групп" }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const slots = ["overdue", "soon", "normal", "unset"];
+function DeadlineAxis({
+  result,
+  choose,
+}: Pick<FigureProps, "result" | "choose">) {
+  const groups = [...result.groups].sort(
+    (a, b) => slots.indexOf(a.key) - slots.indexOf(b.key),
+  );
+  return (
+    <div className="cx-axis" data-testid="deadline-windows">
+      {groups.map((g) => (
+        <button
+          key={g.key}
+          type="button"
+          style={paint([0, 1, 2, 3][slots.indexOf(g.key)])}
+          onClick={() => choose(g)}
+        >
+          <b>{formatCount(g.count)}</b>
+          <span className="cx-axis-tick" aria-hidden="true" />
+          <span>{g.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+function Comparison({
+  result,
+  choose,
+}: Pick<FigureProps, "result" | "choose">) {
+  const { ref, height } = useBox();
+  const [requested, setPage] = useState(0);
+  const perPage = Math.max(1, Math.min(9, Math.floor((height - 60) / 43)));
+  const pages = Math.ceil(result.groups.length / perPage),
+    page = Math.max(0, Math.min(requested, pages - 1));
+  const max = Math.max(1, ...result.groups.map((g) => g.count));
+  return (
+    <div ref={ref} className="cx-compare" data-testid="group-comparison">
+      <table>
+        <thead>
+          <tr>
+            {["Группа", "Всего", "Просрочено", "Эскалации"].map((h) => (
+              <th key={h} scope="col">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {result.groups
+            .slice(page * perPage, (page + 1) * perPage)
+            .map((g) => (
+              <tr key={g.key}>
+                <th scope="row">
+                  <button
+                    type="button"
+                    title={g.label}
+                    onClick={() => choose(g)}
+                  >
+                    {g.label}
+                  </button>
+                </th>
+                {[g.count, g.overdue, g.escalated].map((n, i) => (
+                  <td key={i}>
+                    <span>{formatCount(n)}</span>
+                    <i
+                      aria-hidden="true"
+                      style={{
+                        ...paint([1, 0, 2][i]),
+                        width: (100 * n) / max + "%",
+                      }}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+        </tbody>
+      </table>
+      <PageControls
+        {...{ page, pages, goto: setPage, label: "Страницы сравнения" }}
+      />
+    </div>
+  );
+}
+
+export function CanvasFigure({ result, choose, ns, open, zone }: FigureProps) {
+  if (!result.total)
     return (
-      <div className="cx-no-matches">
-        <span aria-hidden="true">∅</span>
+      <div className="cx-empty">
         <h3>
           {result.sourceTotal ? "Инцидентов не найдено" : "Источник пока пуст"}
         </h3>
-        <p>
-          {result.sourceTotal
-            ? "Измените условие или начните новый диалог."
-            : "Когда поступят заявки, их можно будет разобрать на холсте."}
-        </p>
+        {result.sourceTotal > 0 && <p>Измените условия отбора.</p>}
       </div>
     );
-  if (intent.layout === "list" || intent.groupBy === "ticket")
-    return (
-      <div className="cx-register" data-testid="ticket-register">
-        {tickets.slice(0, 4).map((ticket) => (
-          <CanvasTicketLink key={ticket.id} {...{ ns, open, zone, ticket }} />
-        ))}
-        {total > Math.min(4, tickets.length) && (
-          <button className="cx-figure-more" onClick={() => choose(null)}>
-            Все инциденты · {number(total)} ↗
-          </button>
-        )}
-      </div>
-    );
-  if (intent.groupBy === "symptom" && intent.layout !== "comparison")
-    return <OpticalAtlas {...{ groups, choose }} />;
-  if (intent.groupBy === "deadline" && intent.layout !== "comparison")
-    return <TimeWindows {...{ groups, choose }} />;
-  const visible = groups.slice(0, shown);
+  if (
+    result.intent.layout === "list" ||
+    (result.intent.groupBy === "ticket" &&
+      result.intent.layout !== "comparison")
+  )
+    return <TicketPreview {...{ result, choose, ns, open, zone }} />;
+  if (result.intent.layout === "comparison")
+    return <Comparison {...{ result, choose }} />;
+  if (result.intent.groupBy === "deadline")
+    return <DeadlineAxis {...{ result, choose }} />;
+  return <Squares {...{ result, choose }} />;
+}
+function TicketPreview({ result, choose, ns, open, zone }: FigureProps) {
+  const { ref, height } = useBox();
+  const shown = Math.min(6, Math.max(1, Math.floor((height - 37) / 54)));
   return (
-    <>
-      {intent.layout === "comparison" ? (
-        <Comparison groups={visible} choose={choose} />
-      ) : (
-        <Ranked groups={visible} choose={choose} />
-      )}
-      {groups.length > shown && (
-        <button className="cx-figure-more" onClick={() => setShown(shown + 10)}>
-          Показать ещё · {shown} из {groups.length}
+    <div className="cx-preview" data-testid="ticket-register" ref={ref}>
+      {result.tickets.slice(0, shown).map((ticket) => (
+        <CanvasTicketLink key={ticket.id} {...{ ticket, ns, open, zone }} />
+      ))}
+      {result.total > Math.min(shown, result.tickets.length) && (
+        <button className="cx-open-all" onClick={() => choose(null)}>
+          Все {formatCount(result.total)} заявок ↗
         </button>
       )}
-    </>
+    </div>
   );
 }

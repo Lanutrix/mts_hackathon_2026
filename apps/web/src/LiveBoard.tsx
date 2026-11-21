@@ -6,20 +6,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import type { Incident } from "../../../packages/domain/index.ts";
 import Loader from "./Loader";
-import MelonScene from "./MelonScene";
+import { ShiftClock, ShiftMetrics } from "./LiveIndicators";
+import { useLivePrefix } from "./useLivePrefix";
 import TriageCases, { caseRequest } from "./TriageCases";
 import type { TriageCase, Triage } from "../../../packages/domain/triage";
 import "./triage.css";
-import {
-  duration,
-  groups,
-  mergeStreams,
-  type Dashboard,
-  type Signal,
-} from "./liveFeed";
+import { duration, groups, type Dashboard, type Signal } from "./liveFeed";
 import { Icon, SignalMark, SignalBadge } from "./Brand";
 
 const label: Record<Signal, string> = {
@@ -37,37 +32,6 @@ const shortLabel: Record<Signal, string> = {
   research: "Исслед.",
 };
 const signals: Signal[] = ["all", ...groups];
-function Count({ value }: { value: number }) {
-  const reduced = useReducedMotion();
-  return (
-    <strong className="shift-count">
-      <span className="sr-only" data-testid="live-count">
-        {value.toLocaleString("ru-RU")}
-      </span>
-      {Array.from(value.toLocaleString("ru-RU"))
-        .reverse()
-        .map((c, pos) => (
-          <span key={pos} className="digit-slot" aria-hidden="true">
-            <AnimatePresence initial={false} mode="popLayout">
-              <motion.span
-                key={c}
-                initial={{ y: reduced ? 0 : "98%" }}
-                animate={{ y: 0 }}
-                exit={{ y: reduced ? 0 : "-98%" }}
-                transition={{
-                  duration: reduced ? 0 : 0.34,
-                  ease: [0.2, 0.78, 0.18, 1],
-                }}
-              >
-                {c}
-              </motion.span>
-            </AnimatePresence>
-          </span>
-        ))
-        .reverse()}
-    </strong>
-  );
-}
 type SelectionProps = {
   params: URLSearchParams;
   setParam: (key: string, value: string) => void;
@@ -202,7 +166,6 @@ type Props = SelectionProps & {
   filtering: boolean;
   now: number;
   zone: string;
-  wall: boolean;
   online: boolean;
   open: (id: string) => void;
   children?: ReactNode;
@@ -215,8 +178,6 @@ export default function LiveBoard({
   canDispatch,
   now,
   zone,
-  wall,
-  online,
   open,
   children,
   ...search
@@ -229,62 +190,22 @@ export default function LiveBoard({
   const chosen = triage.cases.find(
     (item) => item.id === search.params.get("case"),
   );
-  const lead = chosen?.lead ?? triage.tracking ?? triage.cases[0]?.lead;
-  const group =
-    lead &&
-    (signal !== "all" && lead.groups.includes(signal)
-      ? signal
-      : lead.groups[0]);
-  const tracking =
-    !filtering && lead && group
-      ? { id: lead.id, group, header: lead.header, revision: lead.revision }
-      : null;
-  const amount = signal === "all" ? data.unique : data.groups[signal].count;
-  const time = new Intl.DateTimeFormat("ru-RU", {
-    timeZone: zone,
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(now);
+  const focus =
+    chosen ??
+    triage.cases.find((c) => c.lead.id === triage.tracking?.id) ??
+    triage.cases[0];
+  const amount = triage.unique;
   return (
     <section className="broadcast" aria-labelledby="shift-name">
       <header className="triage-header">
         <div className="triage-headline">
-          <div className="triage-clock">
-            <i data-online={online} />
-            {time} {zone === "UTC" ? "UTC" : "МСК"}
-          </div>
           <h1 id="shift-name">Эфир смены</h1>
+          <ShiftClock now={now} zone={zone} />
         </div>
-        <dl className="triage-indices">
-          <div className="triage-total">
-            <dt>В поле внимания</dt>
-            <dd>
-              <Count value={amount} />
-            </dd>
-          </div>
-          <div>
-            <dt><Icon name="clock" size={14} /> Срок прошёл</dt>
-            <dd className={triage.overdue ? "past-due" : ""}>
-              {triage.overdue}
-            </dd>
-          </div>
-          <div>
-            <dt><Icon name="escalation" size={14} /> К эскалации</dt>
-            <dd>{triage.escalations}</dd>
-          </div>
-        </dl>
-        <div className="triage-object">
-          <MelonScene
-            active={signal}
-            counts={Object.fromEntries(
-              groups.map((g) => [g, data.groups[g].count]),
-            )}
-            unique={data.unique}
-            showMeters={false}
-            onGroupSelect={setSignal}
-            tracking={tracking}
-          />
-        </div>
+        <ShiftMetrics triage={triage} hints />
+        {focus && !filtering && (
+          <RiskProfile record={focus} signal={signal} open={open} />
+        )}
       </header>
       <div className="feed-tools">
         <div
@@ -331,7 +252,7 @@ export default function LiveBoard({
             </button>
           ))}
         </div>
-        {!wall && <SearchFilters {...search} />}
+        <SearchFilters {...search} />
       </div>
       <div className="triage-layout">
         <TriageCases
@@ -370,6 +291,99 @@ export default function LiveBoard({
     </section>
   );
 }
+function RiskProfile({
+  record,
+  signal,
+  open,
+}: {
+  record: TriageCase;
+  signal: Signal;
+  open: (id: string) => void;
+}) {
+  const measures = [
+    { label: "Просрочены", value: record.overdue, color: "overdue" },
+    { label: "Срок ≤ 15 мин", value: record.soon, color: "soon" },
+    { label: "Эскалация", value: record.escalations, color: "up" },
+  ];
+  const peak = Math.max(1, ...measures.map((m) => m.value));
+  return (
+    <figure
+      className="risk-profile"
+      data-testid="risk-profile"
+      data-signal={signal}
+      aria-label={"Риски кейса «" + record.label + "»"}
+    >
+      <figcaption>
+        <strong>Риски кейса</strong>
+        <span title={record.label}>{record.label}</span>
+      </figcaption>
+      <div className="risk-volume">
+        <svg
+          viewBox="0 0 112 78"
+          preserveAspectRatio="xMidYMid meet"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            className="risk-base-side"
+            d="m3 51 78 17 27-14v5L81 73 3 56Z"
+          />
+          <path className="risk-base-top" d="m3 51 27-14 78 17-27 14Z" />
+          {measures.map((measure, i) => {
+            const x = 10 + i * 24,
+              y = 51 + i * 5.2;
+            const h = (44 * measure.value) / peak;
+            return (
+              <g
+                key={measure.color}
+                transform={`translate(${x} ${y})`}
+                className={"risk-prism risk-" + measure.color}
+              >
+                {h > 0 && (
+                  <>
+                    <path
+                      className="risk-prism-front"
+                      d={`M0 0 15 3.25V${3.25 - h}L0 ${-h}Z`}
+                    />
+                    <path
+                      className="risk-prism-side"
+                      d={`M15 3.25 27 -3V${-3 - h}L15 ${3.25 - h}Z`}
+                    />
+                  </>
+                )}
+                <path
+                  className={h > 0 ? "risk-prism-cap" : "risk-prism-empty"}
+                  d="M0 0 12 -6.25 27 -3 15 3.25Z"
+                  transform={`translate(0 ${-h})`}
+                />
+              </g>
+            );
+          })}
+        </svg>
+        <ul>
+          {measures.map((m) => (
+            <li key={m.color} className={"risk-" + m.color}>
+              <i aria-hidden="true" />
+              <span>{m.label}</span>
+              <b>{m.value}</b>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <button
+        type="button"
+        data-testid="risk-ticket"
+        data-ticket={record.lead.id}
+        onClick={() => open(record.lead.id)}
+        title={record.lead.header}
+      >
+        Пример <strong>{record.lead.id}</strong>{" "}
+        <span aria-hidden="true">↗</span>
+      </button>
+    </figure>
+  );
+}
+
 function Ledger({
   data,
   signal,
@@ -394,74 +408,58 @@ function Ledger({
   useLayoutEffect(() => {
     const el = register.current;
     if (!el) return;
-    const media = matchMedia("(max-width: 740px)");
-    let lastGeometry = "";
     const fit = () => {
-      const top = el.getBoundingClientRect().top + window.scrollY;
-      const reserved = media.matches ? 57 : 91;
-      const rowHeight = media.matches
-        ? 86
-        : window.innerWidth <= 950
-          ? 104
-          : 73;
-      const geometry = [
-        Math.round(top),
-        window.innerWidth,
-        window.innerHeight,
-      ].join("/");
-      if (geometry === lastGeometry) return;
-      lastGeometry = geometry;
-      const capacity = Math.max(
-        1,
-        Math.min(
-          8,
-          Math.floor((window.innerHeight - top - reserved) / rowHeight),
-        ),
-      );
-      setPageSize(capacity);
+      const body = el.querySelector("tbody");
+      if (!body) return;
+      const first = body.querySelector("tr");
+      if (!first) return;
+      const rowHeight = first.getBoundingClientRect().height;
+      if (!rowHeight) return;
+      const top = body.getBoundingClientRect().top + window.scrollY;
+      const footer = el
+        .closest(".ops-shell")
+        ?.querySelector(".platform-footer");
+      const layout = el.closest(".triage-layout");
+      const after =
+        layout?.parentElement && layout
+          ? Math.max(
+              0,
+              layout.parentElement.getBoundingClientRect().bottom -
+                layout.getBoundingClientRect().bottom,
+            )
+          : 0;
+      const available =
+        document.documentElement.clientHeight -
+        top -
+        (footer?.getBoundingClientRect().height ?? 0) -
+        after -
+        4;
+      setPageSize(Math.max(1, Math.floor((available + 0.1) / rowHeight)));
     };
-    const trim = () => {
-      const rows = Array.from(el.querySelectorAll("tbody tr"));
-      const clipped = rows.findIndex(
-        (row) =>
-          row.getBoundingClientRect().bottom + window.scrollY >
-          window.innerHeight - 4,
-      );
-      if (clipped > 0) setPageSize((size) => Math.min(size, clipped));
-    };
-    const tableObserver = new ResizeObserver(trim);
-    const table = el.querySelector("table");
-    if (table) tableObserver.observe(table);
-    fit();
     const observer = new ResizeObserver(fit);
     for (const node of document.querySelectorAll(
-      ".ops-header,.incident-notice,.triage-header,.feed-tools,.case-lens,.role-nav",
+      ".ops-shell,.ops-header,.incident-notice,.triage-header,.feed-tools,.case-lens,.role-nav,.source-banner,.triage-ledger-title,.triage-register table,.platform-footer",
     ))
       observer.observe(node);
-    const alerts = new MutationObserver(fit);
-    const shell = el.closest(".ops-shell");
-    if (shell) alerts.observe(shell, { childList: true });
+    const changes = new MutationObserver(fit);
+    const shell = el.closest(".ops-shell") ?? el;
+    changes.observe(shell, { childList: true, subtree: true });
     window.addEventListener("resize", fit);
+    fit();
     return () => {
-      tableObserver.disconnect();
       observer.disconnect();
-      alerts.disconnect();
+      changes.disconnect();
       window.removeEventListener("resize", fit);
     };
   }, []);
-  const [page, setPage] = useState(0),
-    [extra, setExtra] = useState<{ rev: number; pages: Dashboard[] }>({
-      rev: data.revision,
-      pages: [],
-    });
-  const [error, setError] = useState(""),
+  const [page, setPage] = useState(0);
+  const [caseError, setCaseError] = useState(""),
     [retry, setRetry] = useState(0);
-  const reduced = useReducedMotion();
   const total =
     chosen?.count ??
     (signal === "all" ? data.unique : data.groups[signal].count);
-  const current = Math.min(page, Math.max(0, Math.ceil(total / pageSize) - 1)),
-    target = Math.min((current + 1) * pageSize, total);
+  const current = Math.min(page, Math.max(0, Math.ceil(total / pageSize) - 1));
+  const target = Math.min((current + 1) * pageSize, total);
   const [casePage, setCasePage] = useState<{
     request: string;
     items: Incident[];
@@ -476,7 +474,7 @@ function Ledger({
   useEffect(() => {
     if (!scoped) return;
     const ac = new AbortController();
-    setError("");
+    setCaseError("");
     void fetch(scoped, { signal: ac.signal })
       .then(async (r) => {
         const body = await r.json();
@@ -486,55 +484,18 @@ function Ledger({
           setCasePage({ request: scoped, items: body.items });
       })
       .catch((e) => {
-        if (!ac.signal.aborted) setError(e.message);
+        if (!ac.signal.aborted) setCaseError(e.message);
       });
     return () => ac.abort();
   }, [scoped, retry]);
-  const allRecords = useMemo(
-    () =>
-      mergeStreams(
-        data,
-        extra.rev === data.revision ? extra.pages : [],
-        signal,
-        sort,
-        target,
-      ),
-    [data, extra, signal, sort, target],
-  );
-  const depth = extra.rev === data.revision ? extra.pages.length : 0,
-    loading = chosen
-      ? casePage?.request !== scoped
-      : allRecords.length < target;
+  const prefix = useLivePrefix(data, signal, sort, query, chosen ? 0 : target);
+  const loading = chosen ? casePage?.request !== scoped : prefix.loading;
+  const error = chosen ? caseError : prefix.error;
   const records = chosen
     ? casePage?.request === scoped
       ? casePage.items
       : []
-    : allRecords;
-  useEffect(() => {
-    if (!loading || scoped) return;
-    const ctl = new AbortController(),
-      rev = data.revision,
-      next = new URLSearchParams(query);
-    next.set("ns", data.namespace);
-    for (const g of groups) next.set(g, String((depth + 1) * 30));
-    setError("");
-    fetch("/api/dashboard?" + next, { signal: ctl.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить страницу.");
-        const result: Dashboard = await response.json();
-        if (ctl.signal.aborted || result.namespace !== data.namespace) return;
-        if (result.revision !== rev)
-          throw new Error("Источник обновился. Загрузите страницу ещё раз.");
-        setExtra((prev) => ({
-          rev,
-          pages: [...(prev.rev === rev ? prev.pages : []), result],
-        }));
-      })
-      .catch((e) => {
-        if (!ctl.signal.aborted) setError(e.message);
-      });
-    return () => ctl.abort();
-  }, [loading, scoped, data.revision, data.namespace, depth, query, retry]);
+    : prefix.records;
   const timeFormat = useMemo(
     () =>
       new Intl.DateTimeFormat("ru-RU", {
@@ -622,7 +583,7 @@ function Ledger({
           </tr>
         </thead>
         <tbody>
-          {visible.map((item, index) => {
+          {visible.map((item) => {
             const deadline = item.dates.deadline
                 ? Date.parse(item.dates.deadline)
                 : null,
@@ -636,35 +597,33 @@ function Ledger({
                     ? "Срок близко"
                     : "До срока";
             return (
-              <motion.tr
-                layout={reduced ? false : "position"}
+              <tr
                 key={item.key}
                 data-testid={"card-" + item.id}
                 className={fresh.includes(item.key) ? "feed-new" : undefined}
-                initial={reduced ? false : { y: 7 }}
-                animate={{ y: 0 }}
-                transition={{
-                  y: { duration: 0.3, delay: Math.min(index, 5) * 0.023 },
-                  layout: { type: "spring", stiffness: 450, damping: 40 },
-                }}
               >
                 <td className="feed-subject">
                   <span className="ticket-detail">
                     {item.id}
+                    {!item.sourcePresent && (
+                      <small className="source-absent">
+                        {" "}
+                        · Требуется сверка
+                      </small>
+                    )}
                   </span>
                   <button onClick={() => open(item.id)}>
                     {String(item.raw.header || "Без заголовка")}
                   </button>
-                  {!item.sourcePresent && (
-                    <small className="warning">
-                      Нет в снимке · требуется сверка
-                    </small>
-                  )}
                 </td>
                 <td className="feed-reasons">
                   <div className="feed-signals">
-                    {item.groups.map((g) => <SignalBadge key={g} signal={g} />)}
-                    {item.raw.isNeedUp === true && <SignalBadge signal="escalation" />}
+                    {item.groups.map((g) => (
+                      <SignalBadge key={g} signal={g} />
+                    ))}
+                    {item.raw.isNeedUp === true && (
+                      <SignalBadge signal="escalation" />
+                    )}
                   </div>
                 </td>
                 <td className="feed-state">{item.stateLabel}</td>
@@ -680,7 +639,7 @@ function Ledger({
                   {delta !== null && <strong>{duration(delta)}</strong>}
                   <small>{clock}</small>
                 </td>
-              </motion.tr>
+              </tr>
             );
           })}
         </tbody>
@@ -688,7 +647,11 @@ function Ledger({
       {error && loading ? (
         <div className="feed-empty" role="alert">
           {error}{" "}
-          <button onClick={() => setRetry((r) => r + 1)}>Повторить</button>
+          <button
+            onClick={() => (chosen ? setRetry((r) => r + 1) : prefix.retry())}
+          >
+            Повторить
+          </button>
         </div>
       ) : loading ? (
         <Loader label="Загрузка страницы…" />

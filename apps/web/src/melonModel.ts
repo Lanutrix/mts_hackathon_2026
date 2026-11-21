@@ -48,6 +48,16 @@ export function orbit(): Orbit {
   return { yaw: 0, pitch: 0, vx: 0, vy: 0 };
 }
 
+export function coast(a: Orbit, seconds: number) {
+  const friction = 3.2;
+  const remaining = Math.exp(-friction * seconds);
+  const travel = (1 - remaining) / friction;
+  a.yaw += a.vx * travel;
+  a.pitch += a.vy * travel;
+  a.vx *= remaining;
+  a.vy *= remaining;
+}
+
 export function groupLoads(data: ModelState) {
   return melonGroups.map((group) =>
     data.unique && data.unique > 0
@@ -134,7 +144,9 @@ export function modelPoses(
   return { fruit: sections, frame: glass };
 }
 
-export const cutDuration = 3.8;
+const cutPeriod = 16,
+  cutDuration = 3.8;
+export const heroRestPhase = cutPeriod - cutDuration;
 function smooth(value: number) {
   const t = Math.max(0, Math.min(1, value));
   return t * t * (3 - 2 * t);
@@ -148,16 +160,15 @@ function brandPoses(
 ) {
   // Work in the fruit's cutting coordinates. The blade crosses each seam
   // before opening that gap, so all sections begin as one intact wedge.
-  const period = 16;
-  const time = phase % period;
-  const progress = smooth(Math.min(time, period - time) / cutDuration);
+  const time = phase % cutPeriod;
+  const progress = smooth(Math.min(time, cutPeriod - time) / cutDuration);
   const blade = 0.92 - 1.5 * progress;
   const cuts = sectionCuts(true);
   const gaps = cuts
     .slice(1, -1)
-    .map((z) => smooth((z * radii[2] - blade + 0.11) / 0.3));
+    .map((z) => smooth((z * radii[2] - blade + 0.25) / 0.6));
   const total = gaps.reduce((sum, gap) => sum + gap, 0);
-  const orbitAngle = (phase * 2 * Math.PI) / period;
+  const orbitAngle = (time * 2 * Math.PI) / cutPeriod;
   const rest: Vec = [
     0.22 + 0.038 * Math.sin(orbitAngle),
     -0.69 + 0.09 * Math.sin(orbitAngle),
@@ -185,7 +196,7 @@ function brandPoses(
     origin: [origin[0] - 0.04, origin[1] - 0.055, origin[2]],
     size: 1.9,
   };
-  separateGlass(sections, glass, cuts, true);
+  fitScanner(sections, glass, cuts);
   return { fruit: sections, frame: glass };
 }
 
@@ -251,18 +262,47 @@ function sectionSupport(q: Vec, back: number, front: number) {
   return rim * Math.sqrt(1 - z * z) + depth * z;
 }
 
-function separateGlass(
-  fruit: Pose[],
-  frame: Pose,
-  cuts: readonly number[],
-  hero = false,
-) {
+function fitScanner(fruit: Pose[], frame: Pose, cuts: readonly number[]) {
+  // Keep the cut plane on its continuous track. For each rail find a separating
+  // plane against each solid slice. The necessary aperture is a continuous
+  // minimum of supports, even when a slice passes from one side to the other.
+  const basis = axes.map((axis) => rotate(axis, frame.camera));
+  const apertureRadius = 0.71,
+    bevelDepth = 0.039;
+  let size = frame.size;
+  fruit.forEach((slice, index) => {
+    const relative = world([0, 0, 0], slice).map(
+      (v, k) => v - frame.origin[k],
+    ) as Vec;
+    const directions = axes.map((axis) =>
+      rotate(rotate(axis, slice.twist), slice.camera),
+    );
+    for (const along of [basis[0], basis[1]]) {
+      for (const sign of [-1, 1]) {
+        let needed = Infinity;
+        for (const slope of [0, -0.5, 0.5]) {
+          const n = along.map((v, k) => sign * v + slope * basis[2][k]) as Vec;
+          const q = directions.map((axis) => dot(axis, n)) as Vec;
+          const bound =
+            dot(relative, n) +
+            slice.size * sectionSupport(q, cuts[index + 1], cuts[index]);
+          needed = Math.min(
+            needed,
+            (bound + 0.045 * Math.hypot(1, slope)) /
+              (apertureRadius - Math.abs(slope) * bevelDepth),
+          );
+        }
+        size = Math.max(size, needed);
+      }
+    }
+  });
+  frame.size = size;
+}
+
+function separateGlass(fruit: Pose[], frame: Pose, cuts: readonly number[]) {
   const basis = axes.map((axis) => rotate(axis, frame.camera));
   const normal = basis[2];
-  const opening = hero ? [0.71, 0.71] : aperture;
-  const halfDepth = hero ? 0.039 : glassHalfDepth;
-  const slopes = hero ? [0, 0.5, 1, 2, 4, 8, 32, 256] : [0, 0.5, 1, 2, 4, 8];
-  const blocked: [number, number][] = [];
+  const slopes = [0, 0.5, 1, 2, 4, 8];
   let travel = 0;
   fruit.forEach((slice, index) => {
     const relative = world([0, 0, 0], slice).map(
@@ -285,22 +325,15 @@ function separateGlass(
           const tip =
             dot(relative, n) +
             slice.size * sectionSupport(q, cuts[index + 1], cuts[index]);
-          const glass = frame.size * (slope * opening[axis] - halfDepth);
+          const glass = frame.size * (slope * aperture[axis] - glassHalfDepth);
           least = Math.min(least, tip - glass + 0.045 * Math.hypot(1, slope));
         }
         return least;
       }
       const forward = clearance(1);
-      if (hero) {
-        // Released slices can be entirely in front of the scanner. Only the
-        // finite interval between front and back contacts can block its travel.
-        blocked.push([-clearance(-1), forward]);
-      } else travel = Math.max(travel, forward);
+      travel = Math.max(travel, forward);
     }
   });
-  blocked.sort((a, b) => a[0] - b[0]);
-  for (const [start, end] of blocked)
-    if (start < travel && travel < end) travel = end;
   // Share the rigid translation so contact does not push the composition off centre.
   for (let k = 0; k < 3; k++) {
     frame.origin[k] += 0.5 * travel * normal[k];

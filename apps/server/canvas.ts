@@ -240,6 +240,7 @@ export class CanvasService {
       }
       groups.sort(
         (a, b) =>
+          b[view.weightBy ?? "count"] - a[view.weightBy ?? "count"] ||
           b.count - a.count ||
           collator.compare(a.label, b.label) ||
           a.key.localeCompare(b.key),
@@ -303,7 +304,11 @@ export class CanvasService {
     const primary = this.block(
       namespace,
       actor,
-      { groupBy: intent.groupBy, layout: intent.layout },
+      {
+        groupBy: intent.groupBy,
+        layout: intent.layout,
+        weightBy: intent.weightBy,
+      },
       matches,
       tickets,
       now,

@@ -250,7 +250,8 @@ export function canvasRenderer(
   const ctx = context,
     mesh = fallbackMesh(hero),
     sheet = fleshTexture();
-  const decals = hero ? specimenDecals() : null;
+  let dark = false,
+    decals = hero ? specimenDecals() : null;
   const neutral = document.createElement("canvas");
   neutral.width = sheet.width;
   neutral.height = sheet.height;
@@ -282,7 +283,7 @@ export function canvasRenderer(
     ctx.translate(w / 2, shadowY);
     ctx.scale(scale, 0.11 * scale);
     const sh = ctx.createRadialGradient(0, 0, 0, 0, 0, 1.1);
-    sh.addColorStop(0, "rgba(49,30,72,.20)");
+    sh.addColorStop(0, dark ? "rgba(149,101,210,.23)" : "rgba(49,30,72,.20)");
     sh.addColorStop(1, "rgba(49,30,72,0)");
     ctx.fillStyle = sh;
     ctx.fillRect(-1.1, -1.1, 2.2, 2.2);
@@ -321,19 +322,35 @@ export function canvasRenderer(
         const sheen = ctx.createLinearGradient(...bottom, ...top);
         sheen.addColorStop(
           0,
-          tile ? "rgba(122,83,164,.64)" : "rgba(138,107,172,.19)",
+          tile
+            ? dark
+              ? "rgba(61,40,81,.88)"
+              : "rgba(122,83,164,.64)"
+            : "rgba(138,107,172,.19)",
         );
         sheen.addColorStop(
           0.52,
-          tile ? "rgba(218,200,240,.72)" : "rgba(194,171,225,.17)",
+          tile
+            ? dark
+              ? "rgba(80,61,102,.82)"
+              : "rgba(218,200,240,.72)"
+            : "rgba(194,171,225,.17)",
         );
         sheen.addColorStop(
           0.64,
-          tile ? "rgba(247,240,255,.82)" : "rgba(245,234,255,.30)",
+          tile
+            ? dark
+              ? "rgba(143,117,163,.83)"
+              : "rgba(247,240,255,.82)"
+            : "rgba(245,234,255,.30)",
         );
         sheen.addColorStop(
           1,
-          tile ? "rgba(177,142,216,.63)" : "rgba(174,148,207,.23)",
+          tile
+            ? dark
+              ? "rgba(76,50,103,.84)"
+              : "rgba(177,142,216,.63)"
+            : "rgba(174,148,207,.23)",
         );
         ctx.fillStyle =
           Math.abs(p.face.normal[2]) === 1 ? sheen : "rgba(246,230,255,.84)";
@@ -409,6 +426,14 @@ export function canvasRenderer(
   }
   return {
     centers: mesh.centers,
+    theme(nextDark) {
+      if (dark === nextDark) return;
+      dark = nextDark;
+      if (decals) {
+        decals.width = 0;
+        decals = specimenDecals(dark);
+      }
+    },
     draw,
     resize(width, height, s) {
       if (w !== width || h !== height) {

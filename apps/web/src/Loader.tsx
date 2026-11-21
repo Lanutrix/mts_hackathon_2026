@@ -8,6 +8,7 @@ export default function Loader({
   return (
     <span
       role="status"
+      aria-atomic="true"
       className={stage ? "wm-loader wm-loader-stage" : "wm-loader"}
     >
       <i className="wm-loader-optic" aria-hidden="true">

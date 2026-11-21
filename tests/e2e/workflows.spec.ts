@@ -112,7 +112,7 @@ test("public landing shows only the hero and opens either screen", async ({
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.clock.install();
   await page.goto("/");
-  const title = page.getByRole("heading", { name: "Инциденты в фокусе." });
+  const title = page.getByRole("heading", { name: "Инциденты в срезе." });
   await expect(title).toBeVisible();
   await expect(page.getByRole("link", { name: "Войти" })).toHaveAttribute(
     "href",
@@ -182,9 +182,10 @@ test("jury viewers receive the same observed events and dismiss them independent
   const current = page.getByTestId("live-register");
   const banner = page.getByRole("region", { name: "Уведомление об инциденте" });
   await expect(page.getByRole("heading", { name: "Эфир смены" })).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "ИИ-помощник" }),
-  ).toHaveAttribute("href", "/simulation/workspace");
+  await expect(page.getByRole("link", { name: "ИИ-помощник" })).toHaveAttribute(
+    "href",
+    "/simulation/workspace",
+  );
   await expect(current).toBeVisible();
   await expect(banner).toContainText("Новый критический инцидент", {
     timeout: 12000,
@@ -206,7 +207,7 @@ test("jury viewers receive the same observed events and dismiss them independent
     await expect(banner).toHaveCount(0);
     await expect(secondNotice).toBeVisible();
     await page.reload();
-    await expect(page.locator(".melon-tracker")).toHaveAttribute(
+    await expect(page.getByTestId("risk-ticket")).toHaveAttribute(
       "data-ticket",
       "SIM-001",
     );
@@ -240,10 +241,11 @@ test("jury viewers receive the same observed events and dismiss them independent
       page.getByRole("heading", { name: "Холст смены" }),
     ).toBeVisible();
     await page.reload();
+    await page.getByRole("button", { name: "Дополнительные разделы" }).click();
+    await expect(page.getByTestId("source-status")).toBeVisible();
     await expect(page.getByTestId("source-status")).toContainText(
       "Учебный эфир",
     );
-    await page.getByRole("button", { name: "Дополнительные разделы" }).click();
     await page.getByRole("link", { name: "История", exact: true }).click();
     await expect(page).toHaveURL("/simulation/history");
     await expect(page.locator("main")).toContainText("SIM-001");
@@ -255,37 +257,61 @@ test("jury viewers receive the same observed events and dismiss them independent
   }
 });
 
-test("the 3D surface rotates the chosen object with reduced motion and follows incident filters", async ({
+test("system and explicit themes persist from the landing to help and authenticated screens", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.goto("/");
+  const root = page.locator("html");
+  await expect(root).toHaveAttribute("data-theme", "dark");
+  const picker = page.getByRole("combobox", { name: "Тема оформления" });
+  const manifest = page.locator('link[rel="manifest"]');
+  await expect(manifest).toHaveAttribute("href", "/srez-night.webmanifest");
+  await picker.selectOption("light");
+  await expect(root).toHaveAttribute("data-theme", "light");
+  await expect(manifest).toHaveAttribute("href", "/manifest.webmanifest");
+  await page.reload();
+  await expect(picker).toHaveValue("light");
+  await page.goto("/help");
+  await expect(
+    page.getByRole("heading", { name: "Помощь", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Словарь иконок" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Словарь иконок" }),
+  ).toBeInViewport();
+  await expect(page.getByRole("contentinfo")).toHaveText(
+    "мы не несем ответственность за провал инцидентов, только смертельную",
+  );
+  await page.goto("/preferences");
+  const settings = page
+    .getByRole("main")
+    .getByRole("combobox", { name: "Тема оформления" });
+  await settings.selectOption("system");
+  await expect(root).toHaveAttribute("data-theme", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(root).toHaveAttribute("data-theme", "light");
+  const more = page.getByRole("button", { name: "Дополнительные разделы" });
+  await more.focus();
+  await expect(page.getByRole("tooltip")).toHaveText("Дополнительные разделы");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+});
+
+test("live risk profile follows the selected signal and opens source evidence", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/live");
-  const scene = page.locator(".melon-scene");
-  await expect(scene).toHaveAttribute("data-mode", /^(webgl|canvas)$/);
-  await expect(scene.getByRole("button")).toHaveCount(0);
-  await expect(scene).toHaveAttribute("data-paused", "true");
-  const surface = scene.locator(".melon-view");
-  for (const [key, target] of [
-    ["2", "frame"],
-    ["1", "fruit"],
-  ]) {
-    await surface.press(key);
-    await expect(scene).toHaveAttribute("data-object", target);
-    await surface.press("Home");
-    const before = await surface.screenshot();
-    await surface.press("Shift+ArrowRight");
-    await expect
-      .poll(async () => !(await surface.screenshot()).equals(before))
-      .toBe(true);
-  }
+  const profile = page.getByTestId("risk-profile");
+  await expect(profile).toBeVisible();
   await page.getByTestId("group-critical").click();
-  await expect(scene).toHaveAttribute("data-active", "critical");
-  await expect(scene).toHaveAccessibleName(/Критические/);
-  await expect(scene.locator(".melon-tracker")).toHaveAttribute(
-    "data-group",
-    "critical",
-  );
-  await page.locator(".case-insight .case-source").click();
+  await expect(profile).toHaveAttribute("data-signal", "critical");
+  const ticket = page.getByTestId("risk-ticket");
+  await expect(ticket).toHaveAttribute("data-ticket", /DEMO-/);
+  const id = await ticket.getAttribute("data-ticket");
+  await ticket.click();
+  await expect(page).toHaveURL(new RegExp("/incident/" + id));
   await expect(
     page.getByRole("region", { name: "Маршрутизация" }),
   ).toBeVisible();
@@ -363,7 +389,7 @@ test("cases rank the filtered queue, explain the source tickets and fit the view
     "data-testid",
     "card-" + detail.items[0].id,
   );
-  await expect(page.locator(".melon-tracker")).toHaveAttribute(
+  await expect(page.getByTestId("risk-ticket")).toHaveAttribute(
     "data-ticket",
     c.lead.id,
   );
@@ -425,7 +451,7 @@ test("legacy live bookmarks keep filters, fragments and browser history", async 
   await page.goBack();
   await expect(page).toHaveURL("/");
   await expect(
-    page.getByRole("heading", { name: "Инциденты в фокусе." }),
+    page.getByRole("heading", { name: "Инциденты в срезе." }),
   ).toBeVisible();
   await page.goForward();
   await expect(page).toHaveURL("/live" + filters);
@@ -522,21 +548,31 @@ test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", 
     page.getByText(/Показан тот же инцидент DEMO-42-00019/),
   ).toBeVisible();
   await page.goto("/wallboard");
-  for (const width of [390, 1024, 1440, 1920, 2560]) {
-    await page.setViewportSize({ width, height: width === 2560 ? 1440 : 900 });
-    await expect(page.getByTestId("group-critical")).toBeVisible();
+  const display = page.getByTestId("wallboard");
+  for (const width of [390, 1024, 1440, 1920, 2560, 3840]) {
+    await page.setViewportSize({
+      width,
+      height: width >= 2560 ? Math.round((width * 9) / 16) : 900,
+    });
+    await expect(display.getByTestId("shift-clock")).toHaveText(
+      /\d{2}:\d{2}:\d{2}/,
+    );
+    await expect(display.getByTestId("wall-ticket").first()).toBeVisible();
+    await expect(
+      page.locator("a,button,input,select,textarea,summary,nav,[tabindex]"),
+    ).toHaveCount(0);
     expect(
       await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.documentElement.scrollHeight <= innerHeight + 1,
       ),
     ).toBe(true);
-    await page.screenshot({
-      path: resolve(".runtime/qa/" + info.project.name + "-" + width + ".png"),
-      fullPage: false,
-    });
   }
-  await page.getByRole("link", { name: "Обычный режим" }).click();
-  await expect(page).toHaveURL("/live");
+  await page.goBack();
+  await expect(
+    page.getByText(/Показан тот же инцидент DEMO-42-00019/),
+  ).toBeVisible();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/live");
   await expect(page.getByTestId("count-critical")).toBeVisible();
@@ -641,7 +677,7 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   await page.getByRole("button", { name: "Выйти: demo-admin" }).click();
   await expect(page).toHaveURL("/");
   await expect(
-    page.getByRole("heading", { name: "Инциденты в фокусе." }),
+    page.getByRole("heading", { name: "Инциденты в срезе." }),
   ).toBeVisible();
   await page.goBack();
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -655,7 +691,7 @@ test("F22 no serious/critical automated accessibility violations", async ({
   page,
 }) => {
   const screens = [
-    ["/", page.getByRole("heading", { name: "Инциденты в фокусе." })],
+    ["/", page.getByRole("heading", { name: "Инциденты в срезе." })],
     ["/live", page.getByTestId("count-critical")],
     ["/login", page.getByLabel("Имя пользователя")],
   ] as const;
@@ -699,4 +735,36 @@ test("F08 F14 F28 exact deadline, null and untrusted HTML stay visible without e
   );
   expect(dialogs).toEqual([]);
   expect(await card.locator("img").count()).toBe(0);
+});
+
+test("offline fallback respects this device and the passive wall route", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/");
+  await page.getByLabel("Тема оформления").selectOption("dark");
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await expect
+    .poll(() =>
+      page.evaluate(() => Boolean(navigator.serviceWorker.controller)),
+    )
+    .toBe(true);
+  const exited = once(server, "exit");
+  server.kill();
+  await exited;
+  for (const key of ["/workspace", "/wallboard", "/simulation/wallboard"]) {
+    await page.goto(key);
+    await expect(
+      page.getByRole("heading", { name: "Нет соединения" }),
+    ).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator("a,button")).toHaveCount(
+      key === "/workspace" ? 1 : 0,
+    );
+    expect(
+      await page.evaluate(
+        () => getComputedStyle(document.body).backgroundColor,
+      ),
+    ).toBe("rgb(24, 23, 31)");
+  }
 });

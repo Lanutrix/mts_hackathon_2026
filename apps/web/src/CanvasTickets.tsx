@@ -5,6 +5,7 @@ import type {
   CanvasResult,
   CanvasTicket,
 } from "../../../packages/contracts/canvas";
+import { formatCount, PageControls, useBox } from "./CanvasControls";
 import { screenLink } from "./routes";
 
 export class CanvasRequestError extends Error {
@@ -53,7 +54,7 @@ export function CanvasTicketLink({
   open: (id: string) => void;
   zone: string;
 }) {
-  const due =
+  const date =
     ticket.deadline &&
     new Intl.DateTimeFormat("ru-RU", {
       timeZone: zone,
@@ -65,30 +66,22 @@ export function CanvasTicketLink({
   return (
     <a
       className="cx-ticket-link"
+      title={ticket.header}
       href={screenLink("/incident/" + encodeURIComponent(ticket.id), ns)}
-      onClick={(event) => {
-        if (event.ctrlKey || event.shiftKey || event.metaKey || event.altKey)
-          return;
-        event.preventDefault();
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+        e.preventDefault();
         open(ticket.id);
       }}
     >
-      <span className="cx-ticket-id">
-        {ticket.id}
-        <span aria-hidden="true">↗</span>
-      </span>
+      <span className="cx-ticket-id">{ticket.id}</span>
       <strong>{ticket.header || "Без заголовка"}</strong>
-      <span className="cx-ticket-details">
-        {[ticket.team, ticket.priority].filter(Boolean).join(" · ")}
+      <span className="cx-ticket-facts">
+        {ticket.team} · {ticket.priority}
       </span>
-      {due && (
-        <time
-          className={ticket.overdue ? "cx-past" : ""}
-          dateTime={ticket.deadline!}
-        >
-          {ticket.overdue ? "Просрочен" : "Срок"} · {due}
-        </time>
-      )}
+      <span className="cx-ticket-date" data-overdue={ticket.overdue}>
+        {date ? (ticket.overdue ? "Просрочен · " : "") + date : "Без срока"}
+      </span>
     </a>
   );
 }
@@ -96,6 +89,8 @@ export function CanvasTicketLink({
 export function CanvasDrawer({
   result,
   group,
+  offset,
+  setOffset,
   close,
   refresh,
   open,
@@ -104,6 +99,8 @@ export function CanvasDrawer({
 }: {
   result: CanvasResult;
   group: CanvasGroup | null;
+  offset: number;
+  setOffset: (n: number) => void;
   close: () => void;
   refresh: () => void;
   open: (id: string) => void;
@@ -111,15 +108,22 @@ export function CanvasDrawer({
   zone: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [items, setItems] = useState<CanvasTicket[]>([]);
-  const [next, setNext] = useState<number | null>(null);
-  const [request, setRequest] = useState({ offset: 0 });
-  const [loading, setLoading] = useState(true);
+  const { ref, height } = useBox();
+  const [chunk, setChunk] = useState<{
+    offset: number;
+    items: CanvasTicket[];
+  } | null>(null);
+  const [retry, setRetry] = useState(0);
   const [error, setError] = useState<Error | null>(null);
-  const groupKey = group?.key;
+  const groupKey = group?.key,
+    total = group?.count ?? result.total;
+  const perPage = Math.max(1, Math.min(12, Math.floor(height / 55)));
+  const pages = Math.ceil(total / perPage),
+    page = Math.max(0, Math.min(Math.floor(offset / perPage), pages - 1));
+  const start = page * perPage;
   useEffect(() => {
-    const el = dialog.current!;
-    const previous = document.activeElement;
+    const el = dialog.current!,
+      previous = document.activeElement;
     el.showModal();
     return () => {
       el.close();
@@ -128,105 +132,91 @@ export function CanvasDrawer({
     };
   }, []);
   useEffect(() => {
+    if (!height) return;
     const controller = new AbortController();
     const params = new URLSearchParams({
       ns,
       selection: result.selection,
-      offset: String(request.offset),
+      offset: String(start),
     });
     if (groupKey !== undefined) params.set("group", groupKey);
-    setLoading(true);
     setError(null);
     canvasJson<CanvasPage>("/api/canvas/tickets?" + params, {
       signal: controller.signal,
     })
-      .then((page) => {
-        if (controller.signal.aborted) return;
-        setItems((previous) =>
-          request.offset ? [...previous, ...page.items] : page.items,
-        );
-        setNext(page.nextOffset);
+      .then((data) => {
+        if (!controller.signal.aborted)
+          setChunk({ offset: start, items: data.items });
       })
       .catch((e: Error) => {
         if (!controller.signal.aborted) setError(e);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [ns, result.selection, groupKey, request]);
-
+  }, [ns, result.selection, groupKey, start, !!height, retry]);
+  const ready = chunk?.offset === start;
   return (
     <dialog
       ref={dialog}
       className="cx-drawer"
       aria-labelledby="cx-drawer-title"
-      onCancel={(event) => {
-        event.preventDefault();
+      onCancel={(e) => {
+        e.preventDefault();
         close();
       }}
-      onClick={(event) => {
-        if (event.target === dialog.current) close();
+      onClick={(e) => {
+        if (e.target === dialog.current) close();
       }}
     >
       <div className="cx-drawer-inner">
         <header>
           <div>
-            <span className="cx-caption">Инциденты в срезе</span>
-            <h2 id="cx-drawer-title">{group?.label || "Вся выборка"}</h2>
+            <h2 id="cx-drawer-title">{group?.label || "Все заявки"}</h2>
             <p>
-              Всего {group?.count ?? result.total} · Версия {result.revision}
+              {formatCount(total)} заявок · версия {result.revision}
             </p>
           </div>
           <button
-            className="cx-icon-button"
             type="button"
+            className="cx-icon-button"
             aria-label="Закрыть выборку"
+            data-hint="Закрыть выборку"
             onClick={close}
           >
             ×
           </button>
         </header>
-        <div className="cx-drawer-list">
-          {items.map((ticket) => (
-            <CanvasTicketLink key={ticket.id} {...{ ticket, ns, open, zone }} />
-          ))}
-          {loading && (
-            <p role="status" className="cx-note">
-              Загружаем инциденты…
-            </p>
-          )}
-          {error && (
-            <div role="alert" className="cx-note">
+        <div className="cx-drawer-list" ref={ref}>
+          {error ? (
+            <div className="cx-note" role="alert">
               {error.message}{" "}
               {error instanceof CanvasRequestError &&
               [409, 410].includes(error.status) ? (
-                <button className="cx-link-button" onClick={refresh}>
-                  Обновить срез
-                </button>
+                <button onClick={refresh}>Обновить срез</button>
               ) : (
-                <button
-                  className="cx-link-button"
-                  onClick={() => setRequest({ ...request })}
-                >
+                <button onClick={() => setRetry((r) => r + 1)}>
                   Повторить
                 </button>
               )}
             </div>
-          )}
-          {!loading && !error && items.length === 0 && (
-            <p className="cx-note">В этой выборке нет инцидентов.</p>
-          )}
-          {!loading && !error && next !== null && (
-            <button
-              className="cx-more"
-              type="button"
-              onClick={() => setRequest({ offset: next })}
-            >
-              Показать ещё
-            </button>
+          ) : ready ? (
+            chunk.items
+              .slice(0, perPage)
+              .map((ticket) => (
+                <CanvasTicketLink
+                  key={ticket.id}
+                  {...{ ticket, ns, zone, open }}
+                />
+              ))
+          ) : (
+            <p role="status">Загружаем заявки…</p>
           )}
         </div>
+        <PageControls
+          page={page}
+          pages={pages}
+          goto={(p) => setOffset(p * perPage)}
+          label="Страницы заявок"
+        />
       </div>
     </dialog>
   );

@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type {
   CanvasGroup,
   CanvasResult,
@@ -6,7 +13,7 @@ import type {
 import { CanvasFigure } from "./CanvasFigure";
 import { CanvasDrawer, canvasJson } from "./CanvasTickets";
 import { TicketMentions } from "./IncidentSources";
-import { screenLink } from "./routes";
+import { formatCount, PageControls, useBox } from "./CanvasControls";
 import "./workspace.css";
 
 type Props = {
@@ -19,10 +26,16 @@ type Props = {
   open: (id: string) => void;
 };
 type Turn = { question: string; result: CanvasResult };
-type Selection = { group: CanvasGroup | null; result: CanvasResult };
+type Selection = {
+  group: CanvasGroup | null;
+  result: CanvasResult;
+  offset: number;
+};
 type Conversation = {
   turns: Turn[];
   active: number;
+  panel?: number;
+  historyOpen?: boolean;
   draft: string;
   selection: Selection | null;
 };
@@ -41,22 +54,6 @@ const sources: Record<string, string> = {
   workspace: "Рабочая копия",
   simulation: "Учебный эфир",
 };
-const initialSuggestions = [
-  "Сгруппируй по командам",
-  "Покажи сроки",
-  "Сравни приоритеты",
-];
-const labels: Record<string, string> = {
-  symptom: "Атлас симптомов",
-  team: "Нагрузка команд",
-  product: "Продукты",
-  priority: "Приоритеты",
-  deadline: "Окна сроков",
-  status: "Статусы",
-  escalation: "Эскалации",
-  ticket: "Инциденты",
-};
-const displayCount = (n: number) => n.toLocaleString("ru-RU");
 const panels = (result: CanvasResult) => [
   result,
   ...result.blocks.map(
@@ -67,6 +64,7 @@ const panels = (result: CanvasResult) => [
         ...result.intent,
         groupBy: block.groupBy,
         layout: block.layout,
+        weightBy: block.weightBy,
       },
       blocks: [],
     }),
@@ -202,6 +200,61 @@ function ConversationLog({
   );
 }
 
+function HistoryDialog({
+  children,
+  close,
+  reset,
+}: {
+  children: ReactNode;
+  close: () => void;
+  reset: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const dialog = ref.current!,
+      previous = document.activeElement;
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      if (previous instanceof HTMLElement && previous.isConnected)
+        previous.focus({ preventScroll: true });
+    };
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="cx-history"
+      aria-labelledby="cx-history-title"
+      onCancel={(e) => {
+        e.preventDefault();
+        close();
+      }}
+      onClick={(e) => {
+        if (e.target === ref.current) close();
+      }}
+    >
+      <div className="cx-history-inner">
+        <header>
+          <h2 id="cx-history-title">История диалога</h2>
+          <button
+            type="button"
+            className="cx-icon-button"
+            aria-label="Закрыть историю"
+            data-hint="Закрыть историю"
+            onClick={close}
+          >
+            ×
+          </button>
+        </header>
+        {children}
+        <button type="button" className="cx-new" onClick={reset}>
+          Новый диалог ↗
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
 export default function Workspace(props: Props) {
   const identity = JSON.stringify([props.ns, props.userKey, props.csrf]);
   return <WorkspaceScreen key={identity} {...props} identity={identity} />;
@@ -225,11 +278,44 @@ function WorkspaceScreen({
     question: string;
     operation: Operation;
   } | null>(null);
+  const stage = useBox();
+  const historyOpen = !!chat.historyOpen;
+  const setHistoryOpen = (historyOpen: boolean) =>
+    setChat((c) => ({ ...c, historyOpen }));
   const activeRequest = useRef<AbortController | null>(null);
   const composer = useRef<HTMLInputElement>(null);
+  const screen = useRef<HTMLElement>(null);
   const turn = chat.turns[chat.active];
   const result = turn?.result;
   const last = chat.turns.at(-1)?.result;
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const input = composer.current,
+      el = screen.current;
+    if (!viewport || !input || !el) return;
+    // Mobile browsers can resize only the visual viewport for the soft keyboard.
+    const placeDock = () => {
+      const occluded =
+        document.activeElement === input && viewport.scale === 1
+          ? Math.max(
+              0,
+              window.innerHeight - viewport.height - viewport.offsetTop,
+            )
+          : 0;
+      el.style.setProperty("--cx-keyboard-gap", Math.round(occluded) + "px");
+    };
+    viewport.addEventListener("resize", placeDock);
+    viewport.addEventListener("scroll", placeDock);
+    input.addEventListener("focus", placeDock);
+    input.addEventListener("blur", placeDock);
+    return () => {
+      viewport.removeEventListener("resize", placeDock);
+      viewport.removeEventListener("scroll", placeDock);
+      input.removeEventListener("focus", placeDock);
+      input.removeEventListener("blur", placeDock);
+    };
+  }, []);
 
   useEffect(() => {
     conversations.set(identity, chat);
@@ -299,20 +385,17 @@ function WorkspaceScreen({
             active: requestedTurn,
             selection:
               view && (group || !selection?.group)
-                ? { result: view, group }
+                ? { result: view, group, offset: selection?.offset ?? 0 }
                 : null,
           };
         }
         const turns = [
           ...(operation === "reset" ? [] : previous.turns),
           { question, result: json },
-        ].slice(-24);
+        ];
         const active =
           json.mode === "unsupported" && operation !== "reset"
-            ? Math.max(
-                0,
-                previous.active - (previous.turns.length === 24 ? 1 : 0),
-              )
+            ? previous.active
             : turns.length - 1;
         return {
           turns,
@@ -346,18 +429,15 @@ function WorkspaceScreen({
     setBusy(null);
     composer.current?.focus();
   }
-  const initial =
-    !last || (chat.turns.length === 1 && last.mode === "snapshot");
-  const suggestions = initial
-    ? [
-        "Сгруппируй по командам и рядом покажи сроки",
-        "Покажи просроченные",
-        "Сравни приоритеты",
-      ]
-    : last.suggestions.length
-      ? last.suggestions.slice(0, 3)
-      : initialSuggestions;
+
   const stale = !!result && revision > result.revision;
+  const views = useMemo(() => (result ? panels(result) : []), [result]);
+  const switching =
+    views.length > 1 &&
+    ((stage.width < 660 && (views.length > 2 || stage.height < 450)) ||
+      stage.height < 245);
+  const panel = Math.min(chat.panel ?? 0, Math.max(0, views.length - 1));
+  const visible = switching ? views.slice(panel, panel + 1) : views;
   const stamp =
     result &&
     new Intl.DateTimeFormat("ru-RU", {
@@ -365,24 +445,151 @@ function WorkspaceScreen({
       hour: "2-digit",
       minute: "2-digit",
     }).format(new Date(result.asOf));
-  const views = result ? panels(result) : [];
-
+  const choose = (view: CanvasResult, group: CanvasGroup | null) =>
+    setChat((c) => ({ ...c, selection: { result: view, group, offset: 0 } }));
+  const reply =
+    last?.mode === "unsupported"
+      ? last.summary
+      : turn?.question
+        ? turn.result.summary
+        : "";
+  const busyText =
+    busy === null ? "" : busy ? "Собираю срез…" : "Читаю источник…";
+  const sourceInfo = [
+    sources[ns] ?? ns,
+    stamp && stamp + " " + (zone === "UTC" ? "UTC" : "МСК"),
+    result && "версия " + result.revision,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <section className="cx" aria-labelledby="cx-title" data-source={ns}>
-      <div className="cx-intro">
-        <div className="cx-heading">
-          <div className="cx-source">
-            <i aria-hidden="true" />
-            {sources[ns] || ns}
-            {stamp && (
-              <>
-                <span> / </span>срез на {stamp} {zone === "UTC" ? "UTC" : "МСК"}
-              </>
+    <section
+      ref={screen}
+      className="cx"
+      aria-labelledby="cx-title"
+      data-source={ns}
+    >
+      <h1 id="cx-title" className="sr-only">
+        Холст смены
+      </h1>
+      <div className="cx-top">
+        <span className="cx-source" title={sourceInfo}>
+          <i aria-hidden="true" />
+          {sourceInfo}
+        </span>
+        {stale && (
+          <button
+            type="button"
+            className="cx-refresh"
+            onClick={() => void send("", "refresh")}
+          >
+            Обновить срез ↻
+          </button>
+        )}
+        {result && result.total > 0 && (
+          <button
+            type="button"
+            className="cx-scope"
+            onClick={() => choose(result, null)}
+          >
+            {formatCount(result.total)} заявок ↗
+          </button>
+        )}
+      </div>
+      <div
+        ref={stage.ref}
+        className="cx-stage"
+        data-count={visible.length}
+        data-stacked={stage.width < 660}
+        data-first={visible[0]?.intent.layout}
+        aria-busy={busy !== null}
+      >
+        {visible.map((view, i) => (
+          <section
+            className="cx-plot"
+            key={switching ? panel : i}
+            aria-label={
+              i === 0
+                ? "Визуализация среза"
+                : "Дополнительный срез · " + view.title
+            }
+          >
+            <div className="cx-plot-title">
+              <h2 title={view.title}>{view.title}</h2>
+              {switching && (
+                <PageControls
+                  page={panel}
+                  pages={views.length}
+                  goto={(panel) => setChat((c) => ({ ...c, panel }))}
+                  label="Представления холста"
+                />
+              )}
+            </div>
+            <CanvasFigure
+              result={view}
+              choose={(g) => choose(view, g)}
+              {...{ ns, zone, open }}
+            />
+          </section>
+        ))}
+        {!visible.length && (
+          <div className="cx-empty">
+            <p role="status">{busyText || "Срез ещё не загружен"}</p>
+            {busy === null && !error && (
+              <button onClick={() => void send("")}>Загрузить срез</button>
             )}
           </div>
-          <h1 id="cx-title">Холст смены</h1>
+        )}
+      </div>
+      <div className="cx-dock">
+        <div className="cx-status">
+          {error ? (
+            <div role="alert">
+              {error.message}{" "}
+              <button
+                onClick={() => void send(error.question, error.operation)}
+              >
+                Повторить запрос
+              </button>
+            </div>
+          ) : busyText ? (
+            <span role="status">{busyText}</span>
+          ) : !canAsk ? (
+            <span>Режим просмотра</span>
+          ) : reply ? (
+            <button
+              type="button"
+              className="cx-latest"
+              title={reply}
+              onClick={() => setHistoryOpen(true)}
+            >
+              {reply}
+            </button>
+          ) : null}
         </div>
-        <div className="cx-command">
+        <div className="cx-dock-row">
+          <button
+            className="cx-history-trigger"
+            data-hint="История диалога"
+            aria-label="История диалога"
+            aria-haspopup="dialog"
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+          >
+            <svg
+              aria-hidden="true"
+              width="19"
+              height="19"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 11a9 9 0 1 1 2 7M3 4v7h7m2-5v6l4 2" />
+            </svg>
+          </button>
           <form
             className="cx-composer"
             onSubmit={(e) => {
@@ -390,18 +597,17 @@ function WorkspaceScreen({
               if (chat.draft.trim()) void send(chat.draft);
             }}
           >
-            <span className="cx-compose-spark">
-              <Spark size={22} />
-            </span>
             <input
-              ref={composer}
               type="text"
               autoComplete="off"
-              maxLength={500}
-              disabled={!canAsk}
               aria-label="Вопрос об инцидентах"
+              disabled={!canAsk}
+              maxLength={500}
+              ref={composer}
               placeholder={
-                canAsk ? "Спросите об инцидентах…" : "Режим просмотра"
+                canAsk
+                  ? "Спросите об инцидентах…"
+                  : "Вопросы доступны координаторам"
               }
               value={chat.draft}
               onChange={(e) => {
@@ -415,8 +621,9 @@ function WorkspaceScreen({
                 type="button"
                 className="cx-send"
                 aria-label="Остановить запрос"
-                onClick={(event) => {
-                  event.preventDefault();
+                data-hint="Остановить запрос"
+                onClick={(e) => {
+                  e.preventDefault();
                   cancel();
                 }}
               >
@@ -424,234 +631,53 @@ function WorkspaceScreen({
               </button>
             ) : (
               <button
-                key="submit"
+                key="send"
                 type="submit"
                 className="cx-send"
-                disabled={!canAsk || !chat.draft.trim()}
                 aria-label="Отправить вопрос"
+                data-hint="Отправить вопрос"
+                disabled={!canAsk || !chat.draft.trim()}
               >
                 <SendIcon />
               </button>
             )}
           </form>
-          {canAsk ? (
-            <div
-              className="cx-prompts"
-              aria-label="Предложенные вопросы"
-              role="group"
-            >
-              {suggestions.map((q, index) => (
-                <button
-                  key={q}
-                  type="button"
-                  onClick={() => void send(q)}
-                  title={q}
-                >
-                  {initial
-                    ? [
-                        "Команды и сроки",
-                        "Просроченные",
-                        "Сравнить приоритеты",
-                      ][index]
-                    : q}{" "}
-                  <span aria-hidden="true">↗</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="cx-note">
-              Вопросы по этому источнику доступны координаторам.
-            </p>
-          )}
-          {error && (
-            <div className="cx-error" role="alert">
-              {error.message}
-              <button
-                onClick={() => void send(error.question, error.operation)}
-              >
-                Повторить запрос
-              </button>
-            </div>
-          )}
         </div>
       </div>
-      <div
-        className="cx-layout"
-        data-compound={views.length > 1}
-        data-answered={chat.turns.some((entry) => !!entry.question)}
-      >
-        {(views.length ? views : [null]).map((view, index) => {
-          const choose = (group: CanvasGroup | null) => {
-            if (view)
-              setChat((c) => ({ ...c, selection: { group, result: view } }));
-          };
-          return (
-            <section
-              key={index}
-              className="cx-board"
-              data-secondary={index > 0}
-              aria-label={
-                index
-                  ? "Дополнительный срез · " + view?.title
-                  : "Визуализация среза"
-              }
-              aria-busy={busy !== null}
-            >
-              <header className="cx-board-head">
-                <div className="cx-board-caption">
-                  <i aria-hidden="true" />
-                  {view?.intent.layout === "comparison"
-                    ? "Сравнение"
-                    : view?.intent.layout === "list"
-                      ? "Реестр"
-                      : view?.intent.groupBy === "symptom"
-                        ? "Карта симптомов"
-                        : view?.intent.groupBy === "deadline"
-                          ? "Временные окна"
-                          : "Распределение"}
-                </div>
-                {view && (
-                  <span className="cx-revision">Версия {view.revision}</span>
-                )}
-              </header>
-              {view ? (
-                <div key={view.selection} className="cx-view">
-                  <div className="cx-view-title">
-                    <h2>{view.title || labels[view.intent.groupBy]}</h2>
-                    <button
-                      className="cx-view-total"
-                      title="Открыть все инциденты"
-                      onClick={() => choose(null)}
-                      disabled={!view.total}
-                    >
-                      <b>{displayCount(view.total)}</b>
-                      <span>в выборке ↗</span>
-                    </button>
-                  </div>
-                  <CanvasFigure result={view} {...{ choose, ns, open, zone }} />
-                </div>
-              ) : (
-                <div className="cx-board-empty">
-                  <div className="cx-ghost" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                  </div>
-                  <p role="status">
-                    {busy !== null ? "Открываем срез…" : "Срез ещё не загружен"}
-                  </p>
-                  {busy === null && !error && (
-                    <button onClick={() => void send("")}>
-                      Загрузить срез
-                    </button>
-                  )}
-                </div>
-              )}
-              {!index && stale && (
-                <div className="cx-stale">
-                  <span>Есть новая версия источника</span>
-                  <button onClick={() => void send("", "refresh")}>
-                    Обновить срез ↗
-                  </button>
-                </div>
-              )}
-            </section>
-          );
-        })}
-        <section className="cx-dialogue" aria-labelledby="cx-dialogue-title">
-          <header>
-            <div>
-              <span className="cx-chat-icon" aria-hidden="true">
-                <svg
-                  viewBox="0 0 20 20"
-                  width="18"
-                  height="18"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                >
-                  <path d="M4 3.5h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9l-4 3v-3H4a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z" />
-                </svg>
-              </span>
-              <h2 id="cx-dialogue-title">Диалог</h2>
-            </div>
-            <button
-              type="button"
-              className="cx-reset"
-              disabled={!chat.turns.length && !chat.draft}
-              onClick={() => {
-                setChat(emptyConversation());
-                setError(null);
-                void send("", "reset");
-                composer.current?.focus();
-              }}
-            >
-              <span aria-hidden="true">↺</span> Новый диалог
-            </button>
-          </header>
+      {historyOpen && (
+        <HistoryDialog
+          close={() => setHistoryOpen(false)}
+          reset={() => {
+            setHistoryOpen(false);
+            setChat(emptyConversation());
+            void send("", "reset");
+            composer.current?.focus();
+          }}
+        >
           <ConversationLog
             turns={chat.turns}
             active={chat.active}
-            activate={(active) =>
-              setChat((c) => ({ ...c, active, selection: null }))
-            }
+            activate={(active) => {
+              setChat((c) => ({ ...c, active, panel: 0, selection: null }));
+              setHistoryOpen(false);
+            }}
             {...{ open, ns, busy }}
           />
-          {result && result.metrics.length > 0 && (
-            <div className="cx-facts">
-              <dl>
-                {result.metrics
-                  .filter((metric) => metric.key !== "total")
-                  .map((metric) => (
-                    <div key={metric.key}>
-                      <dt>{metric.label}</dt>
-                      <dd>{displayCount(metric.value)}</dd>
-                    </div>
-                  ))}
-              </dl>
-            </div>
-          )}
-          {result &&
-            !result.blocks.length &&
-            result.intent.layout !== "list" &&
-            result.tickets.length > 0 && (
-              <div className="cx-evidence">
-                <h3>Карточки в срезе</h3>
-                {result.tickets.slice(0, 2).map((ticket) => (
-                  <a
-                    key={ticket.id}
-                    href={screenLink(
-                      "/incident/" + encodeURIComponent(ticket.id),
-                      ns,
-                    )}
-                    onClick={(e) => {
-                      if (
-                        !e.metaKey &&
-                        !e.ctrlKey &&
-                        !e.altKey &&
-                        !e.shiftKey
-                      ) {
-                        e.preventDefault();
-                        open(ticket.id);
-                      }
-                    }}
-                  >
-                    <span>{ticket.id}</span>
-                    <b>{ticket.header}</b>
-                    <i aria-hidden="true">↗</i>
-                  </a>
-                ))}
-              </div>
-            )}
-        </section>
-      </div>
+        </HistoryDialog>
+      )}
       {chat.selection && (
         <CanvasDrawer
           key={chat.selection.result.selection + chat.selection.group?.key}
           group={chat.selection.group}
           result={chat.selection.result}
-          refresh={() => void send("", "refresh")}
+          offset={chat.selection.offset}
+          setOffset={(offset) =>
+            setChat((c) =>
+              c.selection ? { ...c, selection: { ...c.selection, offset } } : c,
+            )
+          }
           close={() => setChat((c) => ({ ...c, selection: null }))}
+          refresh={() => void send("", "refresh")}
           {...{ ns, zone, open }}
         />
       )}

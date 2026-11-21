@@ -12,6 +12,13 @@
   height: auto;
   aspect-ratio: 3/2;
 }
+.melon-hero-poster {
+  background: url("./assets/melon-cut-poster.webp") center / contain no-repeat;
+}
+html[data-theme="dark"] .melon-hero-poster {
+  background-image: url("./assets/melon-cut-night.webp");
+}
+html[data-theme="dark"] .melon-view:focus-visible { outline-color: var(--wm-violet); }
 .melon-view,
 .melon-scene__canvas,
 .melon-scene__paper,

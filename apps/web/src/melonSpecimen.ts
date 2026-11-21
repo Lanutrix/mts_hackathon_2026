@@ -1,6 +1,6 @@
 // Three sample numbers etched into the guest optic. Both renderers use the
 // same transparent decal atlas. No ticket identifier enters the guest scene.
-export function specimenDecals() {
+export function specimenDecals(dark = false) {
   const cell = 160;
   const sheet = document.createElement("canvas");
   sheet.width = cell * 3;
@@ -9,7 +9,7 @@ export function specimenDecals() {
   for (let i = 0; i < 3; i++) {
     ctx.save();
     ctx.translate(i * cell, 0);
-    ctx.strokeStyle = "#3c2448";
+    ctx.strokeStyle = dark ? "#f5eafb" : "#3c2448";
     ctx.lineWidth = 3.4;
     ctx.beginPath();
     for (const x of [-1, 1])
@@ -19,7 +19,7 @@ export function specimenDecals() {
         ctx.lineTo(35 + 5 * x, 35 + 13 * y);
       }
     ctx.stroke();
-    ctx.fillStyle = "#35243f";
+    ctx.fillStyle = dark ? "#fff7ff" : "#35243f";
     ctx.beginPath();
     ctx.ellipse(35, 35, 3.2, 5.2, 0.64, 0, Math.PI * 2);
     ctx.fill();

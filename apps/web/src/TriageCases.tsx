@@ -11,6 +11,54 @@ const dimensions = [
   ["team", "По команде"],
 ] as const;
 
+function caseCriterion(record: TriageCase, dimension: string) {
+  if (dimension === "symptom") {
+    const field = record.evidence[0]?.field;
+    const source =
+      field === "header"
+        ? "в теме"
+        : field === "shortDescription"
+          ? "в кратком описании"
+          : "в описании";
+    if (record.label === "Признак не определён")
+      return "В описании заявки не удалось выделить симптом.";
+    return "Пример " + source + " заявки";
+  }
+  const field =
+    dimension === "team"
+      ? "Команда"
+      : dimension === "product"
+        ? "Продукт"
+        : "Приоритет";
+  return field + " в карточке заявки";
+}
+
+function CaseExample({
+  record,
+  dimension,
+  open,
+}: {
+  record: TriageCase;
+  dimension: string;
+  open: (id: string) => void;
+}) {
+  const quote =
+    dimension === "symptom" ? record.evidence[0]?.value : record.label;
+  return (
+    <div className="case-example">
+      <p className="case-criterion">{caseCriterion(record, dimension)}</p>
+      <button
+        type="button"
+        className="case-source"
+        onClick={() => open(record.lead.id)}
+      >
+        {record.lead.id} ↗
+      </button>
+      {quote && <blockquote title={quote}>{quote}</blockquote>}
+    </div>
+  );
+}
+
 export function caseRequest(
   record: TriageCase,
   query: string,
@@ -49,9 +97,18 @@ type Props = {
 export default function TriageCases(props: Props) {
   const { cases, chosen, dimension, amount, setParam } = props;
   const [offset, setOffset] = useState(0);
-  const perPage = 4;
+  const [shortDisplay, setShortDisplay] = useState(
+    () => matchMedia("(max-height: 950px)").matches,
+  );
+  useEffect(() => {
+    const media = matchMedia("(max-height: 950px)");
+    const resize = () => setShortDisplay(media.matches);
+    media.addEventListener("change", resize);
+    return () => media.removeEventListener("change", resize);
+  }, []);
+  const perPage = shortDisplay && cases.length > 3 ? 2 : 4;
   const start = Math.min(
-    offset,
+    Math.floor(offset / perPage) * perPage,
     Math.max(0, Math.floor((cases.length - 1) / perPage) * perPage),
   );
   const focus = chosen ?? cases[0];
@@ -177,7 +234,8 @@ export default function TriageCases(props: Props) {
             </button>
           </div>
           <strong className="case-insight-name">{focus.label}</strong>
-          <p>
+          <CaseExample record={focus} dimension={dimension} open={props.open} />
+          <p className="case-recommendation">
             <TicketMentions
               text={focus.recommendation}
               ids={[focus.topId, ...focus.evidence.map((e) => e.id)]}
@@ -186,6 +244,15 @@ export default function TriageCases(props: Props) {
               className="case-source"
             />
           </p>
+          {!chosen && (
+            <button
+              className="case-drill"
+              type="button"
+              onClick={() => pick(focus.id)}
+            >
+              Тикеты кейса · {focus.count} <span aria-hidden="true">→</span>
+            </button>
+          )}
           {props.canDispatch && (
             <button
               className="dispatch-entry"
@@ -213,6 +280,7 @@ export default function TriageCases(props: Props) {
 
 function CaseDialog({
   record,
+  dimension,
   inQueue,
   query,
   ns,
@@ -282,6 +350,14 @@ function CaseDialog({
         </button>
       </div>
       <h2 id="case-dialog-title">{record.label}</h2>
+      <CaseExample
+        record={record}
+        dimension={dimension}
+        open={(id) => {
+          close();
+          open(id);
+        }}
+      />
       <dl className="case-facts">
         <div>
           <dt>Тикеты</dt>

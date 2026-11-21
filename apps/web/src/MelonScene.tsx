@@ -23,7 +23,6 @@ type Props = {
   onGroupSelect?: (group: MelonFilter) => void;
 };
 const still = new URL("./assets/melon-studio-focus.webp", import.meta.url).href;
-const poster = new URL("./assets/melon-cut-poster.webp", import.meta.url).href;
 export default function MelonScene({
   active,
   counts,
@@ -219,9 +218,15 @@ export default function MelonScene({
             </div>
           </div>
         )}
-        {(mode === "poster" || (hero && mode === "waiting")) && (
+        {hero && (mode === "poster" || mode === "waiting") && (
+          <span
+            className="melon-scene__still melon-hero-poster"
+            aria-hidden="true"
+          />
+        )}
+        {!hero && mode === "poster" && (
           <img
-            src={hero ? poster : still}
+            src={still}
             alt=""
             draggable="false"
             className="melon-scene__still"

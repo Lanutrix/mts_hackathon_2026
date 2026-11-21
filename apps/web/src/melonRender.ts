@@ -1,6 +1,7 @@
 import { canvasRenderer } from "./melonCanvas";
 import {
-  cutDuration,
+  coast,
+  heroRestPhase,
   groupLoads,
   melonGroups,
   modelPoses,
@@ -49,6 +50,7 @@ export function mountMelon(
   const scene = renderer;
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   const rotations = { fruit: orbit(), frame: orbit() };
+  const nudges = { fruit: { yaw: 0, pitch: 0 }, frame: { yaw: 0, pitch: 0 } };
   let target: ObjectName = "fruit",
     paused = reduced.matches;
   let model = initial,
@@ -81,9 +83,10 @@ export function mountMelon(
   let request = 0,
     lastTick = 0,
     lastDraw = 0,
-    phase = hero && reduced.matches ? cutDuration : 0,
+    phase = hero ? heroRestPhase : 0,
     pickFrame: SceneFrame | null = null;
   let shown = false,
+    resetting = false,
     disposed = false,
     width = 0,
     height = 0,
@@ -162,28 +165,48 @@ export function mountMelon(
     if (!canDraw()) return;
     // A floating instrument has no high-frequency detail at rest. Direct manipulation
     // still draws at the refresh rate when the renderer supports it.
-    const interval = drag && hardware ? 0 : hardware ? 1000 / 30 : 1000 / 24;
+    const interval = hardware && (hero || drag) ? 0 : 1000 / 30;
     if (lastDraw && time - lastDraw < interval - 0.8) {
       schedule();
       return;
     }
-    const dt = lastTick ? Math.min((time - lastTick) / 1000, 0.08) : 1 / 30;
-    lastDraw = time;
+    const dt = lastTick ? Math.min((time - lastTick) / 1000, 0.05) : 0;
+    lastDraw =
+      interval && lastDraw
+        ? lastDraw +
+          Math.max(1, Math.floor((time - lastDraw + 0.8) / interval)) * interval
+        : time;
     lastTick = time;
     if (!paused) phase += dt;
     let moving = false;
+    if (resetting) {
+      const remaining = Math.exp(-8 * dt);
+      for (const a of Object.values(rotations)) {
+        a.yaw *= remaining;
+        a.pitch *= remaining;
+      }
+      resetting = Object.values(rotations).some(
+        (a) => Math.abs(a.yaw) + Math.abs(a.pitch) > 0.001,
+      );
+      moving = resetting;
+    }
     for (const key of ["fruit", "frame"] as const) {
       const a = rotations[key];
+      const nudge = nudges[key];
+      if (Math.abs(nudge.yaw) + Math.abs(nudge.pitch) > 0.0001) {
+        const blend = paused ? 1 : 1 - Math.exp(-16 * dt);
+        a.yaw += nudge.yaw * blend;
+        a.pitch += nudge.pitch * blend;
+        nudge.yaw *= 1 - blend;
+        nudge.pitch *= 1 - blend;
+        moving = true;
+      }
       if (
         drag?.object !== key &&
         !paused &&
         Math.abs(a.vx) + Math.abs(a.vy) > 0.015
       ) {
-        a.yaw += a.vx * dt;
-        a.pitch += a.vy * dt;
-        const friction = Math.exp(-3.2 * dt);
-        a.vx *= friction;
-        a.vy *= friction;
+        coast(a, dt);
         moving = true;
       }
     }
@@ -244,18 +267,31 @@ export function mountMelon(
   }
   function setPaused(value: boolean) {
     paused = value;
-    if (value)
+    if (value) {
+      resetting = false;
       for (const a of Object.values(rotations)) {
         a.vx = 0;
         a.vy = 0;
       }
+    }
     events.paused(value);
     schedule();
   }
   function reset() {
+    for (const nudge of Object.values(nudges)) nudge.yaw = nudge.pitch = 0;
+    if (hero && !paused) {
+      for (const a of Object.values(rotations)) {
+        a.yaw = Math.atan2(Math.sin(a.yaw), Math.cos(a.yaw));
+        a.pitch = Math.atan2(Math.sin(a.pitch), Math.cos(a.pitch));
+        a.vx = a.vy = 0;
+      }
+      resetting = true;
+      schedule();
+      return;
+    }
     Object.assign(rotations.fruit, orbit());
     Object.assign(rotations.frame, orbit());
-    phase = hero && paused ? cutDuration : 0;
+    phase = hero ? heroRestPhase : 0;
     schedule();
   }
   function down(e: PointerEvent) {
@@ -269,6 +305,8 @@ export function mountMelon(
     if (!hit && e.pointerType === "touch") return;
     const selected = hit === 5 ? "frame" : hit > 0 ? "fruit" : target;
     choose(selected);
+    resetting = false;
+    nudges[selected].yaw = nudges[selected].pitch = 0;
     const a = rotations[selected];
     a.vx = 0;
     a.vy = 0;
@@ -301,9 +339,10 @@ export function mountMelon(
     const angle = 3.6 / Math.max(165, Math.min(width, height * 1.5));
     a.yaw += dx * angle;
     a.pitch += dy * angle;
-    const elapsed = Math.max(12, e.timeStamp - drag.last) / 1000;
-    a.vx = cap((dx * angle) / elapsed, 4.2);
-    a.vy = cap((dy * angle) / elapsed, 4.2);
+    const elapsed = Math.max(4, e.timeStamp - drag.last) / 1000;
+    const blend = 1 - Math.exp(-elapsed * 24);
+    a.vx += (cap((dx * angle) / elapsed, 4.2) - a.vx) * blend;
+    a.vy += (cap((dy * angle) / elapsed, 4.2) - a.vy) * blend;
     drag.x = e.clientX;
     drag.y = e.clientY;
     drag.last = e.timeStamp;
@@ -333,7 +372,8 @@ export function mountMelon(
     schedule();
   }
   function keyboard(e: KeyboardEvent) {
-    const a = rotations[target],
+    resetting = false;
+    const a = hero && !paused ? nudges[target] : rotations[target],
       step = e.shiftKey ? 0.42 : 0.14;
     switch (e.key) {
       case "1":
@@ -374,9 +414,28 @@ export function mountMelon(
     schedule();
   }
   const motionChange = () => {
-    if (hero && reduced.matches) phase = cutDuration;
+    if (hero && reduced.matches) phase = heroRestPhase;
     setPaused(reduced.matches);
   };
+  const root = document.documentElement;
+  function updateTheme() {
+    const dark = root.dataset.theme === "dark";
+    const background = getComputedStyle(
+      surface.closest(".landing") ?? root,
+    ).backgroundColor;
+    const rgb = background.match(/[\d.]+/g)?.map(Number);
+    const paper: Vec =
+      rgb && background.startsWith("rgb") && rgb.length >= 3 && rgb[3] !== 0
+        ? [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255]
+        : dark
+          ? [0.071, 0.065, 0.085]
+          : [0.886, 0.878, 0.933];
+    scene.theme(dark, paper);
+    schedule();
+  }
+  const palette = new MutationObserver(updateTheme);
+  palette.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  updateTheme();
   const obs = new ResizeObserver(resize);
   obs.observe(surface);
   const intersect = new IntersectionObserver(([entry]) => {
@@ -408,6 +467,7 @@ export function mountMelon(
       cancelAnimationFrame(request);
       abort.abort();
       intersect.disconnect();
+      palette.disconnect();
       obs.disconnect();
       scene.dispose();
     },

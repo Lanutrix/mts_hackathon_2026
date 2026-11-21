@@ -29,6 +29,29 @@ test.beforeAll(async () => {
   db = await openDB(":memory:");
   const store = new Store(db, "demo");
   const original = new Store(db, "original");
+  const varied = new Store(db, "workspace");
+  const products = [
+    "Платежи",
+    "Поиск",
+    "Лента",
+    "Кино",
+    "Музыка",
+    "Каталог",
+    "Подписки",
+    "Бонусы",
+    "Уведомления",
+    "Доставка",
+  ];
+  const variedRows = generate(24).rows.map((row, i) => ({
+    ...row,
+    productName: products[i % 10],
+    assignedGroupName: i < 15 ? "Платформа" : "Поддержка",
+    isNeedUp: i < 10,
+    deadline: new Date(
+      Date.now() + (i % 3 ? 3600_000 : -3600_000),
+    ).toISOString(),
+  }));
+  await varied.ingest(JSON.stringify(variedRows));
   await store.ingest(JSON.stringify(rows));
   const auth = new Auth();
   auth.users.push({
@@ -47,10 +70,12 @@ test.beforeAll(async () => {
     stores: new Map([
       ["demo", store],
       ["original", original],
+      ["workspace", varied],
     ]),
     sources: new Map([
       ["demo", new FileSource(store, "demo")],
       ["original", new FileSource(original, "original")],
+      ["workspace", new FileSource(varied, "workspace")],
     ]),
     auth,
     publicDemo: true,
@@ -91,7 +116,7 @@ async function enter(page: Page) {
   );
   await page.goto(origin + "/workspace");
   const data: CanvasResult = await (await response).json();
-  await expect(page.getByTestId("symptom-atlas")).toBeVisible();
+  await expect(page.getByTestId("group-field")).toBeVisible();
   return data;
 }
 async function ask(page: Page, question: string) {
@@ -104,11 +129,15 @@ async function ask(page: Page, question: string) {
   await input.fill(question);
   await input.press("Enter");
   const result: CanvasResult = await (await response).json();
-  await expect(page.getByRole("log")).toContainText(question);
+  await expect(page.locator(".cx-stage")).toHaveAttribute("aria-busy", "false");
   return result;
 }
 async function capture(page: Page, name: string) {
-  if (!process.env.CANVAS_SCREENSHOTS || test.info().project.name !== "chromium") return;
+  if (
+    !process.env.CANVAS_SCREENSHOTS ||
+    test.info().project.name !== "chromium"
+  )
+    return;
   await mkdir(process.env.CANVAS_SCREENSHOTS, { recursive: true });
   await page.screenshot({
     path: resolve(process.env.CANVAS_SCREENSHOTS, name + ".png"),
@@ -116,7 +145,7 @@ async function capture(page: Page, name: string) {
   });
 }
 
-test("atlas to compound views to incident and back preserves the conversation and each exact selection", async ({
+test("square map to compound views to incident and back preserves the conversation and each exact selection", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 940 });
@@ -129,16 +158,11 @@ test("atlas to compound views to incident and back preserves the conversation an
     name: group.label,
   });
   await expect(groupButton).toBeVisible();
-  const report = await new AxeBuilder({ page }).include(".cx").analyze();
-  expect(
-    report.violations.filter(
-      (issue) => issue.impact === "serious" || issue.impact === "critical",
-    ),
-  ).toEqual([]);
   await capture(page, "canvas-desktop");
   await groupButton.focus();
   await page.keyboard.press("Enter");
   const drawer = page.getByRole("dialog", { name: group.label });
+  await expect(drawer.getByRole("link").first()).toBeVisible();
   const selection = new URLSearchParams({
     ns: "demo",
     selection: first.selection,
@@ -147,21 +171,24 @@ test("atlas to compound views to incident and back preserves the conversation an
   const expected: CanvasPage = await (
     await page.request.get(origin + "/api/canvas/tickets?" + selection)
   ).json();
-  await expect(drawer.getByRole("link")).toHaveCount(expected.items.length);
+
+  const count = await drawer.getByRole("link").count();
+  expect(count).toBeGreaterThan(0);
+  expect(count).toBeLessThan(expected.total);
   await expect(drawer.getByRole("link").first()).toHaveAttribute(
     "href",
     "/incident/" + expected.items[0].id,
   );
-  if (expected.nextOffset !== null) {
-    await drawer.getByRole("button", { name: "Показать ещё" }).click();
-    await expect(drawer.getByRole("link")).toHaveCount(
-      Math.min(60, expected.total),
-    );
-  }
+  await drawer.getByRole("button", { name: "Следующая страница" }).click();
+  await expect(drawer.getByRole("link").first()).toHaveAttribute(
+    "href",
+    "/incident/" + expected.items[count].id,
+  );
   await page.keyboard.press("Escape");
   await expect(groupButton).toBeFocused();
-  await page.getByRole("button", { name: "Команды и сроки" }).click();
-  await expect(page.getByTestId("group-ranking")).toBeVisible();
+  await ask(page, "Сгруппируй по командам и рядом покажи сроки");
+  await expect(page.getByTestId("group-field")).toBeVisible();
+
   const deadlines = page.getByTestId("deadline-windows");
   await expect(deadlines).toBeVisible();
   await capture(page, "canvas-compound");
@@ -179,9 +206,11 @@ test("atlas to compound views to incident and back preserves the conversation an
     href!,
   );
   await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "История диалога" }).click();
   await expect(page.getByRole("log")).toContainText(
     "Сгруппируй по командам и рядом покажи сроки",
   );
+  await page.getByRole("button", { name: "Закрыть историю" }).click();
   const filtered = await ask(page, "Покажи просроченные заявки списком");
   expect(filtered.intent.filters.deadline).toBe("overdue");
   await expect(
@@ -193,11 +222,97 @@ test("atlas to compound views to incident and back preserves the conversation an
   await expect(page.getByTestId("group-comparison")).toBeVisible();
   await capture(page, "canvas-compare");
   await ask(page, "Какая была выручка вчера?");
-  await expect(page.getByRole("log")).toContainText("недостаточно");
+  await expect(page.locator(".cx-latest")).toContainText("недостаточно");
   await expect(page.getByTestId("group-comparison")).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.getByRole("button", { name: "История диалога" }).click();
+  await expect
+    .poll(() =>
+      page.getByRole("log").evaluate((el) => el.scrollHeight > el.clientHeight),
+    )
+    .toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollHeight <= innerHeight + 1,
+    ),
+  ).toBe(true);
+  await expect
+    .poll(() =>
+      page
+        .getByRole("log")
+        .evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop),
+    )
+    .toBeLessThanOrEqual(2);
+  await capture(page, "canvas-history");
   await page.getByRole("button", { name: "Новый диалог" }).click();
-  await expect(page.getByTestId("symptom-atlas")).toBeVisible();
+  await expect(page.getByTestId("group-field")).toBeVisible();
+  await page.getByRole("button", { name: "История диалога" }).click();
   await expect(page.getByRole("log")).not.toContainText("выручка");
+});
+
+test("two and ten real groups repack by weight, paginate on smaller screens and keep the composer in view", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect(
+    (
+      await page.request.post(origin + "/api/login", { data: credentials })
+    ).ok(),
+  ).toBe(true);
+  await page.goto(origin + "/workspace?ns=workspace");
+  await expect(page.getByTestId("group-field")).toBeVisible();
+  const two = await ask(page, "Сгруппируй заявки по командам");
+  expect(two.groups.length).toBe(2);
+  const field = page.getByTestId("group-field"),
+    squares = field.locator(".cx-square");
+  await expect(squares).toHaveCount(2);
+  await capture(page, "canvas-two");
+  const weighted = await ask(page, "Размер групп по числу эскалаций");
+  await expect(field).toHaveAttribute("data-weight", "escalated");
+  expect(weighted.total).toBe(two.total);
+  await expect(field.locator('[data-zero="true"]')).toHaveCount(1);
+  await field.getByRole("button", { name: /Поддержка/ }).click();
+  await expect(
+    page.getByRole("dialog").getByRole("link").first(),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  const ten = await ask(
+    page,
+    "Сгруппируй по продуктам, размер по количеству заявок",
+  );
+  expect(ten.groups.length).toBe(10);
+  await expect(squares).toHaveCount(10);
+  const expected = ten.groups[0].count / ten.groups.at(-1)!.count;
+  await expect
+    .poll(() =>
+      squares.evaluateAll((nodes) => {
+        const side = (el: Element) =>
+          el.querySelector(".cx-square-ink")!.getBoundingClientRect().width;
+        return Math.round((side(nodes[0]) / side(nodes.at(-1)!)) ** 2 * 100);
+      }),
+    )
+    .toBe(Math.round(expected * 100));
+  await capture(page, "canvas-ten");
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expect(
+    field.getByRole("button", { name: "Следующая страница" }),
+  ).toBeVisible();
+  const names = new Set<string>();
+  while (true) {
+    for (const text of await squares.allTextContents()) names.add(text);
+    const next = field.getByRole("button", { name: "Следующая страница" });
+    if (await next.isDisabled()) break;
+    await next.click();
+  }
+  expect(names.size).toBe(10);
+  await expect(
+    page.getByRole("textbox", { name: "Вопрос об инцидентах" }),
+  ).toBeInViewport();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollHeight <= innerHeight + 1,
+    ),
+  ).toBe(true);
 });
 
 test("a reader can inspect an empty private source without submitting model questions", async ({
@@ -231,14 +346,47 @@ test("a mobile keyboard can ask, recover from a failed request, cancel, and reop
   await page.setViewportSize({ width: 390, height: 844 });
   const first = await enter(page);
   await capture(page, "canvas-mobile");
-  for (const width of [390, 320]) {
-    await page.setViewportSize({ width, height: 844 });
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
+
+  for (const size of [
+    { width: 390, height: 844 },
+    { width: 320, height: 568 },
+    { width: 720, height: 390 },
+  ]) {
+    await page.setViewportSize(size);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const field = document
+            .querySelector(".cx-stage")!
+            .getBoundingClientRect();
+          const dock = document
+            .querySelector(".cx-composer")!
+            .getBoundingClientRect();
+          const marks = [...document.querySelectorAll(".cx-square")].map((el) =>
+            el.getBoundingClientRect(),
+          );
+          return (
+            document.documentElement.scrollWidth <= innerWidth &&
+            document.documentElement.scrollHeight <= innerHeight + 1 &&
+            dock.bottom <= innerHeight + 1 &&
+            dock.top >= field.bottom - 1 &&
+            marks.length > 0 &&
+            marks.every(
+              (rect) =>
+                rect.left >= field.left - 1 &&
+                rect.right <= field.right + 1 &&
+                rect.top >= field.top - 1 &&
+                rect.bottom <= field.bottom + 1,
+            )
+          );
+        }),
+      )
+      .toBe(true);
   }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await capture(page, "canvas-dark-mobile");
   fault = {
     method: "POST",
     path: "/api/canvas",
@@ -302,7 +450,29 @@ test("a mobile keyboard can ask, recover from a failed request, cancel, and reop
   expect((await refresh).postDataJSON().context.groupBy).toBe("priority");
   await expect(drawer.getByRole("link").first()).toBeVisible();
   await drawer.getByRole("button", { name: "Закрыть выборку" }).click();
+  await page.getByRole("button", { name: "История диалога" }).click();
   await expect(page.getByRole("log")).toContainText("Сравни приоритеты");
+  await page.getByRole("button", { name: "Закрыть историю" }).click();
   await expect(page.getByTestId("group-comparison")).toBeVisible();
   expect(first.total).toBeGreaterThan(0);
 });
+
+for (const view of ["map", "selection"] as const) {
+  test("accessibility of the " + view, async ({ page }) => {
+    const start = await enter(page);
+    if (view === "selection") {
+      await page.getByRole("button", { name: start.groups[0].label }).click();
+      await expect(
+        page.getByRole("dialog").getByRole("link").first(),
+      ).toBeVisible();
+    }
+    const report = await new AxeBuilder({ page })
+      .include(view === "map" ? ".cx" : "dialog[open]")
+      .analyze();
+    expect(
+      report.violations.filter(
+        (issue) => issue.impact === "serious" || issue.impact === "critical",
+      ),
+    ).toEqual([]);
+  });
+}

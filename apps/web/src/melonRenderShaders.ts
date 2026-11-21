@@ -30,6 +30,10 @@ void main() {
 export const fragmentSource = `
 precision highp float;
 uniform float u_floor, u_index, u_focus, u_hero, u_pick;
+uniform float u_dark;
+uniform vec3 u_paper;
+uniform vec4 u_scannerPlane;
+uniform float u_glassSide;
 uniform vec4 u_loads, u_selection, u_occupied;
 uniform vec2 u_viewport;
 uniform sampler2D u_backdrop, u_decal;
@@ -81,10 +85,14 @@ void main() {
     p.x-=.01;
     float wide=exp(-2.0*(p.x*p.x/2.0+pow((p.y+mix(.94,1.21,u_hero)-p.x*.030)/.16,2.)));
     float near=exp(-2.1*(p.x*p.x/.93+pow((p.y+mix(.94,1.21,u_hero)-p.x*.030)/.069,2.)));
-    gl_FragColor=vec4(.16,.125,.22,.13*wide+.16*near);
+    gl_FragColor=vec4(mix(vec3(.16,.125,.22),vec3(.45,.29,.60),u_dark),.13*wide+.16*near);
     return;
   }
   if(v_material>2.5) {
+    if(v_material>4.5 && u_glassSide!=0.) {
+      float distanceToCut=dot(u_scannerPlane,vec4(v_world,1.));
+      if((distanceToCut>=0.)!=(u_glassSide>0.)) discard;
+    }
     vec3 n=normalize(v_normal);
     vec3 eye=normalize(vec3(0.,0.,8.)-v_world);
     if(u_hero>.5 && dot(n,eye)<=0.) discard;
@@ -99,7 +107,7 @@ void main() {
     vec2 uv=gl_FragCoord.xy/u_viewport;
     vec2 offset=n.xy*(.006+.023*(1.-facing));
     vec4 refractImage=texture2D(u_backdrop, clamp(uv-offset,vec2(.001),vec2(.999)));
-    vec3 bg=vec3(.886,.878,.933);
+    vec3 bg=u_paper;
     vec3 transmitted=(refractImage.rgb+bg*(1.-refractImage.a));
     if (v_material>3.5) {
       bool tile=v_material>4.5;
@@ -113,6 +121,8 @@ void main() {
       paper.b=blue.b+bg.b*(1.-blue.a);
       vec3 tint=tile ? vec3(.76,.63,.92) : vec3(.82,.73,.95);
       vec3 pane=paper*tint+vec3(.035,.022,.044);
+      pane+=u_dark*vec3(.095,.048,.15);
+      if(tile) pane=mix(pane,pane*vec3(.43,.38,.53)+vec3(.048,.028,.086),u_dark*.80);
       float stripe=exp(-pow((p.x+.69*p.y+.20*v_world.x-.30)*3.3,2.));
       pane=mix(pane,vec3(1.,.974,1.),stripe*(tile?.34:.19));
       pane=mix(pane,vec3(.99,.95,1.),bevel*(.40+.55*whiteStrip));
@@ -122,7 +132,7 @@ void main() {
         pane=mix(pane,vec3(.94,.9,1.),border*.85);
         vec2 decalUV=vec2((u_index+.5+.5*p.x)/3.,.5-.5*p.y);
         vec4 ink=texture2D(u_decal,decalUV);
-        pane=mix(pane,ink.rgb,ink.a);
+        pane=mix(pane,mix(ink.rgb,vec3(.98,.95,1.),u_dark),ink.a);
         strength=max(strength,ink.a);
       } else {
         float rule=1.-smoothstep(.004,.013,abs(edgeDist-.037));
@@ -146,6 +156,7 @@ void main() {
     float sheet=clamp(v_local.z*7.+.38,0.,1.);
     glass=mix(glass,vec3(.30,.117,.43),band*(.37+.63*sheet));
     glass=mix(glass,vec3(.985,.92,1.),ghost*(.28+.72*sheet));
+    glass+=u_dark*(.04+.14*fresnel)*vec3(.67,.48,.94);
     float ribbon=exp(-pow((v_local.x+.72*v_local.y-.67)*6.4,2.));
     glass=mix(glass,vec3(1.,.963,1.),.29*ribbon*(.28+.72*facing));
     // Four separate engraved gauges use unique incidents as their denominator.
@@ -206,6 +217,7 @@ void main() {
   float lighting=.74+.27*sun+.095*bounce;
   float sheen=pow(max(dot(normal,normalize(key+vec3(0,0,1))),0.),skin?27.:38.);
   color=color*lighting+sheen*(skin?.095:.02);
+  color=color*mix(1.,.86,u_dark)+u_dark*vec3(.13,.10,.16)*pow(1.-abs(normal.z),2.);
   color*=.95+.05*smoothstep(-.92,.14,v_world.y);
   color*=1.-.045*u_focus;
   if(u_hero<.5 && !skin && radius>.77 && radius<.91) {

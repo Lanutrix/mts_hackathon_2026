@@ -21,7 +21,7 @@
   margin: 0 calc(-1 * var(--gutter));
   padding: 8px var(--gutter);
   background: transparent;
-  border-bottom: 1px solid #c6c2d2;
+  border-bottom: 1px solid var(--wm-line);
 }
 .ops-brand {
   display: flex;
@@ -55,7 +55,7 @@
 }
 .primary-switch a[aria-current="page"] {
   background: var(--text);
-  color: #fff;
+  color: var(--wm-on-ink);
   text-decoration: none;
 }
 .primary-switch a:hover:not([aria-current]) {
@@ -584,7 +584,7 @@
 }
 @keyframes signal-wash {
   0% {
-    background: #f9dbe3;
+    background: var(--wm-critical-wash);
   }
   100% {
     background: transparent;

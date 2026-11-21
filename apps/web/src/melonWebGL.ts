@@ -1,6 +1,6 @@
 import { glassMesh, glassPlate, melonMesh } from "./melonRenderGeometry";
 import { fragmentSource, vertexSource } from "./melonRenderShaders";
-import { rotate, type Pose } from "./melonModel";
+import { pixels, rotate, world, type Pose } from "./melonModel";
 import { specimenDecals } from "./melonSpecimen";
 
 function makeProgram(gl: WebGLRenderingContext) {
@@ -40,6 +40,7 @@ export type SceneFrame = {
 };
 export interface SceneRenderer {
   centers: number[];
+  theme(dark: boolean, paper: [number, number, number]): void;
   resize(width: number, height: number, scale: number): void;
   draw(frame: SceneFrame): void;
   pick(frame: SceneFrame, x: number, y: number): number;
@@ -111,6 +112,10 @@ export function webGLRenderer(
       "index",
       "focus",
       "hero",
+      "dark",
+      "paper",
+      "scannerPlane",
+      "glassSide",
       "viewport",
       "loads",
       "selection",
@@ -167,7 +172,32 @@ export function webGLRenderer(
   );
   gl.clearColor(0, 0, 0, 0);
   let width = 0,
-    height = 0;
+    height = 0,
+    renderScale = 0;
+  function captureGlass(p: Pose, small: boolean) {
+    let x = 0,
+      y = 0,
+      w = width,
+      h = height;
+    if (small) {
+      const corners = [-0.5, 0.5].flatMap((u) =>
+        [-0.5, 0.5].map((v) =>
+          pixels(world([u, v, 0], p), width, height, renderScale),
+        ),
+      );
+      const xs = corners.map((pt) => pt[0]);
+      const ys = corners.map((pt) => height - pt[1]);
+      // Include the projected bevel and the furthest chromatic refraction tap.
+      const padx = width * 0.055 + 3,
+        pady = height * 0.055 + 3;
+      x = Math.max(0, Math.floor(Math.min(...xs) - padx));
+      y = Math.max(0, Math.floor(Math.min(...ys) - pady));
+      w = Math.min(width, Math.ceil(Math.max(...xs) + padx)) - x;
+      h = Math.min(height, Math.ceil(Math.max(...ys) + pady)) - y;
+    }
+    if (w > 0 && h > 0)
+      gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, x, y, x, y, w, h);
+  }
   function pose(p: Pose) {
     gl.uniform3fv(uniforms.rotation, p.twist);
     gl.uniform3fv(uniforms.translation, p.offset);
@@ -199,39 +229,63 @@ export function webGLRenderer(
       );
       gl.drawArrays(gl.TRIANGLES, s.first, s.count);
     });
-    const plates = [
+    let plates = [
       {
         pose: frame.frame,
         first: glassFirst,
         count: specimenFirst - glassFirst,
         index: -1,
+        side: 0,
       },
       ...(frame.specimens ?? []).map((p, i) => ({
         pose: p,
         first: specimenFirst,
         count: specimen.length / 7,
         index: i,
+        side: 0,
       })),
     ];
     if (hero && !picking) {
       const normal = rotate([0, 0, 1], frame.frame.camera);
-      const side = (p: Pose) =>
-        normal.reduce(
-          (n, v, i) => n + v * (p.origin[i] - frame.frame.origin[i]),
-          0,
-        ) * Math.sign(normal[2]);
-      plates.sort((a, b) => side(a.pose) - side(b.pose));
+      const offset = -normal.reduce(
+        (s, n, i) => s + n * frame.frame.origin[i],
+        0,
+      );
+      const towardEye = normal[2] * 8 + offset >= 0 ? 1 : -1;
+      gl.uniform4f(
+        uniforms.scannerPlane,
+        normal[0] * towardEye,
+        normal[1] * towardEye,
+        normal[2] * towardEye,
+        offset * towardEye,
+      );
+      const [scanner, ...samples] = plates;
+      const rear: typeof plates = [],
+        front: typeof plates = [];
+      samples.sort((a, b) => a.pose.origin[2] - b.pose.origin[2]);
+      for (const sample of samples) {
+        const side =
+          normal.reduce((s, n, i) => s + n * sample.pose.origin[i], offset) *
+          towardEye;
+        const radius = sample.pose.size * 0.71;
+        // A crossing specimen has fragments on each side of the optic. Let
+        // the cut move across its pixels instead of swapping the entire tile.
+        if (side - radius <= 0) rear.push({ ...sample, side: -1 });
+        if (side + radius >= 0) front.push({ ...sample, side: 1 });
+      }
+      plates = [...rear, scanner, ...front];
       gl.enable(gl.BLEND);
       gl.depthMask(false);
     }
     for (const plate of plates) {
       pose(plate.pose);
+      gl.uniform1f(uniforms.glassSide, plate.side);
       gl.uniform1f(uniforms.index, plate.index);
       // Render one glass surface per pixel even on overlapping bevels.
       if (!picking) {
         // Each plate refracts the color already rendered behind it, including
         // sample numbers visible through the large scanner.
-        gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+        captureGlass(plate.pose, plate.index >= 0);
       }
       if (!picking && !hero) {
         gl.colorMask(false, false, false, false);
@@ -247,7 +301,12 @@ export function webGLRenderer(
   }
   return {
     centers: mesh.sections.map((s) => s.center),
+    theme(dark, paper) {
+      gl.uniform1f(uniforms.dark, Number(dark));
+      gl.uniform3fv(uniforms.paper, paper);
+    },
     resize(w, h, scale) {
+      renderScale = scale;
       if (width !== w || height !== h) {
         width = w;
         height = h;
@@ -271,17 +330,17 @@ export function webGLRenderer(
     },
     draw,
     pick(frame, x, y) {
+      const px = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
+      const py = Math.min(
+        height - 1,
+        Math.max(0, Math.floor((1 - y) * height)),
+      );
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(px, py, 1, 1);
       draw(frame, true);
       const pixel = new Uint8Array(4);
-      gl.readPixels(
-        Math.min(width - 1, Math.max(0, Math.floor(x * width))),
-        Math.min(height - 1, Math.max(0, Math.floor((1 - y) * height))),
-        1,
-        1,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        pixel,
-      );
+      gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      gl.disable(gl.SCISSOR_TEST);
       draw(frame);
       return pixel[0];
     },

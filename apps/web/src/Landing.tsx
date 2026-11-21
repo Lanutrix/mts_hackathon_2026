@@ -1,6 +1,8 @@
 import type { MouseEvent, ReactNode } from "react";
 import { ProductBrand, MtsCaseBrand } from "./Brand";
 import LandingOptic from "./LandingOptic";
+import ThemeControl from "./ThemeControl";
+import AccessIcon from "./AccessIcon";
 import "./landing.css";
 
 function Arrow({ up = false }: { up?: boolean }) {
@@ -61,9 +63,12 @@ export default function Landing({ go }: { go: (path: string) => void }) {
             <ProductBrand />
             <MtsCaseBrand />
           </div>
-          <RouteLink className="landing-login" path="/login" go={go}>
-            Войти <Arrow up />
-          </RouteLink>
+          <div className="landing-tools">
+            <ThemeControl compact />
+            <RouteLink className="landing-login" path="/login" go={go}>
+              <AccessIcon name="enter" /> Войти
+            </RouteLink>
+          </div>
         </div>
       </header>
       <main id="landing-main" tabIndex={-1}>
@@ -71,7 +76,7 @@ export default function Landing({ go }: { go: (path: string) => void }) {
           <div className="landing-stage">
             <div className="landing-copy">
               <h1 id="landing-title">
-                Инциденты <span>в фокусе.</span>
+                Инциденты <span>в срезе.</span>
               </h1>
               <p>
                 Рабочее место координатора массовых инцидентов. Сроки, статусы и

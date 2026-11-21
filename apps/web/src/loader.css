@@ -1,72 +1,92 @@
 .wm-loader {
+  --optic-size: 2em;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.7em;
+  gap: .65em;
+  color: inherit;
   font: inherit;
 }
 .wm-loader-optic {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 1.65em;
-  height: 1.65em;
   flex: none;
+  width: var(--optic-size);
+  height: var(--optic-size);
+  isolation: isolate;
 }
-.wm-loader-optic::before {
+.wm-loader-optic::before,
+.wm-loader-optic::after {
   content: "";
   position: absolute;
-  inset: 0.08em;
-  border: 0.1em solid currentColor;
-  border-radius: 27%;
-  transform: rotate(-22deg);
+  width: 70%;
+  height: 70%;
+  border: 1px solid var(--wm-violet, #81649e);
+  border-radius: 19%;
+  transform: rotate(-18deg) skewY(3deg);
+}
+.wm-loader-optic::before {
+  top: 12%;
+  left: 6%;
+  background: linear-gradient(130deg, #f9ecff88, #a78bb850);
+  box-shadow: inset 1px 1px 1px #fff9, 1px 2px 0 #8565a15c;
+}
+.wm-loader-optic::after {
+  right: 6%;
+  bottom: 11%;
+  z-index: 2;
+  background: linear-gradient(124deg, transparent 40%, #f3dbff6b 53%, transparent 61%);
+  border-color: #9b79bb;
+  box-shadow: inset -1px -1px 1px #e9d7fd;
 }
 .wm-loader-optic > i {
+  z-index: 1;
   display: block;
-  width: 61%;
-  height: 61%;
+  width: 75%;
+  height: 75%;
   background: url("/srez-mark.svg") center / contain no-repeat;
 }
 .wm-loader-stage {
+  --optic-size: clamp(76px, 7.8vw, 106px);
   display: flex;
-  min-height: clamp(170px, 32vh, 340px);
-  gap: 1.1rem;
-  color: #51475e;
-  font:
-    500 0.88rem/1.4 "Golos Text",
-    Arial,
-    sans-serif;
-}
-.wm-loader-stage .wm-loader-optic {
-  width: 2.8rem;
-  height: 2.8rem;
+  flex-direction: column;
+  min-height: clamp(210px, 38vh, 390px);
+  gap: 15px;
+  color: var(--wm-muted, #574f63);
+  font: 500 15px/1.45 "Golos Text", Arial, sans-serif;
+  text-align: center;
 }
 .wm-boot {
-  min-height: 88svh;
+  --optic-size: clamp(96px, 9.5vw, 136px);
+  min-height: 100svh;
+  background: var(--wm-bg, #e2e0ee);
+}
+body:has(.wm-boot) { margin: 0; }
+html[data-theme="dark"] .wm-loader-optic::before {
+  border-color: #b493d2;
+  background: linear-gradient(120deg, #ddc6edb0, #735a8c95);
+}
+html[data-theme="dark"] .wm-loader-optic::after {
+  border-color: #c3a2e1;
+  background: linear-gradient(126deg, transparent 39%, #d4adf267 53%, transparent 64%);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .wm-loader-optic::before {
-    animation: wm-focus 1.65s cubic-bezier(0.43, 0, 0.24, 1) infinite;
-  }
-  .wm-loader-optic > i {
-    animation: wm-slice 1.65s ease-in-out infinite;
-  }
+  .wm-loader-stage > * { animation: wm-loader-show .16s ease .12s backwards; }
+  .wm-loader-optic::before { animation: wm-glass-back 2.15s ease-in-out infinite; }
+  .wm-loader-optic::after { animation: wm-glass-front 2.15s ease-in-out infinite; }
+  .wm-loader-optic > i { animation: wm-brand-focus 2.15s ease-in-out infinite; }
 }
-@keyframes wm-focus {
-  0%,
-  100% {
-    transform: perspective(4em) rotate(-22deg) rotateY(-20deg);
-  }
-  50% {
-    transform: perspective(4em) rotate(68deg) rotateY(42deg);
-  }
+@keyframes wm-loader-show { from { opacity: 0; } to { opacity: 1; } }
+@keyframes wm-glass-back {
+  0%, 100% { transform: translate(4%, -1%) rotate(-18deg) skewY(3deg); }
+  50% { transform: translate(-7%, 3%) rotate(-24deg) skewY(6deg); }
 }
-@keyframes wm-slice {
-  0%,
-  100% {
-    transform: translateY(0.04em);
-  }
-  50% {
-    transform: translateY(-0.08em) rotate(8deg);
-  }
+@keyframes wm-glass-front {
+  0%, 100% { transform: translate(-3%, 0) rotate(-18deg) skewY(3deg); }
+  50% { transform: translate(9%, -4%) rotate(-12deg) skewY(-2deg); }
+}
+@keyframes wm-brand-focus {
+  0%, 100% { transform: rotate(0); }
+  50% { transform: translateY(-2%) rotate(4deg); }
 }

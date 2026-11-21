@@ -1,0 +1,99 @@
+.srez-help {
+  margin: clamp(24px, 4vw, 72px) 0;
+  max-width: 1160px;
+}
+.srez-help h1 {
+  font-size: clamp(2.7rem, 6vw, 5.8rem);
+  line-height: 1;
+  letter-spacing: -0.075em;
+  font-weight: 400;
+  margin: 0 0 clamp(24px, 4vw, 56px);
+}
+.help-grid {
+  display: grid;
+  grid-template-columns: minmax(165px, 0.52fr) minmax(0, 1.55fr);
+  gap: clamp(1rem, 5vw, 6rem);
+}
+.help-grid > nav {
+  position: sticky;
+  top: 1rem;
+  align-self: start;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--wm-line);
+}
+.help-grid > nav a {
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--wm-line);
+  font-size: 0.93rem;
+  color: var(--wm-muted);
+}
+.help-grid > nav a:hover {
+  color: var(--wm-ink);
+}
+.help-topic {
+  border-top: 1px solid var(--wm-line);
+  padding: 1.3rem 0 2.4rem;
+  scroll-margin-top: 1rem;
+}
+.help-topic h2 {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  font-weight: 500;
+  font-size: clamp(1.45rem, 3vw, 2.2rem);
+  letter-spacing: -0.045em;
+  line-height: 1.2;
+  margin-bottom: 0.7rem;
+}
+.help-topic h2 svg {
+  color: var(--wm-green);
+  flex: none;
+}
+.help-topic p {
+  font-size: clamp(0.93rem, 1.15vw, 1.05rem);
+  line-height: 1.55;
+  max-width: 69ch;
+  margin: 0.6rem 0;
+  color: var(--wm-muted);
+}
+.help-topic > a {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+.help-icons {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(215px, 100%), 1fr));
+  column-gap: 1.7rem;
+}
+.help-icons > div {
+  border-bottom: 1px solid var(--wm-line);
+  padding: 0.9rem 0;
+}
+.help-icons dt {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+}
+.help-icons dd {
+  font-size: 0.88rem;
+  color: var(--wm-muted);
+  margin: 0.3rem 0 0 1.85rem;
+}
+@media (max-width: 620px) {
+  .help-grid {
+    grid-template-columns: 1fr;
+    gap: 1.7rem;
+  }
+  .help-grid > nav {
+    position: static;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 12px;
+  }
+  .help-grid > nav a {
+    font-size: 0.8rem;
+  }
+}

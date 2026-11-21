@@ -14,6 +14,9 @@ import "@fontsource/golos-text/latin-400.css";
 import "@fontsource/golos-text/latin-600.css";
 import "./style.css";
 import Landing from "./Landing";
+import Login from "./LoginForm";
+import ThemeControl from "./ThemeControl";
+import IconHints from "./IconHints";
 import {
   registerDeviceWorker,
   disconnectDeviceBrowser,
@@ -23,7 +26,6 @@ import { isTrainingPath, screenLink, screenPath } from "./routes";
 import Loader from "./Loader";
 import { IncidentNotice, type IncidentSignal } from "./IncidentNotice";
 import { mergeSignals } from "./signalQueue";
-import LiveBoard from "./LiveBoard";
 import CoordinatorDispatch from "./CoordinatorDispatch";
 import { groups } from "./liveFeed";
 import { ProductBrand, MtsCaseBrand, Icon, type IconName } from "./Brand";
@@ -31,6 +33,9 @@ import "./ops.css";
 import "./ticket.css";
 import type { Incident } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
+const Help = React.lazy(() => import("./Help"));
+const LiveBoard = React.lazy(() => import("./LiveBoard"));
+const Wallboard = React.lazy(() => import("./Wallboard"));
 const Workspace = React.lazy(() => import("./Workspace"));
 
 type User = {
@@ -110,7 +115,7 @@ function afterLogin(url: URL) {
   const destination = new URL(next, location.origin);
   if (
     destination.origin !== location.origin ||
-    !/^\/(?:simulation(?:\/|$)|live$|workspace$|wallboard$|incident\/|itsm\/|preferences$|notifications$|demo$|import$|history$|quality$)/.test(
+    !/^\/(?:simulation(?:\/|$)|live$|workspace$|help$|wallboard$|incident\/|itsm\/|preferences$|notifications$|demo$|import$|history$|quality$)/.test(
       destination.pathname,
     )
   )
@@ -161,13 +166,22 @@ function SessionGate({
       setSession(null);
       promptLogin();
     };
-    const timer = window.setTimeout(
-      expire,
-      session.user.expiresInMs,
-    );
+    const timer = window.setTimeout(expire, session.user.expiresInMs);
     return () => window.clearTimeout(timer);
   }, [session]);
+  const passive = screenPath(route.pathname) === "/wallboard";
+  useEffect(() => {
+    if (!passive || !error || session) return;
+    const timer = window.setTimeout(() => retry((n) => n + 1), 5000);
+    return () => window.clearTimeout(timer);
+  }, [attempt, passive, error, session]);
   if (session) return <Dashboard route={route} go={go} session={session} />;
+  if (passive && error)
+    return (
+      <main className="access-check" role="status">
+        {error}. Повторяем подключение…
+      </main>
+    );
   if (error)
     return (
       <main className="access-check">
@@ -232,7 +246,8 @@ function App({ initialRoute }: { initialRoute: URL }) {
   useEffect(() => {
     const path = screenPath(route.pathname);
     const names: Record<string, string> = {
-      "/": "Инциденты в фокусе",
+      "/": "Инциденты в срезе",
+      "/help": "Помощь",
       "/live": "Эфир смены",
       "/workspace": "ИИ-помощник",
       "/wallboard": "Общий экран",
@@ -355,7 +370,7 @@ function Dashboard({
     pending.current = controller;
     const read = (url: string) => api(url, { signal: controller.signal });
     try {
-      const q = new URLSearchParams(query);
+      const q = new URLSearchParams(path === "/wallboard" ? "" : query);
       q.set("ns", ns);
       if (path === "/live" || path === "/wallboard")
         for (const group of groups) q.delete(group);
@@ -568,11 +583,9 @@ function Dashboard({
     <a
       tabIndex={0}
       href={to === "/preferences" ? "/preferences" : link(to)}
-      aria-current={
-        path === to || (wall && to === "/live") ? "page" : undefined
-      }
+      aria-current={path === to ? "page" : undefined}
       className={compact ? "icon-link" : undefined}
-      title={compact ? label : undefined}
+      data-hint={icon ? label : undefined}
       aria-label={compact || short ? label : undefined}
       onClick={(e) => {
         if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
@@ -602,9 +615,52 @@ function Dashboard({
       setError((e as Error).message);
     }
   };
+  const sourceName = training
+    ? "Учебный эфир"
+    : ns === "demo"
+      ? "Демо-данные"
+      : ns === "original"
+        ? "Оригинал · только чтение"
+        : "Рабочая копия";
+  const sourceProblem =
+    error ||
+    data?.status.state === "error" ||
+    connection.startsWith("Нет сети") ||
+    connection.startsWith("Связь прервана");
+  if (wall) {
+    if (!data || data.namespace !== ns)
+      return error ? (
+        <main role="alert" className="access-check">
+          {error}
+        </main>
+      ) : (
+        <Loader stage label="Подключаем общий экран…" />
+      );
+    return (
+      <React.Suspense
+        fallback={<Loader stage label="Подключаем общий экран…" />}
+      >
+        <Wallboard
+          data={data}
+          now={tick}
+          zone={zone}
+          online={connection === "На связи" && !sourceProblem}
+        />
+      </React.Suspense>
+    );
+  }
   return (
     <MotionConfig reducedMotion="user">
-      <div className={"app ops-shell" + (wall ? " wallboard" : "")}>
+      <div
+        className={
+          "app ops-shell" +
+          (path === "/workspace"
+            ? " ops-shell--canvas"
+            : path === "/live"
+              ? " ops-shell--live"
+              : "")
+        }
+      >
         <a tabIndex={0} className="skip" href="#main">
           К содержимому
         </a>
@@ -625,133 +681,108 @@ function Dashboard({
             {nav("/workspace", "ИИ-помощник", "layers", false, "Помощник")}
           </nav>
           <nav className="ops-actions" aria-label="Сервисы">
-            {!wall && nav("/notifications", "Уведомления", "bell", true)}
-            {wall ? (
-              nav("/live", "Обычный режим", "expand", true)
-            ) : (
+            {nav("/notifications", "Уведомления", "bell", true)}
+            <button
+              className="ops-more"
+              type="button"
+              aria-label="Дополнительные разделы"
+              data-hint="Дополнительные разделы"
+              popoverTarget="service-menu"
+            >
+              <Icon name="more" size={19} />
+            </button>
+            <div
+              className="service-menu"
+              id="service-menu"
+              popover="auto"
+              key={path}
+            >
+              {nav("/help", "Помощь", "help")}
+              {nav("/history", "История", "history")}
+              {nav("/quality", "Качество данных", "quality")}
+              {nav("/wallboard", "Общий экран", "expand")}
+              <a href={training ? "/live" : "/simulation"}>
+                <Icon name="live" size={16} />
+                {training ? "Рабочий эфир" : "Учебный эфир"}
+              </a>
+              <div
+                className="menu-source"
+                data-testid="source-status"
+                aria-label="Состояние источника"
+              >
+                <strong>{sourceName}</strong>
+                <span>{connection}</span>
+                {data?.acceptedAt && (
+                  <span>
+                    Обновлён {formatDate(data.acceptedAt, zone)} ·{" "}
+                    {zone === "UTC" ? "UTC" : "МСК"}
+                  </span>
+                )}
+                <span data-testid="revision">Версия {data?.revision ?? 0}</span>
+              </div>
+            </div>
+            {user ? (
               <>
                 <button
-                  className="ops-more"
+                  className="user-pill profile-trigger"
                   type="button"
-                  aria-label="Дополнительные разделы"
-                  title="Дополнительные разделы"
-                  popoverTarget="service-menu"
+                  aria-label={"Профиль: " + user.username + ", " + roleLabel}
+                  data-hint={"Профиль · " + roleLabel}
+                  popoverTarget="profile-menu"
                 >
-                  <Icon name="more" size={19} />
+                  <Icon name="profile" size={17} />
+                  <span>{roleLabel}</span>
                 </button>
                 <div
-                  className="service-menu"
-                  id="service-menu"
+                  className="service-menu profile-menu"
+                  id="profile-menu"
                   popover="auto"
                   key={path}
                 >
-                  {nav("/history", "История", "history")}
-                  {nav("/quality", "Качество данных", "quality")}
-                  {nav("/wallboard", "Общий экран", "expand")}
-                  <a href={training ? "/live" : "/simulation"}>
-                    <Icon name="live" size={16} />
-                    {training ? "Рабочий эфир" : "Учебный эфир"}
-                  </a>
+                  <strong>{user.username}</strong>
+                  {nav("/preferences", "Настройки", "settings")}
+                  <ThemeControl />
+                  {!training && user.role === "demo-admin" && (
+                    <>
+                      {nav("/import", "Импорт")}
+                      {nav("/demo", "Демонстрация")}
+                    </>
+                  )}
+                  <button
+                    aria-label={"Выйти: " + user.username}
+                    onClick={() =>
+                      void api("/logout", {
+                        method: "POST",
+                        headers: { "X-CSRF-Token": user.csrf },
+                        body: "{}",
+                      })
+                        .then(async () => {
+                          try {
+                            localStorage.setItem(
+                              "srez:logout",
+                              String(Date.now()),
+                            );
+                          } catch {}
+                          await disconnectDeviceBrowser().catch(() => {});
+                          location.replace("/");
+                        })
+                        .catch((e) => setError(e.message))
+                    }
+                  >
+                    Выйти
+                  </button>
                 </div>
               </>
+            ) : (
+              nav("/login", "Войти")
             )}
-            {!wall &&
-              (user ? (
-                <>
-                  <button
-                    className="user-pill profile-trigger"
-                    type="button"
-                    aria-label={"Профиль: " + user.username + ", " + roleLabel}
-                    title={"Профиль: " + user.username}
-                    popoverTarget="profile-menu"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 24 24"
-                      width="17"
-                      height="17"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.7"
-                    >
-                      <circle cx="12" cy="8" r="3.5" />
-                      <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
-                    </svg>
-                    <span>{roleLabel}</span>
-                  </button>
-                  <div
-                    className="service-menu profile-menu"
-                    id="profile-menu"
-                    popover="auto"
-                    key={path}
-                  >
-                    <strong>{user.username}</strong>
-                    {nav("/preferences", "Настройки")}
-                    {!training && user.role === "demo-admin" && (
-                      <>
-                        {nav("/import", "Импорт")}
-                        {nav("/demo", "Демонстрация")}
-                      </>
-                    )}
-                    <button
-                      aria-label={"Выйти: " + user.username}
-                      onClick={() =>
-                        void api("/logout", {
-                          method: "POST",
-                          headers: { "X-CSRF-Token": user.csrf },
-                          body: "{}",
-                        })
-                          .then(async () => {
-                            try {
-                              localStorage.setItem(
-                                "srez:logout",
-                                String(Date.now()),
-                              );
-                            } catch {}
-                            await disconnectDeviceBrowser().catch(() => {});
-                            location.replace("/");
-                          })
-                          .catch((e) => setError(e.message))
-                      }
-                    >
-                      Выйти
-                    </button>
-                  </div>
-                </>
-              ) : (
-                nav("/login", "Войти")
-              ))}
           </nav>
         </header>
-        <div
-          className={
-            "source-banner " +
-            (error || data?.status.state === "error" ? "warning" : "")
-          }
-          role="status"
-          data-testid="source-status"
-        >
-          <span>{connection}</span>
-          <span>
-            {data?.acceptedAt
-              ? "Источник обновлён " + formatDate(data.acceptedAt, zone)
-              : "Ожидание первого снимка"}{" "}
-            · {zone === "UTC" ? "UTC" : "МСК"}
-          </span>
-          <span data-testid="revision">Версия {data?.revision ?? 0}</span>
-          <span>
-            {training
-              ? "Учебный эфир"
-              : ns === "demo"
-                ? "Демо-данные"
-                : ns === "original"
-                  ? "Оригинал · только чтение"
-                  : "Рабочая копия"}
-          </span>
-          {data?.status.state === "error" && (
-            <strong>{data.status.error}</strong>
-          )}
-        </div>
+        {sourceProblem && !error && (
+          <div className="source-problem" role="status">
+            {data?.status.state === "error" ? data.status.error : connection}
+          </div>
+        )}
         {error && (
           <div className="error" role="alert">
             {error}
@@ -778,7 +809,14 @@ function Dashboard({
           onJournal={() => go(link("/notifications"))}
         />
         <main id="main">
-          {path === "/workspace" && (!training || data?.simulation?.runId) ? (
+          {path === "/help" ? (
+            <React.Suspense
+              fallback={<Loader stage label="Открываем помощь…" />}
+            >
+              <Help ns={ns} go={go} />
+            </React.Suspense>
+          ) : path === "/workspace" &&
+            (!training || data?.simulation?.runId) ? (
             <React.Suspense
               fallback={<Loader label="Открываем холст…" stage />}
             >
@@ -806,53 +844,52 @@ function Dashboard({
             error ? null : (
               <Loader label="Загрузка раздела…" stage />
             )
-          ) : path === "/live" || wall ? (
-            <LiveBoard
-              data={data}
-              canDispatch={
-                !!write && (ns === "demo" || ns === "workspace") && !wall
-              }
-              csrf={user?.csrf}
-              canAnalyze={
-                !!write || (publicDemo && (ns === "demo" || training))
-              }
-              filtering={data.filterQuery !== query && !error}
-              params={params}
-              ns={ns}
-              now={tick}
-              zone={zone}
-              wall={wall}
-              online={connection === "На связи"}
-              sources={sources}
-              open={open}
-              setParam={updateParam}
-              switchSource={(source) =>
-                go("/live?ns=" + encodeURIComponent(source))
-              }
-            >
-              {(data.quality.quarantined > 0 || data.quality.missing > 0) && (
-                <div className="warning notice">
-                  Требуется сверка: {data.quality.quarantined} с конфликтами,{" "}
-                  {data.quality.missing} отсутствуют в текущем снимке.{" "}
-                  {nav("/quality", "Проверить качество данных")}
-                </div>
-              )}
-              {data.recent.length > 0 && (
-                <section className="recent" aria-label="Недавние решения">
-                  <strong>Недавно завершены критические</strong>
-                  {data.recent.map((n: any) => (
-                    <button
-                      tabIndex={0}
-                      className="link"
-                      key={n.revision + ":" + n.key}
-                      onClick={() => open(n.id)}
-                    >
-                      {n.id} · {formatDate(n.at, zone)}
-                    </button>
-                  ))}
-                </section>
-              )}
-            </LiveBoard>
+          ) : path === "/live" ? (
+            <React.Suspense fallback={<Loader stage label="Открываем эфир…" />}>
+              <LiveBoard
+                data={data}
+                canDispatch={!!write && (ns === "demo" || ns === "workspace")}
+                csrf={user?.csrf}
+                canAnalyze={
+                  !!write || (publicDemo && (ns === "demo" || training))
+                }
+                filtering={data.filterQuery !== query && !error}
+                params={params}
+                ns={ns}
+                now={tick}
+                zone={zone}
+                online={connection === "На связи"}
+                sources={sources}
+                open={open}
+                setParam={updateParam}
+                switchSource={(source) =>
+                  go("/live?ns=" + encodeURIComponent(source))
+                }
+              >
+                {(data.quality.quarantined > 0 || data.quality.missing > 0) && (
+                  <div className="warning notice">
+                    Требуется сверка: {data.quality.quarantined} с конфликтами,{" "}
+                    {data.quality.missing} отсутствуют в текущем снимке.{" "}
+                    {nav("/quality", "Проверить качество данных")}
+                  </div>
+                )}
+                {data.recent.length > 0 && (
+                  <section className="recent" aria-label="Недавние решения">
+                    <strong>Недавно завершены критические</strong>
+                    {data.recent.map((n: any) => (
+                      <button
+                        tabIndex={0}
+                        className="link"
+                        key={n.revision + ":" + n.key}
+                        onClick={() => open(n.id)}
+                      >
+                        {n.id} · {formatDate(n.at, zone)}
+                      </button>
+                    ))}
+                  </section>
+                )}
+              </LiveBoard>
+            </React.Suspense>
           ) : path.startsWith("/incident/") || path.startsWith("/itsm/") ? (
             extra?.incident &&
             extra.incident.id === decodeURIComponent(path.split("/")[2]) && (
@@ -1092,15 +1129,19 @@ function Dashboard({
             )
           ) : path === "/preferences" ? (
             <>
-              {write && (
-                <Preferences
-                  prefs={prefs}
-                  onSave={async (p) => {
-                    await post("/preferences", p);
-                    setPrefs(p);
-                  }}
-                />
-              )}
+              <section className="content login appearance-settings">
+                <h1>Личные настройки</h1>
+                <ThemeControl />
+                {write && (
+                  <Preferences
+                    prefs={prefs}
+                    onSave={async (p) => {
+                      await post("/preferences", p);
+                      setPrefs(p);
+                    }}
+                  />
+                )}
+              </section>
               <DeviceNotifications user={user} namespace={ns} />
             </>
           ) : (
@@ -1110,6 +1151,9 @@ function Dashboard({
             </section>
           )}
         </main>
+        <footer className="platform-footer">
+          мы не несем ответственность за провал инцидентов, только смертельную
+        </footer>
       </div>
     </MotionConfig>
   );
@@ -1386,50 +1430,6 @@ function Detail({
     </section>
   );
 }
-function Login({
-  onSubmit,
-}: {
-  onSubmit: (u: string, p: string) => Promise<void>;
-}) {
-  const [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  return (
-    <form
-      className="content login"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.currentTarget);
-        setBusy(true);
-        try {
-          await onSubmit(String(f.get("username")), String(f.get("password")));
-        } catch (e) {
-          setError((e as Error).message);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <h1 id="access-title">Вход в Срез</h1>
-      <label>
-        Имя пользователя
-        <input name="username" autoComplete="username" required />
-      </label>
-      <label>
-        Пароль
-        <input
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-        />
-      </label>
-      <button tabIndex={0} disabled={busy}>
-        {busy ? <Loader label="Вход…" /> : "Войти"}
-      </button>
-      {error && <p role="alert">{error}</p>}
-    </form>
-  );
-}
 function Denied() {
   return (
     <div className="content">
@@ -1549,7 +1549,7 @@ function Preferences({
   useEffect(() => setP(prefs), [prefs]);
   return (
     <form
-      className="content login"
+      className="preferences-form"
       onSubmit={async (e) => {
         e.preventDefault();
         setSaving(true);
@@ -1564,7 +1564,6 @@ function Preferences({
         }
       }}
     >
-      <h1>Личные настройки</h1>
       <label>
         Часовой пояс
         <select
@@ -1611,5 +1610,8 @@ function beep() {
 }
 void registerDeviceWorker().catch(() => {});
 createRoot(document.getElementById("root")!).render(
-  <App initialRoute={readRoute()} />,
+  <>
+    <App initialRoute={readRoute()} />
+    <IconHints />
+  </>,
 );

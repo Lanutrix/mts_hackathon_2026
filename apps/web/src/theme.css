@@ -1,0 +1,195 @@
+:root {
+  color-scheme: light;
+  --wm-bg: #e2e0ee;
+  --wm-surface: #f7f6fb;
+  --wm-tint: #ece9f3;
+  --wm-ink: #211d2c;
+  --wm-muted: #5b5666;
+  --wm-line: #bdb6cb;
+  --wm-control: #7a7389;
+  --wm-pink: #ba1742;
+  --wm-green: #236155;
+  --wm-violet: #684698;
+  --wm-on-ink: #fff;
+  --wm-on-accent: #fff;
+  --wm-solid-hover: #473750;
+  --wm-selection: #d5c8ee;
+  --wm-critical-wash: #f5d8e2;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --wm-bg: #18171f;
+  --wm-surface: #25232d;
+  --wm-tint: #302c3b;
+  --wm-ink: #f3eef6;
+  --wm-muted: #bcb6c9;
+  --wm-line: #4c4758;
+  --wm-control: #8a8198;
+  --wm-pink: #ff84a5;
+  --wm-green: #89d4b8;
+  --wm-violet: #c9afff;
+  --wm-on-ink: #211c29;
+  --wm-on-accent: #201728;
+  --wm-solid-hover: #ddd0eb;
+  --wm-selection: #59426c;
+  --wm-critical-wash: #4a2535;
+}
+html,
+body {
+  background-color: var(--wm-bg);
+}
+body {
+  color: var(--wm-ink);
+}
+.theme-pick {
+  position: relative;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--wm-ink);
+  font-size: 0.85rem;
+  max-width: 100%;
+}
+.theme-pick > svg {
+  flex: none;
+}
+.theme-pick select {
+  font: inherit;
+  color: var(--wm-ink);
+  border: 1px solid var(--wm-control);
+  background: var(--wm-surface);
+  border-radius: 2rem;
+  min-height: 36px;
+  padding: 0.28rem 0.65rem;
+}
+.theme-pick.theme-pick--compact {
+  border-radius: 100%;
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+}
+.theme-pick--compact:hover {
+  background: var(--wm-tint);
+}
+.theme-pick--compact select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.theme-pick--compact:focus-within {
+  outline: 2px solid var(--wm-violet);
+  outline-offset: 2px;
+}
+.appearance-settings > .theme-pick {
+  align-self: stretch;
+  justify-content: flex-start;
+}
+.appearance-settings > .theme-pick select {
+  margin-inline-start: auto;
+}
+.preferences-form {
+  display: grid;
+  gap: 20px;
+}
+.ops-shell:not(.ops-shell--canvas):not(.ops-shell--live) {
+  min-height: 100dvh;
+}
+.ops-shell:not(.ops-shell--canvas):not(.ops-shell--live) > main {
+  flex: 1;
+}
+.service-menu .theme-pick:not(.theme-pick--compact) {
+  padding: 0.4rem 0.45rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+}
+.service-menu .theme-pick > select {
+  grid-column: 1/-1;
+  width: 100%;
+}
+.platform-footer {
+  flex: none;
+  order: 5;
+  border-top: 1px solid var(--wm-line);
+  margin: 14px 0 0;
+  padding: 7px 0 0;
+  color: var(--wm-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+.ops-shell.ops-shell--canvas {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: clip;
+  padding-bottom: 0;
+}
+.ops-shell--canvas > .ops-header,
+.ops-shell--canvas > .incident-notice,
+.ops-shell--canvas > .error,
+.ops-shell--canvas > .source-banner {
+  flex: none;
+}
+.ops-shell--canvas > main {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ops-shell--canvas .platform-footer {
+  margin: 0;
+  padding: 4px 0;
+}
+.ops-shell .source-problem {
+  order: 0;
+  margin: 0.4rem 0;
+  padding: 0.25rem 0.5rem;
+  border-inline-start: 2px solid var(--wm-pink);
+  font-size: 0.82rem;
+  color: var(--wm-ink);
+}
+.menu-source {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--wm-line);
+  margin: 5px 5px 1px;
+  padding: 9px 2px 3px;
+  font-size: 11px;
+  color: var(--wm-muted);
+}
+.menu-source strong {
+  color: var(--wm-ink);
+}
+.srez-hint {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  border-radius: 7px;
+  background: var(--wm-ink);
+  color: var(--wm-on-ink);
+  padding: 5px 9px;
+  font:
+    500 12px/1.4 "Golos Text",
+    sans-serif;
+  max-width: min(270px, calc(100vw - 16px));
+  overflow-wrap: anywhere;
+  box-shadow: 0 3px 12px #0002;
+}
+html[data-theme="dark"] .incident-notice {
+  --notice-surface: #2d2539;
+  --notice-accent: #d2bcff;
+  --notice-muted: #dfd7e9;
+}
+html[data-theme="dark"] .incident-notice[data-severity="critical"] {
+  --notice-surface: #392532;
+  --notice-accent: #ff98b5;
+}
+html[data-theme="dark"] .incident-notice[data-severity="resolved"] {
+  --notice-surface: #21332e;
+  --notice-accent: #94e6c8;
+}

@@ -364,6 +364,53 @@ test("compound views count the same scope and drill into the selected dimension"
     await app.close();
   }
 });
+
+test("the model can compose independently weighted plots and an explicit area metric leaves scope intact", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    respond({
+      supported: true,
+      groupBy: "team",
+      layout: "groups",
+      weightBy: "overdue",
+      blocks: [
+        { groupBy: "priority", layout: "groups", weightBy: "escalated" },
+      ],
+    });
+    const planned = (
+      await ask("Сгруппируй заявки по командам")
+    ).json<CanvasResult>();
+    assert.equal(planned.mode, "model");
+    assert.equal(planned.intent.weightBy, "overdue");
+    assert.equal(planned.blocks[0].weightBy, "escalated");
+    assert.deepEqual(
+      planned.groups.map((g) => g.overdue),
+      planned.groups.map((g) => g.overdue).sort((a, b) => b - a),
+    );
+    respond({
+      supported: true,
+      groupBy: "team",
+      layout: "groups",
+      weightBy: "count",
+      filters: { deadline: "overdue" },
+    });
+    const explicit = (
+      await ask("Сгруппируй по командам, размер по числу просроченных")
+    ).json<CanvasResult>();
+    assert.equal(explicit.intent.weightBy, "overdue");
+    assert.equal(explicit.intent.filters.deadline, undefined);
+    assert.equal(explicit.total, planned.total);
+    respond({ supported: true, weightBy: "arbitrary-field" });
+    const invalid = (
+      await ask("Размер групп по числу эскалаций", explicit.intent)
+    ).json<CanvasResult>();
+    assert.equal(invalid.mode, "fallback");
+    assert.equal(invalid.intent.weightBy, "escalated");
+    assert.deepEqual(invalid.intent.filters, {});
+  } finally {
+    await app.close();
+  }
+});
 test("counts use present, validated and distinct source IDs across dashboard lanes", async () => {
   const { app, ask, headers, stores, respond } = await setup();
   try {
