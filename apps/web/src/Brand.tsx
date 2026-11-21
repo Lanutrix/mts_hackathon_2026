@@ -29,12 +29,12 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 export function Mark() {
   return (
     <svg width="44" height="31" viewBox="0 0 48 34" aria-hidden="true">
-      <path d="M2 5h44a22 22 0 0 1-44 0Z" fill="#165843" />
-      <path d="M5 5h38a19 19 0 0 1-38 0Z" fill="#d8f48f" />
-      <path d="M8 5h32a16 16 0 0 1-32 0Z" fill="#f48aa3" />
+      <path d="M2 5h44a22 22 0 0 1-44 0Z" fill="#28665c" />
+      <path d="M5 5h38a19 19 0 0 1-38 0Z" fill="#d2eae2" />
+      <path d="M8 5h32a16 16 0 0 1-32 0Z" fill="#f27795" />
       <path
         d="m16 9 2 3m6-2v4m8-5-2 3"
-        stroke="#25362b"
+        stroke="#211d2c"
         strokeWidth="2.3"
         strokeLinecap="round"
       />

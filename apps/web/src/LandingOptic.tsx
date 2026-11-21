@@ -1,219 +1,251 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 const artwork = new URL("./assets/focus-optic.webp", import.meta.url).href;
-const aimPoints = [
-  [202, 240],
-  [257, 206],
-  [329, 225],
-  [503, 120],
-] as const;
-const viewWidth = 660,
-  viewHeight = 440;
+type Point = { x: number; y: number };
+const seeds: Point[] = [
+  { x: 202, y: 240 },
+  { x: 257, y: 206 },
+  { x: 329, y: 225 },
+  { x: 503, y: 120 },
+];
+const home = seeds[0];
 const magnification = 1.48;
+const corners =
+  "M-34-17v-9q0-8 8-8h9m34 0h9q8 0 8 8v9m0 34v9q0 8-8 8h-9m-34 0h-9q-8 0-8-8v-9";
 
-// The lens and its sampled image share one coordinate system. Moving the lens
-// reveals the part of the original image directly under it on every frame.
-export default function LandingOptic({ signal }: { signal: number }) {
-  const lens = useRef<SVGGElement>(null),
-    sample = useRef<SVGGElement>(null);
-  const trail = useRef<SVGPathElement>(null);
-  const pulse = useRef<SVGRectElement>(null);
-  const pose = useRef({ x: 358, y: 164, velocityX: 0, velocityY: 0 });
-  const clip = useId().replace(/:/g, "");
+export default function LandingOptic() {
+  const id = useId().replace(/:/g, "");
+  const svg = useRef<SVGSVGElement>(null);
+  const lens = useRef<SVGGElement>(null);
+  const sample = useRef<SVGGElement>(null);
+  const near = useRef<SVGPathElement>(null);
+  const far = useRef<SVGPathElement>(null);
+  const shine = useRef<SVGPathElement>(null);
+  const [loaded, setLoaded] = useState(false);
+
   useEffect(() => {
-    const layer = lens.current,
-      contents = sample.current,
-      path = trail.current,
-      square = pulse.current;
-    if (!layer || !contents || !path || !square) return;
-    const [goalX, goalY] = aimPoints[signal];
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const current = pose.current;
-    const fromX = current.x,
-      fromY = current.y;
-    const midX = (fromX + goalX) / 2;
-    const midY =
-      Math.min(fromY, goalY) -
-      Math.min(64, Math.hypot(fromX - goalX, fromY - goalY) * 0.25);
-    path.setAttribute(
-      "d",
-      `M${fromX} ${fromY} Q${midX} ${midY} ${goalX} ${goalY}`,
-    );
-    let frame = 0,
-      previous = 0,
-      start = 0;
-    function sendPulse(t: number) {
-      const a = 1 - t;
-      const x = a * a * fromX + 2 * a * t * midX + t * t * goalX,
-        y = a * a * fromY + 2 * a * t * midY + t * t * goalY;
-      const visibility = Math.sin(t * Math.PI);
-      path!.setAttribute("stroke-dashoffset", String(0.23 - t));
-      path!.setAttribute("opacity", String(visibility * 0.66));
-      square!.setAttribute(
+    const scene = svg.current,
+      glass = lens.current,
+      zoom = sample.current;
+    const front = near.current,
+      back = far.current,
+      highlight = shine.current;
+    if (!loaded || !scene || !glass || !zoom || !front || !back || !highlight)
+      return;
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+    const fine = matchMedia("(hover: hover) and (pointer: fine)");
+    let position = home,
+      target = home,
+      frame = 0;
+
+    function pose(at: Point, spread = 0, sweep = 0) {
+      position = at;
+      glass!.setAttribute("transform", `translate(${at.x} ${at.y})`);
+      zoom!.setAttribute(
         "transform",
-        `translate(${x} ${y}) rotate(${t * 88}) scale(${1 - t * 0.7})`,
+        `scale(${magnification}) translate(${-at.x} ${-at.y})`,
       );
-      square!.setAttribute("rx", String(t * 3.8));
-      square!.setAttribute("opacity", String(Math.min(1, visibility * 3)));
-    }
-    function paint() {
-      layer!.setAttribute(
+      front!.setAttribute(
         "transform",
-        "translate(" + current.x.toFixed(2) + " " + current.y.toFixed(2) + ")",
+        `translate(${-32 * spread} ${13 * spread}) rotate(${-20 * spread}) scale(${1 + 0.45 * spread} ${1 + 0.18 * spread})`,
       );
-      contents!.setAttribute(
+      back!.setAttribute(
         "transform",
-        "scale(" +
-          magnification +
-          ") translate(" +
-          (-current.x).toFixed(2) +
-          " " +
-          (-current.y).toFixed(2) +
-          ")",
+        `translate(${42 * spread} ${-20 * spread}) rotate(${34 * spread}) scale(${1 + 0.72 * spread} ${1 - 0.28 * spread})`,
+      );
+      back!.setAttribute("opacity", String(0.22 + 0.55 * spread));
+      highlight!.setAttribute("transform", `translate(${sweep * 126} 0)`);
+      highlight!.setAttribute(
+        "opacity",
+        String(0.42 * Math.sin(Math.PI * sweep)),
       );
     }
-    function settle() {
+
+    function stop() {
       cancelAnimationFrame(frame);
-      current.x = goalX;
-      current.y = goalY;
-      current.velocityX = 0;
-      current.velocityY = 0;
-      path!.setAttribute("opacity", "0");
-      square!.setAttribute("opacity", "0");
-      paint();
+      frame = 0;
+      target = home;
+      pose(home);
     }
-    function advance(timestamp: number) {
-      if (document.hidden || reduced.matches) {
-        settle();
-        return;
-      }
-      const dt = Math.min(
-        (timestamp - (previous || timestamp - 16)) / 1000,
-        0.032,
+
+    function travel(
+      to: Point,
+      duration: number,
+      then?: (time: number) => void,
+    ) {
+      cancelAnimationFrame(frame);
+      target = to;
+      const from = position;
+      const start = performance.now();
+      const lift = Math.min(
+        66,
+        Math.hypot(to.x - from.x, to.y - from.y) * 0.24,
       );
-      previous = timestamp;
-      if (!start) start = timestamp;
-      const phase = Math.min(1, (timestamp - start) / 710);
-      sendPulse(phase);
-      current.velocityX +=
-        ((goalX - current.x) * 156 - current.velocityX * 21) * dt;
-      current.velocityY +=
-        ((goalY - current.y) * 156 - current.velocityY * 21) * dt;
-      current.x += current.velocityX * dt;
-      current.y += current.velocityY * dt;
-      if (
-        phase === 1 &&
-        Math.hypot(goalX - current.x, goalY - current.y) < 0.09 &&
-        Math.hypot(current.velocityX, current.velocityY) < 0.8
-      ) {
-        settle();
-        return;
+      function step(time: number) {
+        const t = Math.min(1, Math.max(0, (time - start) / duration));
+        const eased = t * t * (3 - 2 * t);
+        const arc = Math.sin(Math.PI * eased);
+        pose(
+          {
+            x: from.x + (to.x - from.x) * eased,
+            y: from.y + (to.y - from.y) * eased - lift * arc,
+          },
+          arc,
+          t,
+        );
+        if (t < 1) frame = requestAnimationFrame(step);
+        else {
+          frame = 0;
+          pose(to);
+          then?.(time);
+        }
       }
-      paint();
-      frame = requestAnimationFrame(advance);
+      frame = requestAnimationFrame(step);
     }
+
+    function aim(event: PointerEvent) {
+      if (
+        event.pointerType === "touch" ||
+        !fine.matches ||
+        reduced.matches ||
+        document.hidden
+      )
+        return;
+      const matrix = scene!.getScreenCTM();
+      if (!matrix) return;
+      const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(
+        matrix.inverse(),
+      );
+      let closest: Point | null = null,
+        distance = 66;
+      for (const seed of seeds) {
+        const delta = Math.hypot(point.x - seed.x, point.y - seed.y);
+        if (delta < distance) {
+          closest = seed;
+          distance = delta;
+        }
+      }
+      if (closest && closest !== target) travel(closest, 720);
+    }
+
     function preference() {
-      if (reduced.matches || document.hidden) settle();
+      if (reduced.matches || document.hidden) stop();
     }
-    if (reduced.matches || document.hidden) settle();
-    else {
-      paint();
-      frame = requestAnimationFrame(advance);
+    if (!reduced.matches && !document.hidden) {
+      pose({ x: 338, y: 86 }, 0.8);
+      travel(seeds[3], 920, (arrived) => {
+        function hold(time: number) {
+          if (time - arrived < 340) frame = requestAnimationFrame(hold);
+          else travel(home, 1420);
+        }
+        frame = requestAnimationFrame(hold);
+      });
     }
+    scene.addEventListener("pointermove", aim);
     reduced.addEventListener("change", preference);
     document.addEventListener("visibilitychange", preference);
     return () => {
       cancelAnimationFrame(frame);
+      scene.removeEventListener("pointermove", aim);
       reduced.removeEventListener("change", preference);
       document.removeEventListener("visibilitychange", preference);
     };
-  }, [signal]);
+  }, [loaded]);
+
   return (
     <div className="landing-optic" aria-hidden="true">
-      <div className="optic-scene">
-        <img
-          className="optic-art"
-          src={artwork}
-          alt=""
-          width="1536"
-          height="1024"
-          fetchPriority="high"
-          decoding="async"
-          draggable={false}
-        />
-        <svg
-          className="optic-glass"
-          viewBox={"0 0 " + viewWidth + " " + viewHeight}
-          aria-hidden="true"
-        >
-          <defs>
-            <clipPath id={clip}>
-              <rect x="-27" y="-27" width="54" height="54" rx="8" />
-            </clipPath>
-          </defs>
+      <svg
+        ref={svg}
+        className="optic-scene"
+        viewBox="0 0 660 440"
+        focusable="false"
+      >
+        <defs>
+          <filter
+            id={id + "-rind"}
+            colorInterpolationFilters="sRGB"
+            x="0"
+            y="0"
+            width="100%"
+            height="100%"
+          >
+            {/* Separate the green/yellow peel from the red flesh and lavender glass. */}
+            <feColorMatrix
+              in="SourceGraphic"
+              result="peel"
+              values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -1.35 4.5 -3.15 0 -.09"
+            />
+            <feColorMatrix
+              in="SourceGraphic"
+              result="mint"
+              values=".31 .07 .58 0 0  .05 .88 .08 0 0  .11 .55 .34 0 0  0 0 0 1 0"
+            />
+            <feComposite in="mint" in2="peel" operator="in" />
+            <feComposite in2="SourceGraphic" operator="over" />
+          </filter>
+          <image
+            id={id + "-art"}
+            href={artwork}
+            width="660"
+            height="440"
+            filter={`url(#${id}-rind)`}
+            onLoad={() => setLoaded(true)}
+          />
+          <clipPath id={id + "-glass"}>
+            <rect x="-27" y="-27" width="54" height="54" rx="8" />
+          </clipPath>
+        </defs>
+        <use href={"#" + id + "-art"} />
+        <g ref={lens} transform="translate(202 240)">
           <path
-            ref={trail}
-            pathLength="1"
+            ref={far}
+            d={corners}
             fill="none"
-            stroke="#ff002d"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeDasharray=".23 1"
-            opacity="0"
+            stroke="#664693"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+            opacity=".22"
           />
-          <rect
-            ref={pulse}
-            x="-5"
-            y="-5"
-            width="10"
-            height="10"
-            fill="#ff002d"
-            stroke="#fff"
-            strokeWidth="1"
-            opacity="0"
-          />
-          <g ref={lens} transform="translate(202 240)">
-            <g clipPath={"url(#" + clip + ")"}>
-              <g ref={sample} transform="scale(1.48) translate(-202 -240)">
-                <image href={artwork} width="660" height="440" />
-              </g>
-              <rect
-                x="-27"
-                y="-27"
-                width="54"
-                height="54"
-                fill="#a98ee2"
-                opacity=".07"
-              />
-              <path
-                key={signal}
-                className="optic-glint"
-                d="M-66 -34h12l-19 68h-12z"
-                fill="#fff"
-              />
+          <g clipPath={`url(#${id}-glass)`}>
+            <g ref={sample} transform="scale(1.48) translate(-202 -240)">
+              <use href={"#" + id + "-art"} />
             </g>
             <rect
               x="-27"
               y="-27"
               width="54"
               height="54"
-              rx="8"
-              fill="none"
-              stroke="#fff"
-              strokeOpacity=".82"
-              strokeWidth="1.5"
+              fill="#a98ee2"
+              opacity=".07"
             />
             <path
-              d="M-32-18v-9q0-5 5-5h9m36 0h9q5 0 5 5v9m0 36v9q0 5-5 5h-9m-36 0h-9q-5 0-5-5v-9"
-              fill="none"
-              stroke="#44223b"
-              strokeOpacity=".8"
-              strokeWidth="1.2"
-              strokeLinecap="round"
+              ref={shine}
+              d="M-68-34h12L-75 34h-12z"
+              fill="#fff"
+              opacity="0"
             />
           </g>
-        </svg>
-      </div>
+          <rect
+            x="-27"
+            y="-27"
+            width="54"
+            height="54"
+            rx="8"
+            fill="none"
+            stroke="#fff"
+            strokeOpacity=".82"
+            strokeWidth="1.4"
+          />
+          <path
+            ref={near}
+            d={corners}
+            fill="none"
+            stroke="#95203e"
+            strokeWidth="1.65"
+            strokeLinecap="round"
+          />
+        </g>
+      </svg>
     </div>
   );
 }

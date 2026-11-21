@@ -64,8 +64,8 @@ vec3 seedRing(vec2 p,vec3 flesh,float radius,float count,float phase,float seedI
   float pocket=1.-smoothstep(.78,1.90,d);
   flesh=mix(flesh,flesh*vec3(.78,.61,.65),pocket*.35);
   float seed=1.-smoothstep(.79,1.06,d);
-  vec3 shell=mix(vec3(.096,.050,.052),vec3(.26,.135,.115),clamp(.22-.45*x+.17*y,0.,1.));
-  shell+=vec3(.15,.105,.09)*(1.-smoothstep(.0,.60,length(vec2(x+.42,(y-.10)*.72))));
+  vec3 shell=mix(vec3(.083,.059,.09),vec3(.237,.139,.192),clamp(.22-.45*x+.17*y,0.,1.));
+  shell+=vec3(.14,.11,.15)*(1.-smoothstep(.0,.60,length(vec2(x+.42,(y-.10)*.72))));
   return mix(flesh,shell,seed);
 }
 
@@ -75,7 +75,7 @@ void main() {
     p.x-=.01;
     float wide=exp(-2.0*(p.x*p.x/2.0+pow((p.y+.825-p.x*.096)/.159,2.)));
     float near=exp(-2.1*(p.x*p.x/.93+pow((p.y+.81-p.x*.10)/.074,2.)));
-    gl_FragColor=vec4(.14,.195,.14,.115*wide+.14*near);
+    gl_FragColor=vec4(.16,.125,.22,.13*wide+.16*near);
     return;
   }
   vec3 local=v_local/vec3(1.16,1.08,1.82);
@@ -90,18 +90,18 @@ void main() {
   float fine=noise3(v_local*300.);
   float angle=atan(local.y,local.x);
   float stripe=cos(13.0*angle+local.z*.55+1.2*noise2(vec2(angle*7.,local.z*10.))+.39*noise2(vec2(angle*17.,local.z*26.)));
-  vec3 peel=mix(vec3(.093,.294,.199),vec3(.382,.557,.301),smoothstep(-.85,.55,stripe));
-  peel+=vec3(.06,.07,.035)*(mottling-.4)+vec3(.09)*(fine-.5);
+  vec3 peel=mix(vec3(.067,.262,.234),vec3(.267,.51,.418),smoothstep(-.85,.55,stripe));
+  peel+=vec3(.045,.07,.06)*(mottling-.4)+vec3(.09)*(fine-.5);
   float fibres=(noise2(plane*vec2(92.,31.))-.5)*.038;
   float pulp=(large-.5)*.095+(mottling-.5)*.078+(grain-.5)*.077+(fine-.5)*.056+fibres;
-  vec3 flesh=mix(vec3(.94,.304,.352),vec3(.985,.49,.47),large*.48+clamp((radius-.55)*1.2,0.,.34));
-  flesh+=pulp*vec3(.66,.95,.74);
+  vec3 flesh=mix(vec3(.918,.188,.343),vec3(.99,.434,.532),large*.48+clamp((radius-.55)*1.2,0.,.34));
+  flesh+=pulp*vec3(.66,.85,.83);
   float edge=radius+(mottling-.5)*.012+(large-.5)*.019;
-  flesh=mix(flesh,vec3(.99,.695,.606)+.04*(grain-.5),smoothstep(.785,.90,edge)*.83);
-  vec3 pith=mix(vec3(.998,.927,.778),vec3(.792,.886,.622),smoothstep(.916,.963,edge));
+  flesh=mix(flesh,vec3(.985,.666,.736)+.04*(grain-.5),smoothstep(.785,.90,edge)*.83);
+  vec3 pith=mix(vec3(.969,.936,.962),vec3(.756,.865,.824),smoothstep(.916,.963,edge));
   pith+=(grain-.5)*.065+(mottling-.5)*.038;
   vec3 color=mix(flesh,pith,smoothstep(.871,.907,edge));
-  color=mix(color,mix(vec3(.55,.71,.31),peel,.35),smoothstep(.938,.979,edge));
+  color=mix(color,mix(vec3(.48,.67,.587),peel,.35),smoothstep(.938,.979,edge));
   color=mix(color,peel,smoothstep(.976,.993,radius));
   if(!skin) {
     float crossSection=top?1.:sqrt(max(.002,1.-local.z*local.z));

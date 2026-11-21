@@ -80,9 +80,6 @@ function App({ initialRoute }: { initialRoute: URL }) {
       "/login": "Вход",
     };
     document.title = (names[path] ?? "Дашборд координатора") + " · Watermelon";
-    document
-      .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", path === "/" ? "#e2e0ee" : "#103f34");
   }, [route.pathname]);
   useEffect(() => {
     const update = () => setRoute(readRoute());

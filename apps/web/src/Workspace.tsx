@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -14,6 +15,49 @@ export interface WorkspaceAnalysis {
   overview?: string[];
 }
 const groups: Group[] = ["critical", "coordinators", "high", "research"];
+
+function QueueOptic({ count }: { count: number }) {
+  const id = useId();
+  const pane = "M-37-51H37Q51-51 51-37V37Q51 51 37 51H-37Q-51 51-51 37V-37Q-51-51-37-51ZM-20-27Q-27-27-27-20V20Q-27 27-20 27H20Q27 27 27 20V-20Q27-27 20-27Z";
+  return (
+    <svg className="wq-optic" viewBox="0 0 390 194" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id={id + "-glass"} x1="0" y1="0" x2="1" y2=".86" gradientUnits="objectBoundingBox">
+          <stop stopColor="#fcfbff" />
+          <stop offset=".44" stopColor="#dcd4ee" />
+          <stop offset=".69" stopColor="#c4b0de" />
+          <stop offset="1" stopColor="#9687ad" />
+        </linearGradient>
+        <radialGradient id={id + "-shadow"}>
+          <stop stopColor="#5b456d" stopOpacity=".27" />
+          <stop offset="1" stopColor="#5b456d" stopOpacity="0" />
+        </radialGradient>
+        <path id={id + "-pane"} d={pane} fillRule="evenodd" />
+      </defs>
+      <g className="wq-optic-motion">
+        <ellipse cx="200" cy="149" rx="101" ry="13" fill={`url(#${id}-shadow)`} />
+        <g transform="rotate(-14 195 100)" strokeWidth=".85">
+          <ellipse cx="195" cy="100" rx="165" ry="53" stroke="#a99cba" />
+          <path d="M85 60a165 53 0 0 1 109-13m155 72a165 53 0 0 1-58 26" stroke="white" />
+          <path d="M25 100h10m320 0h10M195 43v9m0 97v9" stroke="#81738e" />
+        </g>
+        {[2, 1, 0].map((index) => (
+          <g key={index} className="wq-lens" style={{ transform: `translate(${143 + index * (43 + count * .85)}px,${110 - index * (11 + count * .35)}px)` }}>
+            <g transform="matrix(.72 -.35 .39 .82 0 0)">
+              <use href={`#${id}-pane`} transform="translate(5 5)" fill="#a797bd" stroke="#9988ad" strokeWidth="1.4" />
+              <use href={`#${id}-pane`} fill={`url(#${id}-glass)`} stroke="#f5f1fe" strokeWidth="1.2" />
+              <path d="M-36-47H34M-47-33V22" stroke="white" strokeOpacity=".76" strokeWidth=".8" />
+            </g>
+          </g>
+        ))}
+        <g transform="translate(143 110)">
+          <path d="M-11-5v-6h6M5 11h6V5" stroke="#786989" />
+          <rect x="-3.3" y="-3.3" width="6.6" height="6.6" fill="#c50032" />
+        </g>
+      </g>
+    </svg>
+  );
+}
 const reasonLabels: Record<Group, string> = {
   critical: "Критический приоритет",
   coordinators: "У координаторов",
@@ -454,6 +498,7 @@ function WorkspaceScreen({
             {zone === "Europe/Moscow" ? "МСК" : zone}
           </time>
         )}
+        <QueueOptic count={selectedIds.length} />
       </header>
       <a
         ref={shortcut}

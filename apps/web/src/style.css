@@ -2,16 +2,19 @@
   font-family: "Golos Text", sans-serif;
   color: var(--text);
   background: var(--background);
-  --background: #f4f6f8;
+  --background: #faf9fd;
   --surface: #fff;
-  --text: #17212f;
-  --muted: #526071;
-  --border: #d5dbe3;
-  --control-border: #7b8796;
-  --critical: #b42318;
-  --warning: #854d0e;
-  --resolved: #166534;
-  --accent: #284b8f;
+  --stage: #e2e0ee;
+  --tint: #eeebf4;
+  --text: #211d2c;
+  --muted: #5d5868;
+  --border: #d5d0de;
+  --control-border: #817b8b;
+  --critical: #c50032;
+  --warning: #664693;
+  --resolved: #28665c;
+  --accent: #664693;
+  --research: #56516a;
   --space-4: 4px;
   --space-8: 8px;
   --space-12: 12px;
@@ -83,7 +86,7 @@ summary:focus-visible {
   outline-offset: 3px;
 }
 ::selection {
-  background: #dce7ff;
+  background: #ded1f1;
   color: var(--text);
 }
 input,
@@ -348,20 +351,52 @@ h2 {
   font-size: 14px;
 }
 .content {
+  --content-pad: clamp(20px, 3vw, 40px);
   max-width: 1000px;
   margin: 24px auto;
   background: var(--surface);
   border: var(--border-width) solid var(--border);
-  border-radius: 12px;
-  padding: 32px;
+  border-radius: 5px;
+  padding: var(--content-pad);
   overflow-wrap: anywhere;
 }
 .content > p,
 .content > h2 {
   margin: 16px 0;
 }
-.content > h1 {
-  margin-bottom: 16px;
+.content > h1:first-child,
+.content > .section-heading:first-child {
+  background: var(--stage);
+  margin: calc(-1 * var(--content-pad)) calc(-1 * var(--content-pad)) 1.25rem;
+  padding: clamp(1.4rem, 3vw, 2.7rem) var(--content-pad);
+  border-bottom: 1px solid var(--border);
+  border-radius: 4px 4px 0 0;
+}
+.content h1 {
+  font-size: clamp(1.8rem, 3.4vw, 3.25rem);
+  letter-spacing: -.055em;
+  font-weight: 400;
+  line-height: 1.08;
+}
+.content.login > h1 {
+  margin-bottom: 0;
+  font-size: clamp(1.8rem, 2.6vw, 2.45rem);
+}
+.content .section-heading h1 { margin: .3rem 0 0; }
+.content .section-heading > div { flex: 1 1 25rem; min-width: 0; }
+.content :is(.button, button:not(.link)) {
+  background: var(--text);
+  border-color: var(--text);
+  border-radius: 2rem;
+}
+.content :is(.button, button:not(.link)):hover:not(:disabled) {
+  background: #44334f;
+}
+.content > .pager {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
 }
 .section-heading {
   display: flex;
@@ -585,7 +620,6 @@ footer {
     font-size: 14px;
   }
   .content {
-    padding: 20px;
     margin: 16px 0;
   }
   .facts {

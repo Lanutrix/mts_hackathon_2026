@@ -100,7 +100,7 @@ async function login(page: Page, role = "coordinator") {
   ).toBeVisible();
   await expect(page).toHaveURL("/live");
 }
-test("public landing previews signals locally and opens either screen", async ({
+test("public landing shows only the hero and opens either screen", async ({
   page,
 }) => {
   const apiCalls: string[] = [];
@@ -118,12 +118,11 @@ test("public landing previews signals locally and opens either screen", async ({
     "href",
     "/login",
   );
-  const high = page
-    .getByRole("group", { name: "Сигналы эфира" })
-    .getByRole("button", { name: "Высокие" });
-  await high.click();
-  await expect(high).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("status")).toContainText("DEMO-42-00004");
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading")).toHaveCount(1);
+  await expect(main.getByRole("link")).toHaveCount(2);
+  await expect(main.getByRole("button")).toHaveCount(0);
+  await expect(main.getByText("Сигналы эфира")).toHaveCount(0);
   await expect(page).toHaveURL("/");
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
