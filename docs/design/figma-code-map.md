@@ -4,13 +4,15 @@
 
 ## Два основных экрана
 
+Точка входа в продукт находится по адресу `/`. В `Landing.tsx` и `LandingOptic.tsx` заголовок, красный квадрат и сиреневое стекло отсылают к обложке кейса «Инциденты в фокусе». При смене сигнала квадрат движется к выбранному семени и линза увеличивает соответствующий фрагмент иллюстрации. Каждый пример берёт ID и заголовок из `data/demo/design.json`. [Десктоп](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=72-1209) · [Телефон](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=72-1210)
+
 В эфире все четыре сигнала используют единый реестр. Цвет и форма семечки обозначают причину отбора, выбор фильтра меняет позу трёхмерного среза. В очереди шесть углублений в срезе показывают свободные места в контексте разбора. Для узкого экрана в строке срока и статуса сохраняется правая колонка, а переход к контексту закреплён у нижнего края.
 
 На масштаб чисел и работу с акцентом повлияли Lerno и Silv студии Halo Lab. Табличное представление и приоритет информации в строке опираются на Incident Management и обновление интерфейса Linear. [Lerno](https://dribbble.com/shots/26982241-Dashboard-for-Edtech-Product-Lerno) · [Silv](https://dribbble.com/shots/27341855-Dashboard-for-an-IoT-Product-Silv) · [Incident Management](https://dribbble.com/shots/23970269-Incident-Management-Web) · [Linear](https://linear.app/changelog/2026-03-12-ui-refresh)
 
 | Экран | Макет | Реализация | Проверка |
 |---|---|---|---|
-| Эфир смены | [51:2](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-2) | `LiveBoard.tsx`, `/`, `/wallboard` | Поток событий, счётчики, сроки и фильтры в `tests/e2e/workflows.spec.ts`. |
+| Эфир смены | [51:2](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-2) | `LiveBoard.tsx`, `/live`, `/wallboard` | Поток событий, счётчики, сроки и фильтры в `tests/e2e/workflows.spec.ts`. |
 | Рабочая очередь | [51:160](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-160) | `Workspace.tsx`, `contextAnalysis.ts`, `/workspace` | Выборка, поиск, группировка, пересечения и обновление источника в `tests/e2e/workspace.spec.ts`. |
 
 Мобильные прототипы актуальной версии собраны в ширине 390 px. [Эфир](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=62-246) · [Очередь](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=63-498) · [Открытый контекст](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=68-1742)

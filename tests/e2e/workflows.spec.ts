@@ -1,12 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
-import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
-import { resolve, join } from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve, join } from "node:path";
+import { randomBytes } from "node:crypto";
 import { generate } from "../../packages/domain/generator.ts";
 import { passwordHash } from "../../apps/server/auth.ts";
 let server: ChildProcess, dir: string, source: string, password: string;
+const fixtureRoot = resolve(".runtime/e2e");
 const pageErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
   const errors: string[] = [];
@@ -16,10 +18,10 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }) => {
   expect(pageErrors.get(page), "Необработанные ошибки страницы").toEqual([]);
 });
-test.beforeAll(async () => {
-  dir = resolve(".runtime/e2e/" + randomUUID());
+test.beforeEach(async () => {
+  await mkdir(fixtureRoot, { recursive: true });
+  dir = await mkdtemp(join(fixtureRoot, "workflow-"));
   source = join(dir, "incidents.json");
-  await mkdir(dir, { recursive: true });
   await writeFile(source, JSON.stringify(generate(120).rows));
   password = randomBytes(24).toString("hex");
   const salt = randomBytes(16).toString("hex");
@@ -60,9 +62,15 @@ test.beforeAll(async () => {
     )
     .toBe(200);
 });
-test.afterAll(async () => {
-  server?.kill();
+test.afterEach(async () => {
+  if (server && server.exitCode === null && server.signalCode === null) {
+    const exited = once(server, "exit");
+    server.kill();
+    await exited;
+  }
   password = "";
+  if (dir && dirname(dir) === fixtureRoot)
+    await rm(dir, { recursive: true, force: true, maxRetries: 5 });
 });
 async function reset() {
   await writeFile(source, JSON.stringify(generate(120).rows));
@@ -90,7 +98,75 @@ async function login(page: Page, role = "coordinator") {
   await expect(
     page.getByRole("button", { name: "Выйти: " + role }),
   ).toBeVisible();
+  await expect(page).toHaveURL("/live");
 }
+test("public landing previews signals locally and opens either screen", async ({
+  page,
+}) => {
+  const apiCalls: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/api/")) apiCalls.push(path);
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.clock.install();
+  await page.goto("/");
+  const title = page.getByRole("heading", { name: "Инциденты в фокусе." });
+  await expect(title).toBeVisible();
+  await expect(page.getByRole("link", { name: "Войти" })).toHaveAttribute(
+    "href",
+    "/login",
+  );
+  const high = page
+    .getByRole("group", { name: "Сигналы эфира" })
+    .getByRole("button", { name: "Высокие" });
+  await high.click();
+  await expect(high).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("status")).toContainText("DEMO-42-00004");
+  await expect(page).toHaveURL("/");
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await page.clock.fastForward(6000);
+  expect(apiCalls).toEqual([]);
+  await page.getByRole("link", { name: "Открыть эфир" }).click();
+  await expect(page).toHaveURL("/live");
+  await expect(page.getByTestId("live-register")).toBeVisible();
+  await page.goBack();
+  await expect(title).toBeVisible();
+  apiCalls.length = 0;
+  await page.clock.fastForward(6000);
+  expect(apiCalls).toEqual([]);
+  await page.getByRole("link", { name: "Рабочая очередь" }).click();
+  await expect(page).toHaveURL("/workspace");
+  await expect(page.getByRole("region", { name: "Инциденты" })).toBeVisible();
+  await page.goBack();
+  await expect(title).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole("region", { name: "Инциденты" })).toBeVisible();
+});
+test("legacy live bookmarks keep filters, fragments and browser history", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const filters = "?ns=demo&q=DEMO-42-00019&sort=id#main";
+  await page.goto("/" + filters);
+  await expect(page).toHaveURL("/live" + filters);
+  await expect(page.getByRole("searchbox")).toHaveValue("DEMO-42-00019");
+  await expect(page.getByTestId("live-count")).toHaveText("1");
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+  await expect(
+    page.getByRole("heading", { name: "Инциденты в фокусе." }),
+  ).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL("/live" + filters);
+  await expect(page.getByTestId("live-count")).toHaveText("1");
+  await page.goto("/?ns=demo");
+  await expect(page).toHaveURL("/live?ns=demo");
+  await expect(page.getByTestId("live-register")).toBeVisible();
+});
 test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers without reload", async ({
   page,
   browser,
@@ -98,7 +174,7 @@ test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers wit
   await reset();
   const second = await browser.newContext();
   const other = await second.newPage();
-  await Promise.all([page.goto("/?sort=id"), other.goto("/?sort=id")]);
+  await Promise.all([page.goto("/live?sort=id"), other.goto("/live?sort=id")]);
   await expect(page.getByTestId("count-critical")).toHaveText("12");
   await expect(page.getByTestId("count-coordinators")).toHaveText("36");
   await expect(page.getByTestId("count-high")).toHaveText("12");
@@ -151,7 +227,7 @@ test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", 
   page,
 }, info) => {
   await reset();
-  await page.goto("/");
+  await page.goto("/live");
   await page.getByRole("searchbox").fill("DEMO-42-00019");
   await expect(page.getByTestId("live-count")).toHaveText("1");
   await expect(page).toHaveURL(/q=DEMO/);
@@ -184,8 +260,10 @@ test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", 
       fullPage: false,
     });
   }
+  await page.getByRole("link", { name: "Обычный режим" }).click();
+  await expect(page).toHaveURL("/live");
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
+  await page.goto("/live");
   await expect(page.getByTestId("count-critical")).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "К содержимому" })).toBeFocused();
@@ -201,6 +279,13 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   page,
 }, info) => {
   await login(page, "demo-admin");
+  await page.getByRole("link", { name: /Watermelon/ }).click();
+  await expect(page).toHaveURL("/");
+  await page.getByRole("link", { name: "Рабочая очередь" }).click();
+  await expect(page).toHaveURL("/workspace");
+  await expect(
+    page.getByRole("button", { name: "Выйти: demo-admin" }),
+  ).toBeVisible();
   await page.getByRole("link", { name: "Настройки", exact: true }).click();
   await page.getByLabel("Часовой пояс", { exact: true }).selectOption("UTC");
   await page.getByRole("button", { name: "Сохранить настройки" }).click();
@@ -251,6 +336,11 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
     page.getByRole("button", { name: "Прочитано", exact: true }).first(),
   ).toBeDisabled();
   await page.getByRole("button", { name: "Выйти: demo-admin" }).click();
+  await expect(page).toHaveURL("/");
+  await expect(
+    page.getByRole("heading", { name: "Инциденты в фокусе." }),
+  ).toBeVisible();
+  await page.goBack();
   await expect(
     page.getByRole("link", { name: "Войти", exact: true }),
   ).toBeVisible();
@@ -263,21 +353,22 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
 test("F22 no serious/critical automated accessibility violations", async ({
   page,
 }) => {
-  await page.goto("/");
-  await expect(page.getByTestId("count-critical")).not.toHaveText("");
-  const report = await new AxeBuilder({ page }).analyze();
-  expect(
-    report.violations.filter(
-      (v) => v.impact === "critical" || v.impact === "serious",
-    ),
-  ).toEqual([]);
-  await page.goto("/login");
-  const loginReport = await new AxeBuilder({ page }).analyze();
-  expect(
-    loginReport.violations.filter(
-      (v) => v.impact === "critical" || v.impact === "serious",
-    ),
-  ).toEqual([]);
+  const screens = [
+    ["/", page.getByRole("heading", { name: "Инциденты в фокусе." })],
+    ["/live", page.getByTestId("count-critical")],
+    ["/login", page.getByLabel("Имя пользователя")],
+  ] as const;
+  for (const [path, marker] of screens) {
+    await page.goto(path);
+    await expect(marker).toBeVisible();
+    const report = await new AxeBuilder({ page }).analyze();
+    expect(
+      report.violations.filter(
+        (v) => v.impact === "critical" || v.impact === "serious",
+      ),
+      path,
+    ).toEqual([]);
+  }
 });
 
 test("F08 F14 F28 exact deadline, null and untrusted HTML stay visible without execution", async ({
@@ -287,7 +378,7 @@ test("F08 F14 F28 exact deadline, null and untrusted HTML stay visible without e
   await mutate("critical");
   await mutate("deadline", "2026-11-21T09:00:00Z");
   await page.clock.setFixedTime(new Date("2026-11-21T09:00:00Z"));
-  await page.goto("/?sort=id");
+  await page.goto("/live?sort=id");
   const card = page.getByTestId("card-DEMO-42-00001").first();
   await expect(card).toContainText("Срок близко");
   await page.clock.setFixedTime(new Date("2026-11-21T09:00:01Z"));

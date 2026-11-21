@@ -13,6 +13,7 @@ import "@fontsource/golos-text/cyrillic-600.css";
 import "@fontsource/golos-text/latin-400.css";
 import "@fontsource/golos-text/latin-600.css";
 import "./style.css";
+import Landing from "./Landing";
 import Workspace from "./Workspace";
 import { analyzeContext } from "./contextAnalysis";
 import LiveBoard from "./LiveBoard";
@@ -54,25 +55,64 @@ async function api(path: string, options: RequestInit = {}) {
     throw new Error(data.message ?? "Не удалось получить данные");
   return data;
 }
-function useRoute() {
-  const [route, setRoute] = useState(() => location.pathname + location.search);
+const legacyFilters = ["q", "ns", "sort", "service", "up", ...groups];
+function readRoute() {
+  const url = new URL(location.href);
+  if (
+    url.pathname === "/" &&
+    legacyFilters.some((key) => url.searchParams.has(key))
+  ) {
+    url.pathname = "/live";
+    history.replaceState(history.state, "", url);
+  }
+  return url;
+}
+function App({ initialRoute }: { initialRoute: URL }) {
+  const [route, setRoute] = useState(initialRoute);
+  const [visit, setVisit] = useState(0);
   useEffect(() => {
-    const update = () => setRoute(location.pathname + location.search);
+    const path = route.pathname;
+    const names: Record<string, string> = {
+      "/": "Инциденты в фокусе",
+      "/live": "Эфир смены",
+      "/workspace": "Рабочая очередь",
+      "/wallboard": "Общий экран",
+      "/login": "Вход",
+    };
+    document.title = (names[path] ?? "Дашборд координатора") + " · Watermelon";
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", path === "/" ? "#e2e0ee" : "#103f34");
+  }, [route.pathname]);
+  useEffect(() => {
+    const update = () => setRoute(readRoute());
+    const restore = (event: PageTransitionEvent) => {
+      // A cached document can outlive its session and its event stream.
+      if (event.persisted) setVisit((current) => current + 1);
+    };
     window.addEventListener("popstate", update);
-    return () => window.removeEventListener("popstate", update);
+    window.addEventListener("pageshow", restore);
+    return () => {
+      window.removeEventListener("popstate", update);
+      window.removeEventListener("pageshow", restore);
+    };
   }, []);
   const go = (path: string) => {
-    const changedPage = location.pathname !== path.split("?")[0];
+    const previous = location.pathname;
     history.pushState(null, "", path);
-    setRoute(path);
-    if (changedPage) window.scrollTo(0, 0);
+    const next = readRoute();
+    setRoute(next);
+    if (next.pathname !== previous) window.scrollTo(0, 0);
   };
-  return [route, go] as const;
+  return route.pathname === "/" ? (
+    <Landing go={go} />
+  ) : (
+    <Dashboard key={visit} route={route} go={go} />
+  );
 }
-function App() {
-  const [route, go] = useRoute(),
-    [path, query = ""] = route.split("?"),
-    params = new URLSearchParams(query),
+function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
+  const { pathname: path, searchParams: params } = route,
+    query = route.search.slice(1),
     ns = params.get("ns") ?? "demo";
   const [user, setUser] = useState<User | null>(null),
     [sources, setSources] = useState<string[]>(["demo"]),
@@ -118,7 +158,7 @@ function App() {
     try {
       const q = new URLSearchParams(query);
       q.set("ns", ns);
-      if (path === "/" || path === "/wallboard")
+      if (path === "/live" || path === "/wallboard")
         for (const group of groups) q.delete(group);
       const dashboard = await read("/dashboard?" + q);
       if (gen !== generation.current) return;
@@ -290,7 +330,9 @@ function App() {
     <a
       tabIndex={0}
       href={link(to)}
-      aria-current={path === to || (wall && to === "/") ? "page" : undefined}
+      aria-current={
+        path === to || (wall && to === "/live") ? "page" : undefined
+      }
       className={compact ? "icon-link" : undefined}
       title={compact ? label : undefined}
       aria-label={compact || short ? label : undefined}
@@ -308,7 +350,7 @@ function App() {
     const p = new URLSearchParams(query);
     value ? p.set(key, value) : p.delete(key);
     for (const g of groups) if (g !== key) p.delete(g);
-    go(path + "?" + p);
+    go(p.size ? path + "?" + p : path);
   };
   const call = async (f: () => Promise<unknown>) => {
     try {
@@ -328,10 +370,10 @@ function App() {
         <header className="ops-header">
           <a
             className="ops-brand"
-            href={link("/")}
+            href="/"
             onClick={(e) => {
               e.preventDefault();
-              go(link("/"));
+              go("/");
             }}
           >
             <Mark />
@@ -339,13 +381,13 @@ function App() {
             <small>МТС</small>
           </a>
           <nav className="primary-switch" aria-label="Основная навигация">
-            {nav("/", "Эфир смены", "live", false, "Эфир")}
+            {nav("/live", "Эфир смены", "live", false, "Эфир")}
             {nav("/workspace", "Рабочая очередь", "queue", false, "Очередь")}
           </nav>
           <nav className="ops-actions" aria-label="Сервисы">
             {!wall && nav("/notifications", "Уведомления", "bell", true)}
             {wall ? (
-              nav("/", "Обычный режим", "expand", true)
+              nav("/live", "Обычный режим", "expand", true)
             ) : (
               <>
                 <button
@@ -374,13 +416,9 @@ function App() {
                 <button
                   className="user-pill"
                   onClick={() =>
-                    void call(async () => {
-                      await post("/logout", {});
-                      setUser(null);
-                      setSources(["demo"]);
-                      setData(null);
-                      go("/");
-                    })
+                    void post("/logout", {})
+                      .then(() => go("/"))
+                      .catch((e) => setError(e.message))
                   }
                 >
                   Выйти: {user.username}
@@ -447,7 +485,7 @@ function App() {
                 const m = await api("/me");
                 setSources(m.sources);
                 setUser(u);
-                go("/");
+                go("/live");
               }}
             />
           ) : !data || data.namespace !== ns ? (
@@ -474,7 +512,7 @@ function App() {
                 )
               }
             />
-          ) : path === "/" || wall ? (
+          ) : path === "/live" || wall ? (
             <LiveBoard
               data={data}
               params={params}
@@ -486,7 +524,9 @@ function App() {
               sources={sources}
               open={open}
               setParam={updateParam}
-              switchSource={(source) => go("/?ns=" + encodeURIComponent(source))}
+              switchSource={(source) =>
+                go("/live?ns=" + encodeURIComponent(source))
+              }
             >
               {(data.quality.quarantined > 0 || data.quality.missing > 0) && (
                 <div className="warning notice">
@@ -734,7 +774,7 @@ function App() {
           ) : (
             <section className="content">
               <h1>Страница не найдена</h1>
-              {nav("/", "Вернуться к обзору")}
+              {nav("/live", "Вернуться к обзору")}
             </section>
           )}
         </main>
@@ -1211,4 +1251,6 @@ function beep() {
     o.onended = () => void c.close();
   } catch {}
 }
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <App initialRoute={readRoute()} />,
+);

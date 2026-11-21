@@ -9,7 +9,7 @@ page.on("requestfailed", (r) =>
   console.log("failed", r.url(), r.failure()?.errorText),
 );
 try {
-  await page.goto("http://127.0.0.1:3000/", { timeout: 10000 });
+  await page.goto("http://127.0.0.1:3000/live", { timeout: 10000 });
   console.log("http-ready", await page.title());
   console.log("body", await page.locator("body").innerText({ timeout: 5000 }));
   await page.screenshot({

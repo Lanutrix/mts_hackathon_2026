@@ -60,7 +60,7 @@ try {
       const page = await browser.newPage({
         viewport: { width: 1920, height: 1080 },
       });
-      await page.goto("http://127.0.0.1:3220/?sort=id");
+      await page.goto("http://127.0.0.1:3220/live?sort=id");
       await page.getByTestId("card-DEMO-42-00001").first().waitFor();
       const samples: any[] = [];
       for (let n = 0; n < 20; n++) {

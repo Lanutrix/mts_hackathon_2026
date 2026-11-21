@@ -38,7 +38,7 @@ try {
     await page.clock.setFixedTime(new Date("2026-11-21T09:04:08Z"));
     await page.goto(
       "http://127.0.0.1:3230/" +
-        (width === 2560 ? "wallboard" : "") +
+        (width === 2560 ? "wallboard" : "live") +
         "?sort=id",
     );
     await page.getByTestId("count-critical").waitFor();
