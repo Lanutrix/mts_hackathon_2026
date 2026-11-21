@@ -101,3 +101,13 @@
     gap: 12px;
   }
 }
+
+.canvas-back {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 36px;
+  margin-bottom: .5rem;
+  color: var(--accent);
+  font-size: .875rem;
+}

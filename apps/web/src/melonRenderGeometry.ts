@@ -2,7 +2,7 @@
 // are separate surfaces so every cut retains its own normal and material.
 export const radii = [1.16, 1.08, 1.82] as const;
 const signalCuts = [0.16, -0.13, -0.425, -0.7, -0.984] as const;
-const brandCuts = [0.16, -0.12] as const;
+const brandCuts = [0.32, 0.1, -0.12, -0.34] as const;
 export const sectionCuts = (hero: boolean) => (hero ? brandCuts : signalCuts);
 // This rectangle is inside the rounded opening of both tessellations.
 export const aperture = [0.58, 0.645] as const;
@@ -80,7 +80,7 @@ export function melonMesh(hero = false) {
 
 // Sweep a beveled rectangular cross-section around a continuous rounded path.
 // Both side walls and both polished faces are present at every orientation.
-export function glassMesh(steps = 12, bevelSteps = 5) {
+export function glassMesh(steps = 12, bevelSteps = 5, hero = false) {
   const rail: { x: number; y: number; nx: number; ny: number }[] = [];
   const profile: { r: number; z: number; nr: number; nz: number }[] = [];
   const perimeter = (
@@ -102,8 +102,15 @@ export function glassMesh(steps = 12, bevelSteps = 5) {
     }
     return points;
   };
-  rail.push(...perimeter(0.72, 0.79, 0.165, steps));
-  for (const p of perimeter(0.116, glassHalfDepth, 0.043, bevelSteps))
+  rail.push(
+    ...(hero
+      ? perimeter(0.79, 0.79, 0.08, steps)
+      : perimeter(0.72, 0.79, 0.165, steps)),
+  );
+  const crossSection = hero
+    ? perimeter(0.043, 0.039, 0.014, bevelSteps)
+    : perimeter(0.116, glassHalfDepth, 0.043, bevelSteps);
+  for (const p of crossSection)
     profile.push({ r: p.x, z: p.y, nr: p.nx, nz: p.ny });
   const vertices: number[] = [];
   function vertex(i: number, k: number) {
@@ -128,5 +135,37 @@ export function glassMesh(steps = 12, bevelSteps = 5) {
       vertex(i + 1, j);
       vertex(i + 1, j + 1);
     }
+  return new Float32Array(vertices);
+}
+
+// The scanner spans the opening of its polished rim. The miniature specimens
+// have two solid faces and a bevel so their thickness survives a direct turn.
+export function glassPlate(half: number, depth: number, material: number) {
+  const vertices: number[] = [];
+  const corners = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ];
+  function ring(size: number, z: number): Vector[] {
+    return corners.map(([x, y]) => [x * size, y * size, z]);
+  }
+  function quad(points: Vector[], normal: Vector) {
+    for (const i of [0, 1, 2, 0, 2, 3])
+      vertices.push(...points[i], ...normal, material);
+  }
+  const front = ring(half - depth, depth),
+    middle = ring(half, 0),
+    back = ring(half - depth, -depth);
+  quad(front, [0, 0, 1]);
+  quad(back, [0, 0, -1]);
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    const nx = (corners[i][0] + corners[j][0]) / 2;
+    const ny = (corners[i][1] + corners[j][1]) / 2;
+    quad([front[i], front[j], middle[j], middle[i]], [nx, ny, 0.6]);
+    quad([middle[i], middle[j], back[j], back[i]], [nx, ny, -0.6]);
+  }
   return new Float32Array(vertices);
 }

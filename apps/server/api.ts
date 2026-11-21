@@ -24,6 +24,8 @@ import {
 import type { AnalysisService } from "./analysis.ts";
 import { analyzeCase } from "./caseAnalysis.ts";
 import { analyzeSelection } from "./operationalAnalysis.ts";
+import { CanvasService } from "./canvas.ts";
+import { validContext } from "./canvasPlan.ts";
 import { registerDispatch } from "./dispatch.ts";
 import { registerPush, type PushOptions } from "./push.ts";
 import {
@@ -151,13 +153,13 @@ export async function createApp(o: AppOptions) {
   }
   for (const s of o.stores.values())
     s.on("reset", () => snapshots.delete(s.namespace));
-  function trainingCaseAnalysis(req: FastifyRequest) {
+  function trainingAnalysis(req: FastifyRequest) {
     const ns = (req.query as Record<string, string>).ns ?? "demo";
     return (
       o.publicDemo &&
       (ns === "simulation" || ns === "demo") &&
       req.method === "POST" &&
-      req.routeOptions.url === "/api/triage/:id/analysis"
+      (req.routeOptions.url === "/api/triage/:id/analysis" || req.routeOptions.url === "/api/canvas")
     );
   }
   async function readCase(req: FastifyRequest, reply: FastifyReply) {
@@ -194,6 +196,8 @@ export async function createApp(o: AppOptions) {
     "/api/me",
     "/api/health",
     "/api/dashboard",
+    "/api/canvas",
+    "/api/canvas/tickets",
     "/api/triage/:id",
     "/api/incidents",
     "/api/incident/:id",
@@ -220,7 +224,7 @@ export async function createApp(o: AppOptions) {
       if (!o.publicDemo)
         return reply.code(404).send({ message: "Учебный эфир отключён" });
       if (
-        !trainingCaseAnalysis(req) &&
+        !trainingAnalysis(req) &&
         (!["GET", "HEAD"].includes(req.method) ||
           !juryReadRoutes.has(req.routeOptions.url ?? ""))
       )
@@ -257,6 +261,95 @@ export async function createApp(o: AppOptions) {
   juryReadRoutes.add(
     registerDispatch(app, { db, identity, readStoreFor, requireRole }),
   );
+  const canvas = new CanvasService(o.ai?.remote);
+  app.get("/api/canvas", async (req, reply) => {
+    const source = await readStoreFor(req, reply);
+    if (source) return canvas.read(source, identity(req)!.username);
+  });
+  app.post(
+    "/api/canvas",
+    {
+      bodyLimit: 16_384,
+      config: { rateLimit: { max: 24, timeWindow: "1 minute" } },
+    },
+    async (req, reply) => {
+      if (
+        !trainingAnalysis(req) &&
+        !requireRole(req, reply, ["coordinator", "demo-admin"])
+      )
+        return;
+      const body = req.body as {
+        question?: unknown;
+        context?: unknown;
+        refresh?: unknown;
+      } | null;
+      if (body?.context !== undefined && !validContext(body.context))
+        return reply
+          .code(400)
+          .send({ message: "Некорректный контекст холста." });
+      if (
+        body?.refresh === true &&
+        body.context &&
+        body.question === undefined
+      ) {
+        const source = await readStoreFor(req, reply);
+        if (source)
+          return canvas.read(
+            source,
+            identity(req)!.username,
+            undefined,
+            body.context,
+          );
+        return;
+      }
+      if (
+        body?.refresh !== undefined ||
+        typeof body?.question !== "string" ||
+        !body.question.trim() ||
+        body.question.length > 500
+      )
+        return reply
+          .code(400)
+          .send({
+            message:
+              "Введите вопрос длиной до 500 символов или обновите существующий срез.",
+          });
+      const source = await readStoreFor(req, reply);
+      if (source)
+        return canvas.read(
+          source,
+          identity(req)!.username,
+          body.question.trim(),
+          body.context,
+        );
+    },
+  );
+  app.get("/api/canvas/tickets", async (req, reply) => {
+    const q = req.query as Record<string, unknown>;
+    if (
+      typeof q.selection !== "string" ||
+      (q.group !== undefined && typeof q.group !== "string") ||
+      (q.offset !== undefined &&
+        (typeof q.offset !== "string" || !/^\d{1,8}$/u.test(q.offset)))
+    )
+      return reply
+        .code(400)
+        .send({ message: "Некорректный запрос списка заявок." });
+    const page = canvas.page(
+      String(q.ns ?? "demo"),
+      identity(req)!.username,
+      q.selection,
+      q.group,
+      Number(q.offset ?? 0),
+    );
+    if (!page)
+      return reply
+        .code(409)
+        .send({
+          message: "Срок хранения этой подборки истёк. Обновите холст.",
+        });
+    return page;
+  });
   const push =
     o.push &&
     registerPush(app, o.push, {
@@ -491,7 +584,7 @@ export async function createApp(o: AppOptions) {
     },
     async (req, reply) => {
       if (
-        !trainingCaseAnalysis(req) &&
+        !trainingAnalysis(req) &&
         !requireRole(req, reply, ["coordinator", "demo-admin"])
       )
         return;

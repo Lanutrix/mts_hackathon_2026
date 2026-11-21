@@ -1,882 +1,660 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type { Incident, Group } from "../../../packages/domain/index.ts";
-import type { Analysis } from "../../server/analysis.ts";
-import "./workspace.css";
-import MelonScene from "./MelonScene";
-import type { MelonTracking } from "./melonModel";
-import type { Triage } from "../../../packages/domain/triage";
-import Loader from "./Loader";
+import { useEffect, useRef, useState } from "react";
+import type {
+  CanvasGroup,
+  CanvasResult,
+} from "../../../packages/contracts/canvas";
+import { CanvasFigure } from "./CanvasFigure";
+import { CanvasDrawer, canvasJson } from "./CanvasTickets";
+import { TicketMentions } from "./IncidentSources";
 import { screenLink } from "./routes";
-import { Icon, SignalBadge, SignalMark } from "./Brand";
-import { fieldName, TicketMentions } from "./IncidentSources";
+import "./workspace.css";
 
-export interface WorkspaceAnalysis {
-  items: { id: string; analysis: Analysis }[];
-  overview?: string[];
-  provider?: string;
-  model?: string;
-  promptVersion?: string;
-  mode?: "model" | "fallback" | "fields";
-  stale?: boolean;
-}
-const groups: Group[] = ["critical", "coordinators", "high", "research"];
-
-const reasonLabels: Record<Group, string> = {
-  critical: "Критический приоритет",
-  coordinators: "У координаторов",
-  high: "Высокий приоритет",
-  research: "На исследовании",
-};
-const questions = [
-  ["Сроки", "У каких инцидентов приближается срок решения?"],
-  ["Ответственные", "Какие команды отвечают за выбранные инциденты?"],
-  ["Симптомы", "Какие симптомы описаны в выбранных инцидентах?"],
-] as const;
-const contextLimit = 6;
-const displayStep = 18;
-type Grouping = "none" | "product" | "team";
-type GroupPage = { count: number; offset: number; items: Incident[] };
-type Dashboard = {
-  namespace: string;
-  revision: number;
-  acceptedAt: string | null;
-  unique: number;
-  triage?: Triage;
-  groups: Record<Group, GroupPage>;
-};
-type Snapshot = {
-  page: Dashboard;
-  query: string;
-  items: Map<string, Incident>;
-  hasMore: boolean;
-};
-type Selection = { id: string; incident?: Incident; unavailable?: boolean };
 type Props = {
-  data: Dashboard | null;
   ns: string;
-  open: (id: string) => void;
-  zone: string;
-  write: boolean;
-  canDispatch?: boolean;
   userKey: string;
-  analyze: (ids: string[], question: string) => Promise<WorkspaceAnalysis>;
+  zone: string;
+  csrf: string;
+  canAsk: boolean;
+  revision: number;
+  open: (id: string) => void;
 };
+type Turn = { question: string; result: CanvasResult };
+type Selection = { group: CanvasGroup | null; result: CanvasResult };
+type Conversation = {
+  turns: Turn[];
+  active: number;
+  draft: string;
+  selection: Selection | null;
+};
+type Operation = "ask" | "reset" | "refresh";
+const emptyConversation = (): Conversation => ({
+  turns: [],
+  active: 0,
+  draft: "",
+  selection: null,
+});
+// Ticket navigation remounts this screen. Keep a short, session-scoped history in tab memory.
+const conversations = new Map<string, Conversation>();
+const sources: Record<string, string> = {
+  demo: "Демо-данные",
+  original: "Оригинал",
+  workspace: "Рабочая копия",
+  simulation: "Учебный эфир",
+};
+const initialSuggestions = [
+  "Сгруппируй по командам",
+  "Покажи сроки",
+  "Сравни приоритеты",
+];
+const labels: Record<string, string> = {
+  symptom: "Атлас симптомов",
+  team: "Нагрузка команд",
+  product: "Продукты",
+  priority: "Приоритеты",
+  deadline: "Окна сроков",
+  status: "Статусы",
+  escalation: "Эскалации",
+  ticket: "Инциденты",
+};
+const displayCount = (n: number) => n.toLocaleString("ru-RU");
+const panels = (result: CanvasResult) => [
+  result,
+  ...result.blocks.map(
+    (block): CanvasResult => ({
+      ...result,
+      ...block,
+      intent: {
+        ...result.intent,
+        groupBy: block.groupBy,
+        layout: block.layout,
+      },
+      blocks: [],
+    }),
+  ),
+];
 
-function mergePage(
-  page: Dashboard,
-  query: string,
-  previous?: Snapshot,
-): Snapshot {
-  const items = new Map(previous?.items);
-  for (const group of groups)
-    for (const row of page.groups[group].items) items.set(row.id, row);
-  const hasMore = groups.some((group) => {
-    const { offset, items, count } = page.groups[group];
-    return offset + items.length < count;
-  });
-  return { page, query, items, hasMore };
-}
-
-function seedPage(data: Dashboard | null, ns: string, query: string) {
-  const params = new URLSearchParams(location.search);
-  if (
-    query ||
-    data?.namespace !== ns ||
-    [...params.keys()].some((key) => key !== "ns")
-  )
-    return null;
-  return groups.every((group) => data.groups[group].offset === 0) ? data : null;
-}
-
-function restoreSelection(key: string): Selection[] {
-  try {
-    const value: unknown = JSON.parse(sessionStorage.getItem(key) || "[]");
-    if (Array.isArray(value)) {
-      const ids = value.filter(
-        (id): id is string =>
-          typeof id === "string" && !!id && id.length <= 200,
-      );
-      return [...new Set(ids)].slice(0, contextLimit).map((id) => ({ id }));
-    }
-  } catch {
-    /* Storage can be disabled in a private tab. */
-  }
-  return [];
-}
-
-function earliestDeadline(selected: Selection[], loaded?: Map<string, Incident>) {
-  let earliest: number | null = null;
-  for (const { id, incident } of selected) {
-    const row = loaded?.get(id) ?? incident;
-    if (!row) return null;
-    if (!row.dates.deadline) continue;
-    const time = Date.parse(row.dates.deadline);
-    if (earliest === null || time < earliest) earliest = time;
-  }
-  return earliest;
-}
-
-function SeedTray({ count }: { count: number }) {
+function Spark({ size = 18 }: { size?: number }) {
   return (
-    <div className="wq-tray" aria-hidden="true">
-      <div className="wq-slice">
-        {Array.from({ length: contextLimit }, (_, index) => (
-          <i key={index} className="wq-slot" data-filled={index < count} />
-        ))}
-      </div>
-    </div>
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <path
+        d="M12 2.3c.7 5.6 3.1 8.1 9 9.5-5.7.9-8.3 3.6-9.4 9.7-.8-6-3.3-8.5-9-9.7 6-1.1 8.5-3.7 9.4-9.5Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
-
-function transferSeed(
-  from: HTMLElement,
-  to: HTMLElement | null,
-  seed: HTMLElement | null,
-) {
-  if (!seed || !to || matchMedia("(prefers-reduced-motion: reduce)").matches)
-    return;
-  const start = from.getBoundingClientRect();
-  const end = to.getBoundingClientRect();
-  if (!end.width || end.top < 0 || end.bottom > window.innerHeight) return;
-  const x = start.left + start.width / 2 - 4;
-  const y = start.top + start.height / 2 - 7;
-  const dx = end.left + end.width / 2 - 4 - x;
-  const dy = end.top + end.height / 2 - 7 - y;
-  const position = (ratio: number, lift: number, angle: number, scale: number) =>
-    `translate(${x + dx * ratio}px, ${y + dy * ratio + lift}px) rotate(${angle}deg) scale(${scale})`;
-  seed.getAnimations().forEach((flight) => flight.cancel());
-  seed.animate(
-    [
-      { transform: position(0, 0, -32, 0.7), opacity: 0 },
-      { transform: position(0.12, -24, -8, 1.2), opacity: 1, offset: 0.14 },
-      { transform: position(0.66, -32, 55, 1), opacity: 1, offset: 0.55 },
-      { transform: position(1, 0, 18, 0.75), opacity: 0 },
-    ],
-    { duration: 510, easing: "cubic-bezier(.2,.65,.25,1)" },
-  );
-}
-
-function Arrow({ direction = "up" }: { direction?: "up" | "right" | "down" }) {
+function SendIcon() {
   return (
-    <span aria-hidden="true" className={"wq-arrow wq-arrow-" + direction} />
+    <svg
+      aria-hidden="true"
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 19V5m-6 6 6-6 6 6" />
+    </svg>
+  );
+}
+function SourceMode({ result }: { result: CanvasResult }) {
+  return (
+    <span className="cx-mode">
+      {result.mode === "model"
+        ? result.model || result.provider || "ИИ"
+        : result.mode === "unsupported"
+          ? "Уточнение"
+          : "По полям источника"}
+    </span>
   );
 }
 
-function SelectedTicket({
-  id,
-  incident,
-  ns,
+function ConversationLog({
+  turns,
+  active,
+  activate,
   open,
-  remove,
-  onRestore,
-  onMissing,
+  ns,
+  busy,
 }: {
-  id: string;
-  incident?: Incident;
+  turns: Turn[];
+  active: number;
+  activate: (i: number) => void;
+  open: Props["open"];
   ns: string;
-  open: () => void;
-  remove: () => void;
-  onRestore: (row: Incident) => void;
-  onMissing: (id: string) => void;
+  busy: string | null;
 }) {
-  const [unavailable, setUnavailable] = useState(false);
+  const scroll = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (incident) return;
-    const controller = new AbortController();
-    fetch(
-      "/api/incident/" +
-        encodeURIComponent(id) +
-        "?ns=" +
-        encodeURIComponent(ns),
-      { signal: controller.signal },
-    )
-      .then(async (response) => {
-        if (!response.ok) throw new Error();
-        const result = await response.json();
-        if (!controller.signal.aborted) onRestore(result.incident);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setUnavailable(true);
-          onMissing(id);
-        }
-      });
-    return () => controller.abort();
-  }, [id, ns, incident, onRestore, onMissing]);
-  const row = incident;
+    const el = scroll.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [turns.length, busy]);
   return (
-    <li className="wq-selected">
-      <button className="wq-selected-ticket" type="button" onClick={open}>
-        <span>{id}</span>
-        <strong>
-          {row
-            ? String(row.raw.header || "Без заголовка")
-            : unavailable
-              ? "Карточка недоступна"
-              : <Loader label="Загрузка карточки…" />}
-        </strong>
-      </button>
-      <button
-        className="wq-remove"
-        type="button"
-        onClick={remove}
-        aria-label={"Убрать " + id}
-      >
-        ×
-      </button>
-    </li>
-  );
-}
-
-function FieldEvidence({ analysis }: { analysis: Analysis }) {
-  return (
-    <div className="wq-evidence">
-      {analysis.error && <p>{analysis.error}</p>}
-      <ul>
-        {analysis.summary.map((line, i) => (
-          <li key={i}>
-            {line}
-            <small>
-              {analysis.evidence
-                .filter((item) => item.claim === i)
-                .flatMap((item) => item.fields.map(fieldName))
-                .join(" · ")}
-            </small>
-          </li>
-        ))}
-      </ul>
-      {analysis.uncertainties.map((text, i) => (
-        <p key={i}>{text}</p>
+    <div
+      className="cx-log"
+      ref={scroll}
+      aria-label="Сообщения диалога"
+      role="log"
+      aria-live="polite"
+      tabIndex={0}
+    >
+      {turns.map(({ question, result }, index) => (
+        <article className="cx-turn" key={index}>
+          {question && (
+            <p className="cx-question">
+              <span className="sr-only">Вы спросили. </span>
+              {question}
+            </p>
+          )}
+          <div className="cx-answer">
+            <div className="cx-author">
+              <span className="cx-assistant-icon">
+                <Spark size={15} />
+              </span>
+              <b>Срез</b>
+              <SourceMode result={result} />
+            </div>
+            <p>
+              <TicketMentions
+                text={result.summary}
+                ids={result.tickets.map((t) => t.id)}
+                {...{ ns, open }}
+              />
+            </p>
+            {result.notice && result.notice !== result.summary && (
+              <small>{result.notice}</small>
+            )}
+            {turns.length > 1 && result.mode !== "unsupported" && (
+              <button
+                className="cx-transcript-view"
+                type="button"
+                aria-pressed={active === index}
+                onClick={() => activate(index)}
+              >
+                {active === index ? "На холсте" : "Открыть этот срез"}{" "}
+                <span aria-hidden="true">{active === index ? "●" : "↗"}</span>
+              </button>
+            )}
+          </div>
+        </article>
       ))}
-      <small>
-        Версия карточки {analysis.inputRevision}
-        {analysis.mode === "model"
-          ? " · " +
-            analysis.provider +
-            " · " +
-            analysis.model +
-            " · " +
-            analysis.promptVersion
-          : ""}
-      </small>
+      {busy !== null && (
+        <article className="cx-turn">
+          {busy && <p className="cx-question">{busy}</p>}
+          <div className="cx-thinking">
+            <Spark size={16} />
+            {busy ? "Собираю срез…" : "Читаю источник…"}
+          </div>
+        </article>
+      )}
     </div>
   );
 }
 
 export default function Workspace(props: Props) {
-  return (
-    <WorkspaceScreen
-      key={JSON.stringify([props.ns, props.userKey])}
-      {...props}
-    />
-  );
+  const identity = JSON.stringify([props.ns, props.userKey, props.csrf]);
+  return <WorkspaceScreen key={identity} {...props} identity={identity} />;
 }
 
 function WorkspaceScreen({
-  data,
   ns,
-  open,
   zone,
-  write,
-  canDispatch,
-  userKey,
-  analyze,
-}: Props) {
-  const storageKey = "watermelon:workspace:" + JSON.stringify([ns, userKey]);
-  const [selected, setSelected] = useState(() => restoreSelection(storageKey));
-  const [search, setSearch] = useState("");
-  const [grouping, setGrouping] = useState<Grouping>("none");
-  const [shown, setShown] = useState(displayStep);
-  const [queue, setQueue] = useState<Snapshot | null>(() => {
-    const seed = seedPage(data, ns, "");
-    return seed ? mergePage(seed, "") : null;
-  });
-  const [loading, setLoading] = useState(false);
-  const [listError, setListError] = useState("");
-  const [revisionChanged, setRevisionChanged] = useState(false);
-  const activeRequest = useRef<AbortController | null>(null);
-  const latestData = useRef(data);
-  latestData.current = data;
-  const query = search.trim();
-  const queueVisible = queue?.query === query;
-  const listReady = queue && queueVisible;
-  const refreshAvailable =
-    listReady &&
-    (revisionChanged ||
-      (data?.namespace === ns && data.revision > queue.page.revision));
-  const date = useMemo(
-    () =>
-      new Intl.DateTimeFormat("ru-RU", {
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: zone,
-      }),
-    [zone],
+  csrf,
+  canAsk,
+  revision,
+  open,
+  identity,
+}: Props & { identity: string }) {
+  const [chat, setChat] = useState<Conversation>(
+    () => conversations.get(identity) ?? emptyConversation(),
   );
-  const selectedIds = useMemo(() => selected.map((s) => s.id), [selected]);
-  const restoreIncident = useCallback((row: Incident) => {
-    setSelected((items) =>
-      items.map((item) => item.id === row.id ? { id: row.id, incident: row } : item),
-    );
-  }, []);
-  const markUnavailable = useCallback((id: string) => {
-    setSelected((items) =>
-      items.map((item) => item.id === id ? { ...item, unavailable: true } : item),
-    );
-  }, []);
-  const modelData = useMemo(() => {
-    if (!listReady) return null;
-    const counts = { critical: 0, coordinators: 0, high: 0, research: 0 };
-    let tracking: MelonTracking | null = null;
-    if (selected.length) {
-      for (const choice of selected) {
-        const ticket = queue.items.get(choice.id) ?? choice.incident;
-        if (!ticket) return choice.unavailable ? "unavailable" : null;
-        for (const group of ticket.groups) counts[group]++;
-        if (!tracking && ticket.groups.length) {
-          tracking = {
-            id: ticket.id,
-            header: String(ticket.raw.header || ticket.id),
-            group: ticket.groups[0],
-            revision: ticket.revision,
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<{
+    message: string;
+    question: string;
+    operation: Operation;
+  } | null>(null);
+  const activeRequest = useRef<AbortController | null>(null);
+  const composer = useRef<HTMLInputElement>(null);
+  const turn = chat.turns[chat.active];
+  const result = turn?.result;
+  const last = chat.turns.at(-1)?.result;
+
+  useEffect(() => {
+    conversations.set(identity, chat);
+    if (conversations.size > 12)
+      conversations.delete(conversations.keys().next().value!);
+  }, [identity, chat]);
+  useEffect(() => {
+    if (!conversations.get(identity)?.turns.length) void send("");
+    return () => activeRequest.current?.abort();
+    // A changing source revision should never replay someone's question.
+  }, [identity]);
+
+  async function send(input: string, operation: Operation = "ask") {
+    const question = input.trim();
+    if (question && !canAsk) return;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    setBusy(question);
+    setError(null);
+    const refresh = operation === "refresh";
+    const requestedTurn = chat.active;
+    const selection = chat.selection;
+    const submittedDraft = chat.draft;
+    if (refresh) setChat((c) => ({ ...c, selection: null }));
+    try {
+      const body = question
+        ? { question, ...(result ? { context: result.intent } : {}) }
+        : refresh && canAsk && result
+          ? { refresh: true, context: result.intent }
+          : undefined;
+      const json = await canvasJson<CanvasResult>(
+        "/api/canvas?ns=" + encodeURIComponent(ns),
+        {
+          signal: controller.signal,
+          method: body ? "POST" : "GET",
+          ...(body
+            ? {
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-CSRF-Token": csrf,
+                },
+                body: JSON.stringify(body),
+              }
+            : {}),
+        },
+      );
+      if (controller.signal.aborted || json.namespace !== ns) return;
+      setChat((previous) => {
+        if (refresh && previous.turns[requestedTurn]) {
+          const turns = previous.turns.map((entry, i) =>
+            i === requestedTurn ? { ...entry, result: json } : entry,
+          );
+          const view =
+            selection &&
+            panels(json).find(
+              (panel) =>
+                panel.intent.groupBy === selection.result.intent.groupBy &&
+                panel.intent.layout === selection.result.intent.layout,
+            );
+          const group =
+            view?.groups.find((item) => item.key === selection?.group?.key) ??
+            null;
+          return {
+            ...previous,
+            turns,
+            active: requestedTurn,
+            selection:
+              view && (group || !selection?.group)
+                ? { result: view, group }
+                : null,
           };
         }
-      }
-    } else {
-      for (const group of groups) counts[group] = queue.page.groups[group].count;
-      const lead = queue.page.triage?.tracking;
-      if (lead?.groups.length) {
-        tracking = {
-          id: lead.id,
-          header: lead.header,
-          group: lead.groups[0],
-          revision: lead.revision,
+        const turns = [
+          ...(operation === "reset" ? [] : previous.turns),
+          { question, result: json },
+        ].slice(-24);
+        const active =
+          json.mode === "unsupported" && operation !== "reset"
+            ? Math.max(
+                0,
+                previous.active - (previous.turns.length === 24 ? 1 : 0),
+              )
+            : turns.length - 1;
+        return {
+          turns,
+          active: Math.max(0, active),
+          draft: previous.draft === submittedDraft ? "" : previous.draft,
+          selection: null,
         };
-      }
-    }
-    return { counts, tracking, unique: selected.length || queue.page.unique };
-  }, [listReady, queue, selected]);
-  const nextDeadline = earliestDeadline(selected, queue?.items);
-  const tray = useRef<HTMLDivElement>(null);
-  const flight = useRef<HTMLSpanElement>(null);
-  const shortcut = useRef<HTMLAnchorElement>(null);
-  const contextPanel = useRef<HTMLElement>(null);
-  const [inContext, setInContext] = useState(false);
-  useEffect(() => {
-    if (!contextPanel.current) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setInContext(entry.isIntersecting),
-      { rootMargin: "0px 0px -20% 0px" },
-    );
-    observer.observe(contextPanel.current);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    try {
-      sessionStorage.setItem(storageKey, JSON.stringify(selectedIds));
-    } catch {
-      /* Selection remains in memory. */
-    }
-  }, [selectedIds, storageKey]);
-
-  const load = useCallback(
-    async (text: string, previous?: Snapshot, fresh = false) => {
-      activeRequest.current?.abort();
-      const controller = new AbortController();
-      activeRequest.current = controller;
-      setLoading(true);
-      setListError("");
-      try {
-        let page =
-          previous || fresh ? null : seedPage(latestData.current, ns, text);
-        if (!page) {
-          const params = new URLSearchParams({ ns, q: text });
-          if (previous)
-            for (const name of groups) {
-              const group = previous.page.groups[name];
-              params.set(name, String(group.offset + group.items.length));
-            }
-          const response = await fetch("/api/dashboard?" + params, {
-            signal: controller.signal,
-          });
-          const body = await response.json();
-          if (!response.ok)
-            throw new Error(body.message || "Не удалось загрузить очередь.");
-          page = body as Dashboard;
-        }
-        if (controller.signal.aborted) return;
-        if (previous && page.revision !== previous.page.revision) {
-          setRevisionChanged(true);
-          setListError(
-            "Появился новый срез. Обновите очередь, чтобы продолжить.",
-          );
-          return;
-        }
-        setQueue(mergePage(page, text, previous));
-        setShown((count) => (previous ? count + displayStep : displayStep));
-        setRevisionChanged(false);
-      } catch (error) {
-        if (!controller.signal.aborted) setListError((error as Error).message);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    },
-    [ns],
-  );
-
-  useEffect(() => {
-    setListError("");
-    const timer = window.setTimeout(() => void load(query), query ? 220 : 0);
-    return () => {
-      window.clearTimeout(timer);
-      activeRequest.current?.abort();
-    };
-  }, [query, load]);
-
-  const buckets = useMemo(() => {
-    const result = new Map<string, Incident[]>();
-    if (!queue || queue.query !== query) return result;
-    for (const ticket of [...queue.items.values()].slice(0, shown)) {
-      const key =
-        grouping === "product"
-          ? String(ticket.raw.productName || "Продукт не указан")
-          : grouping === "team"
-            ? ticket.team || "Команда не указана"
-            : "";
-      if (!result.has(key)) result.set(key, []);
-      result.get(key)!.push(ticket);
-    }
-    return result;
-  }, [queue, query, shown, grouping]);
-
-  const [question, setQuestion] = useState<string>(questions[0][1]);
-  const [busy, setBusy] = useState(false);
-  const [answer, setAnswer] = useState<{
-    signature: string;
-    revision: number | undefined;
-    result?: WorkspaceAnalysis;
-    error?: string;
-  } | null>(null);
-  const signature = JSON.stringify([selectedIds, question.trim()]);
-  const currentAnswer = answer?.signature === signature ? answer : null;
-  const toggle = (incident: Incident, checkbox: HTMLInputElement) => {
-    if (checkbox.checked && selectedIds.length < contextLimit) {
-      const target = matchMedia("(max-width: 820px)").matches
-        ? shortcut.current
-        : tray.current?.querySelector<HTMLElement>(
-            '.wq-slot[data-filled="false"]',
-          );
-      transferSeed(checkbox, target ?? null, flight.current);
-    }
-    setSelected((current) =>
-      current.some((s) => s.id === incident.id)
-        ? current.filter((s) => s.id !== incident.id)
-        : current.length < contextLimit
-          ? [...current, { id: incident.id, incident }]
-          : current,
-    );
-  };
-  const requestSummary = async () => {
-    if (!write || busy || !selected.length || !question.trim()) return;
-    setBusy(true);
-    setAnswer(null);
-    const revision = latestData.current?.revision;
-    try {
-      const result = await analyze([...selectedIds], question.trim());
-      setAnswer({ signature, revision, result });
-    } catch (error) {
-      setAnswer({
-        signature,
-        revision,
-        error: (error as Error).message || "Не удалось получить сводку.",
       });
+    } catch (err) {
+      if (!controller.signal.aborted)
+        setError({
+          question,
+          operation,
+          message:
+            err instanceof Error
+              ? err.message
+              : "Не удалось связаться с источником.",
+        });
     } finally {
-      setBusy(false);
+      if (activeRequest.current === controller) {
+        activeRequest.current = null;
+        setBusy(null);
+      }
     }
-  };
+  }
+
+  function cancel() {
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+    if (busy) setChat((c) => ({ ...c, draft: c.draft || busy }));
+    setBusy(null);
+    composer.current?.focus();
+  }
+  const initial =
+    !last || (chat.turns.length === 1 && last.mode === "snapshot");
+  const suggestions = initial
+    ? [
+        "Сгруппируй по командам и рядом покажи сроки",
+        "Покажи просроченные",
+        "Сравни приоритеты",
+      ]
+    : last.suggestions.length
+      ? last.suggestions.slice(0, 3)
+      : initialSuggestions;
+  const stale = !!result && revision > result.revision;
+  const stamp =
+    result &&
+    new Intl.DateTimeFormat("ru-RU", {
+      timeZone: zone,
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(result.asOf));
+  const views = result ? panels(result) : [];
 
   return (
-    <div className="wq">
-      <span className="wq-flight" aria-hidden="true" ref={flight} />
-      <header className="wq-intro">
-        <h1>Рабочая очередь</h1>
-        {listReady && queue.page.acceptedAt && (
-          <time
-            className="wq-snapshot"
-            dateTime={queue.page.acceptedAt}
-            title={"Время принятия среза · " + zone}
-          >
-            Срез {date.format(new Date(queue.page.acceptedAt))} ·{" "}
-            {zone === "Europe/Moscow" ? "МСК" : zone}
-          </time>
-        )}
-        {modelData && modelData !== "unavailable" && (
-          <ul className="wq-signals" aria-label={selected.length ? "Сигналы выбранных инцидентов" : "Сигналы очереди"}>
-            {groups.map((g) => (
-              <li key={g} title={reasonLabels[g] + " · " + modelData.counts[g]}>
-                <SignalMark signal={g} />
-                <span>{reasonLabels[g]}</span>
-                <b>{modelData.counts[g]}</b>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="wq-optic">
-          {modelData === "unavailable" ? (
-            <span className="wq-model-unavailable">Нет данных для среза</span>
-          ) : modelData ? (
-            <MelonScene active="all" counts={modelData.counts} unique={modelData.unique} tracking={modelData.tracking} showMeters={false} />
-          ) : listError ? null : (
-            <Loader label="Загрузка среза…" />
-          )}
+    <section className="cx" aria-labelledby="cx-title" data-source={ns}>
+      <div className="cx-intro">
+        <div className="cx-heading">
+          <div className="cx-source">
+            <i aria-hidden="true" />
+            {sources[ns] || ns}
+            {stamp && (
+              <>
+                <span> / </span>срез на {stamp} {zone === "UTC" ? "UTC" : "МСК"}
+              </>
+            )}
+          </div>
+          <h1 id="cx-title">Холст смены</h1>
         </div>
-      </header>
-      <a
-        ref={shortcut}
-        href={inContext ? "#workspace-incidents" : "#workspace-context"}
-        className="wq-jump"
-      >
-        {inContext ? "К очереди" : "К контексту"}{" "}
-        <span>{selectedIds.length} / {contextLimit}</span>
-        <Arrow direction={inContext ? "up" : "down"} />
-      </a>
-      <div className="wq-layout">
-        <section
-          className="wq-list"
-          id="workspace-incidents"
-          aria-label="Инциденты"
-          tabIndex={-1}
-        >
-          <div className="wq-list-controls">
-            <div className="wq-list-heading">
-              <h2>Инциденты</h2>
-              {listReady && (
-                <span className="wq-count">{queue.page.unique}</span>
-              )}
-            </div>
-            <label className="wq-search">
-              <span className="wq-magnifier" aria-hidden="true" />
-              <input
-                type="search"
-                aria-label="Поиск по очереди"
-                placeholder="Найти инцидент"
-                maxLength={300}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </label>
+        <div className="cx-command">
+          <form
+            className="cx-composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (chat.draft.trim()) void send(chat.draft);
+            }}
+          >
+            <span className="cx-compose-spark">
+              <Spark size={22} />
+            </span>
+            <input
+              ref={composer}
+              type="text"
+              autoComplete="off"
+              maxLength={500}
+              disabled={!canAsk}
+              aria-label="Вопрос об инцидентах"
+              placeholder={
+                canAsk ? "Спросите об инцидентах…" : "Режим просмотра"
+              }
+              value={chat.draft}
+              onChange={(e) => {
+                const draft = e.currentTarget.value;
+                setChat((c) => ({ ...c, draft }));
+              }}
+            />
+            {busy !== null ? (
+              <button
+                key="stop"
+                type="button"
+                className="cx-send"
+                aria-label="Остановить запрос"
+                onClick={(event) => {
+                  event.preventDefault();
+                  cancel();
+                }}
+              >
+                <i className="cx-stop" />
+              </button>
+            ) : (
+              <button
+                key="submit"
+                type="submit"
+                className="cx-send"
+                disabled={!canAsk || !chat.draft.trim()}
+                aria-label="Отправить вопрос"
+              >
+                <SendIcon />
+              </button>
+            )}
+          </form>
+          {canAsk ? (
             <div
-              className="wq-segments"
+              className="cx-prompts"
+              aria-label="Предложенные вопросы"
               role="group"
-              aria-label="Группировка инцидентов"
             >
-              {(
-                [
-                  ["none", "Без групп"],
-                  ["product", "По продукту"],
-                  ["team", "По команде"],
-                ] as const
-              ).map(([value, label]) => (
+              {suggestions.map((q, index) => (
                 <button
-                  key={value}
+                  key={q}
                   type="button"
-                  aria-pressed={grouping === value}
-                  onClick={() => setGrouping(value)}
+                  onClick={() => void send(q)}
+                  title={q}
                 >
-                  {label}
+                  {initial
+                    ? [
+                        "Команды и сроки",
+                        "Просроченные",
+                        "Сравнить приоритеты",
+                      ][index]
+                    : q}{" "}
+                  <span aria-hidden="true">↗</span>
                 </button>
               ))}
             </div>
-          </div>
-          {refreshAvailable && (
-            <div className="wq-refresh">
-              <span>Доступен новый срез</span>
+          ) : (
+            <p className="cx-note">
+              Вопросы по этому источнику доступны координаторам.
+            </p>
+          )}
+          {error && (
+            <div className="cx-error" role="alert">
+              {error.message}
               <button
-                type="button"
-                disabled={loading}
-                onClick={() => void load(query, undefined, true)}
+                onClick={() => void send(error.question, error.operation)}
               >
-                {loading ? <Loader label="Обновление…" /> : "Обновить очередь"}
+                Повторить запрос
               </button>
             </div>
           )}
-          {listError && (
-            <div className="wq-feedback" role="alert">
-              {listError}
-              {!refreshAvailable && (
-                <button
-                  type="button"
-                  onClick={() => void load(query, undefined, true)}
-                >
-                  Загрузить заново
-                </button>
-              )}
-            </div>
-          )}
-          {!listReady && !listError && (
-            <p className="wq-message">
-              <Loader label="Загрузка очереди…" />
-            </p>
-          )}
-          {listReady && !queue.items.size && (
-            <p className="wq-message">
-              {query
-                ? "По вашему запросу ничего не найдено."
-                : "В этом источнике пока нет инцидентов для разбора."}
-            </p>
-          )}
-          {[...buckets].map(([name, tickets]) => (
-            <div key={grouping + name} className="wq-bucket">
-              {name && <h3>{name}</h3>}
-              <ul>
-                {tickets.map((ticket) => {
-                  const selected = selectedIds.includes(ticket.id);
-                  const subject = String(ticket.raw.header || "Без заголовка");
-                  const product = String(ticket.raw.productName || "").trim();
-                  const showProduct = grouping !== "product" && product && !subject.toLocaleLowerCase("ru").startsWith(product.toLocaleLowerCase("ru") + ":");
-                  return (
-                    <li
-                      className={"wq-row" + (selected ? " wq-row-picked" : "")}
-                      key={ticket.id}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        disabled={
-                          !selected && selectedIds.length >= contextLimit
-                        }
-                        aria-label={"Выбрать " + ticket.id}
-                        onChange={(event) => toggle(ticket, event.currentTarget)}
-                      />
-                      <div className="wq-row-body">
-                        <div className="wq-row-meta">
-                          <span className="wq-id">{ticket.id}</span>
-                          <div className="feed-signals">
-                            {ticket.groups.map((group) => <SignalBadge key={group} signal={group} />)}
-                            {ticket.raw.isNeedUp === true && <SignalBadge signal="escalation" />}
-                          </div>
-                        </div>
-                        <a
-                          className="wq-ticket-link"
-                          href={screenLink("/incident/" + encodeURIComponent(ticket.id), ns)}
-                          onClick={(event) => {
-                            if (
-                              !event.ctrlKey &&
-                              !event.metaKey &&
-                              !event.shiftKey &&
-                              !event.altKey
-                            ) {
-                              event.preventDefault();
-                              open(ticket.id);
-                            }
-                          }}
-                        >
-                          {subject}{" "}
-                          <Arrow />
-                        </a>
-                        <div className="wq-row-facts">
-                          {showProduct && <span>{product}</span>}
-                          {grouping !== "team" && <span>{ticket.team || "Команда не указана"}</span>}
-                          <span className="wq-deadline">
-                            <Icon name="clock" size={14} />
-                            {ticket.dates.deadline
-                              ? <time dateTime={ticket.dates.deadline} aria-label={"Срок " + date.format(new Date(ticket.dates.deadline))}>{date.format(new Date(ticket.dates.deadline))}</time>
-                              : "Срок не задан"}
-                          </span>
-                          {!ticket.sourcePresent && (
-                            <span>Отсутствует в источнике</span>
-                          )}
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-          {listReady && queue.items.size > 0 && (
-            <div className="wq-pagination">
-              <span role="status">
-                Показано {Math.min(shown, queue.items.size)} из{" "}
-                {queue.page.unique}
-              </span>
-              {(shown < queue.items.size || queue.hasMore) && (
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() =>
-                    shown < queue.items.size
-                      ? setShown((count) => count + displayStep)
-                      : void load(query, queue)
-                  }
-                >
-                  {loading ? <Loader label="Загрузка…" /> : <>Показать ещё <Arrow direction="down" /></>}
-                </button>
-              )}
-            </div>
-          )}
-        </section>
-        <aside
-          ref={contextPanel}
-          className="wq-context"
-          id="workspace-context"
-          aria-labelledby="workspace-context-heading"
-          tabIndex={-1}
-        >
-          <div className="wq-context-heading">
-            <h2 id="workspace-context-heading">Контекст разбора</h2>
-            <span
-              role="status"
-              aria-label={"Выбрано " + selected.length + " из " + contextLimit}
-            >
-              {selected.length} / {contextLimit}
-            </span>
-          </div>
-          <div className="wq-tray-area" ref={tray}>
-            <SeedTray count={selected.length} />
-            {!selected.length && <p>Отметьте инциденты в очереди.</p>}
-            {nextDeadline !== null && (
-              <p className="wq-next-deadline">
-                Самый ранний срок
-                <time dateTime={new Date(nextDeadline).toISOString()}>
-                  {date.format(nextDeadline)}
-                </time>
-              </p>
-            )}
-          </div>
-          {selected.length > 0 && (
-            <ul className="wq-selected-list">
-              {selected.map((item) => (
-                <SelectedTicket
-                  key={item.id}
-                  id={item.id}
-                  ns={ns}
-                  onRestore={restoreIncident}
-                  onMissing={markUnavailable}
-                  incident={queue?.items.get(item.id) ?? item.incident}
-                  open={() => open(item.id)}
-                  remove={() =>
-                    setSelected((current) =>
-                      current.filter((s) => s.id !== item.id),
-                    )
-                  }
-                />
-              ))}
-            </ul>
-          )}
-          {canDispatch && selected.length === 1 && !selected[0].unavailable && (
-            <a className="wq-dispatch" href={screenLink("/incident/" + encodeURIComponent(selected[0].id) + "#dispatch", ns)}>
-              <Icon name="coordinators" size={17} /> Назначить исполнителя <Arrow direction="right" />
-            </a>
-          )}
-          <form
-            className="wq-question"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void requestSummary();
-            }}
-          >
-            <label htmlFor="workspace-question">Вопрос по выборке</label>
-            <div
-              className="wq-prompts"
-              role="group"
-              aria-label="Быстрые вопросы"
-            >
-              {questions.map(([label, text]) => (
-                <button
-                  type="button"
-                  key={label}
-                  aria-pressed={question === text}
-                  onClick={() => setQuestion(text)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <textarea
-              id="workspace-question"
-              maxLength={500}
-              rows={2}
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-            />
-            <button
-              className="wq-submit"
-              type="submit"
-              disabled={!write || busy || !selected.length || !question.trim()}
-            >
-              {busy ? <Loader label="Готовим сводку…" /> : "Сформировать сводку"}{" "}
-              <Arrow direction="right" />
-            </button>
-            {!write && (
-              <p className="wq-role-note">
-                Сводка доступна координаторам и администраторам демо.
-              </p>
-            )}
-          </form>
-          {currentAnswer && (
-            <section
-              className="wq-result"
-              aria-label="Результат разбора"
-              aria-live="polite"
-            >
-              <h3>Результат разбора</h3>
-              {currentAnswer.error && <p role="alert">{currentAnswer.error}</p>}
-              {(currentAnswer.result?.stale || (data && currentAnswer.revision !== data.revision)) && (
-                <p>
-                  После запроса источник обновился. Сверьте выводы с карточками.
-                </p>
-              )}
-              {currentAnswer.result?.overview?.map((line, i) => (
-                <p className="wq-overview" key={i}><TicketMentions text={line} ids={selectedIds} ns={ns} open={open} /></p>
-              ))}
-              {(currentAnswer.result?.mode === "fallback" || currentAnswer.result?.mode === "fields") && <p className="wq-role-note">По полям карточек.</p>}
-              {currentAnswer.result?.mode === "model" && (currentAnswer.result.model || currentAnswer.result.provider) && (
-                <details><summary>Модель и источник</summary><p>{[currentAnswer.result.provider, currentAnswer.result.model, currentAnswer.result.promptVersion].filter(Boolean).join(" · ")}</p></details>
-              )}
-              {!!currentAnswer.result?.items.length && <h4>Источники</h4>}
-              {currentAnswer.result?.items.map(({ id, analysis }) => {
-                const excerpt = analysis.summary
-                  .filter((_, i) =>
-                    analysis.evidence.some(
-                      (e) =>
-                        e.claim === i &&
-                        e.fields.some((field) =>
-                          field.startsWith("description:"),
-                        ),
-                    ),
-                  )
-                  .join(" ");
-                return (
-                  <article className="wq-source-result" key={id}>
-                    <div>
-                      <button type="button" onClick={() => open(id)}>
-                        {id} <Arrow />
-                      </button>
-                    </div>
-                    {!currentAnswer.result?.overview?.length && <p>{excerpt || analysis.summary[0]}</p>}
-                    {analysis.stale && (
-                      <p>Данные карточки изменились во время разбора.</p>
-                    )}
-                    <details>
-                      <summary>Основания и ограничения</summary>
-                      <FieldEvidence analysis={analysis} />
-                    </details>
-                  </article>
-                );
-              })}
-            </section>
-          )}
-        </aside>
+        </div>
       </div>
-    </div>
+      <div
+        className="cx-layout"
+        data-compound={views.length > 1}
+        data-answered={chat.turns.some((entry) => !!entry.question)}
+      >
+        {(views.length ? views : [null]).map((view, index) => {
+          const choose = (group: CanvasGroup | null) => {
+            if (view)
+              setChat((c) => ({ ...c, selection: { group, result: view } }));
+          };
+          return (
+            <section
+              key={index}
+              className="cx-board"
+              data-secondary={index > 0}
+              aria-label={
+                index
+                  ? "Дополнительный срез · " + view?.title
+                  : "Визуализация среза"
+              }
+              aria-busy={busy !== null}
+            >
+              <header className="cx-board-head">
+                <div className="cx-board-caption">
+                  <i aria-hidden="true" />
+                  {view?.intent.layout === "comparison"
+                    ? "Сравнение"
+                    : view?.intent.layout === "list"
+                      ? "Реестр"
+                      : view?.intent.groupBy === "symptom"
+                        ? "Карта симптомов"
+                        : view?.intent.groupBy === "deadline"
+                          ? "Временные окна"
+                          : "Распределение"}
+                </div>
+                {view && (
+                  <span className="cx-revision">Версия {view.revision}</span>
+                )}
+              </header>
+              {view ? (
+                <div key={view.selection} className="cx-view">
+                  <div className="cx-view-title">
+                    <h2>{view.title || labels[view.intent.groupBy]}</h2>
+                    <button
+                      className="cx-view-total"
+                      aria-label={"Открыть все инциденты, " + view.total}
+                      onClick={() => choose(null)}
+                      disabled={!view.total}
+                    >
+                      <b>{displayCount(view.total)}</b>
+                      <span>в выборке ↗</span>
+                    </button>
+                  </div>
+                  <CanvasFigure result={view} {...{ choose, ns, open, zone }} />
+                </div>
+              ) : (
+                <div className="cx-board-empty">
+                  <div className="cx-ghost" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                  <p role="status">
+                    {busy !== null ? "Открываем срез…" : "Срез ещё не загружен"}
+                  </p>
+                  {busy === null && !error && (
+                    <button onClick={() => void send("")}>
+                      Загрузить срез
+                    </button>
+                  )}
+                </div>
+              )}
+              {!index && stale && (
+                <div className="cx-stale">
+                  <span>Есть новая версия источника</span>
+                  <button onClick={() => void send("", "refresh")}>
+                    Обновить срез ↗
+                  </button>
+                </div>
+              )}
+            </section>
+          );
+        })}
+        <section className="cx-dialogue" aria-labelledby="cx-dialogue-title">
+          <header>
+            <div>
+              <span className="cx-chat-icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 20 20"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <path d="M4 3.5h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9l-4 3v-3H4a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z" />
+                </svg>
+              </span>
+              <h2 id="cx-dialogue-title">Диалог</h2>
+            </div>
+            <button
+              type="button"
+              className="cx-reset"
+              disabled={!chat.turns.length && !chat.draft}
+              onClick={() => {
+                setChat(emptyConversation());
+                setError(null);
+                void send("", "reset");
+                composer.current?.focus();
+              }}
+            >
+              <span aria-hidden="true">↺</span> Новый диалог
+            </button>
+          </header>
+          <ConversationLog
+            turns={chat.turns}
+            active={chat.active}
+            activate={(active) =>
+              setChat((c) => ({ ...c, active, selection: null }))
+            }
+            {...{ open, ns, busy }}
+          />
+          {result && result.metrics.length > 0 && (
+            <div className="cx-facts">
+              <dl>
+                {result.metrics
+                  .filter((metric) => metric.key !== "total")
+                  .map((metric) => (
+                    <div key={metric.key}>
+                      <dt>{metric.label}</dt>
+                      <dd>{displayCount(metric.value)}</dd>
+                    </div>
+                  ))}
+              </dl>
+            </div>
+          )}
+          {result &&
+            !result.blocks.length &&
+            result.intent.layout !== "list" &&
+            result.tickets.length > 0 && (
+              <div className="cx-evidence">
+                <h3>Карточки в срезе</h3>
+                {result.tickets.slice(0, 2).map((ticket) => (
+                  <a
+                    key={ticket.id}
+                    href={screenLink(
+                      "/incident/" + encodeURIComponent(ticket.id),
+                      ns,
+                    )}
+                    onClick={(e) => {
+                      if (
+                        !e.metaKey &&
+                        !e.ctrlKey &&
+                        !e.altKey &&
+                        !e.shiftKey
+                      ) {
+                        e.preventDefault();
+                        open(ticket.id);
+                      }
+                    }}
+                  >
+                    <span>{ticket.id}</span>
+                    <b>{ticket.header}</b>
+                    <i aria-hidden="true">↗</i>
+                  </a>
+                ))}
+              </div>
+            )}
+        </section>
+      </div>
+      {chat.selection && (
+        <CanvasDrawer
+          key={chat.selection.result.selection + chat.selection.group?.key}
+          group={chat.selection.group}
+          result={chat.selection.result}
+          refresh={() => void send("", "refresh")}
+          close={() => setChat((c) => ({ ...c, selection: null }))}
+          {...{ ns, zone, open }}
+        />
+      )}
+    </section>
   );
 }

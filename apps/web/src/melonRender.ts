@@ -1,10 +1,12 @@
 import { canvasRenderer } from "./melonCanvas";
 import {
+  cutDuration,
   groupLoads,
   melonGroups,
   modelPoses,
   orbit,
   pixels,
+  specimenPoses,
   trackingAnchor,
   world,
   type Vec,
@@ -53,7 +55,7 @@ export function mountMelon(
     loads = groupLoads(model),
     focus = melonGroups.map((g) => Number(model.active === g));
   const occupied = melonGroups.map((g) => Number((model.counts?.[g] ?? 0) > 0));
-  let anchor = trackingAnchor(hero, initial.tracking);
+  let anchor = hero ? null : trackingAnchor(initial.tracking);
   const depths = sectionCuts(hero);
   const samples: Vec[][] = scene.centers.map((_, i) =>
     [depths[i], depths[i + 1]].flatMap((z) =>
@@ -79,7 +81,7 @@ export function mountMelon(
   let request = 0,
     lastTick = 0,
     lastDraw = 0,
-    phase = 0,
+    phase = hero && reduced.matches ? cutDuration : 0,
     pickFrame: SceneFrame | null = null;
   let shown = false,
     disposed = false,
@@ -128,13 +130,18 @@ export function mountMelon(
       points.forEach((p) => measure(world(p, poses.fruit[i]))),
     );
     framePoints.forEach((p) => measure(world(p, poses.frame)));
+    const specimens = hero ? specimenPoses(poses.fruit) : undefined;
+    specimens?.forEach((pose) => {
+      for (const x of [-0.5, 0.5])
+        for (const y of [-0.5, 0.5]) measure(world([x, y, 0.04], pose));
+    });
     const scale = Math.min(
       baseScale,
       (backingWidth * 0.485) / Math.max(0.1, reachX),
       (backingHeight * 0.475) / Math.max(0.1, reachY),
     );
     scene.resize(backingWidth, backingHeight, scale);
-    pickFrame = { ...poses, focus, loads, occupied };
+    pickFrame = { ...poses, specimens, focus, loads, occupied };
     scene.draw(pickFrame);
     if (anchor) {
       const [x, y] = pixels(
@@ -248,7 +255,7 @@ export function mountMelon(
   function reset() {
     Object.assign(rotations.fruit, orbit());
     Object.assign(rotations.frame, orbit());
-    phase = 0;
+    phase = hero && paused ? cutDuration : 0;
     schedule();
   }
   function down(e: PointerEvent) {
@@ -366,7 +373,10 @@ export function mountMelon(
     e.preventDefault();
     schedule();
   }
-  const motionChange = () => setPaused(reduced.matches);
+  const motionChange = () => {
+    if (hero && reduced.matches) phase = cutDuration;
+    setPaused(reduced.matches);
+  };
   const obs = new ResizeObserver(resize);
   obs.observe(surface);
   const intersect = new IntersectionObserver(([entry]) => {
@@ -390,7 +400,7 @@ export function mountMelon(
   return {
     select(data: ModelState) {
       model = data;
-      anchor = trackingAnchor(hero, data.tracking);
+      anchor = hero ? null : trackingAnchor(data.tracking);
       schedule();
     },
     dispose() {

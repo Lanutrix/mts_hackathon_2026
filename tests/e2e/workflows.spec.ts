@@ -128,7 +128,7 @@ test("public landing shows only the hero and opens either screen", async ({
   ).toBeLessThanOrEqual(390);
   await page.clock.fastForward(6000);
   expect(apiCalls).toEqual([]);
-  await page.getByRole("link", { name: "Рабочая очередь" }).click();
+  await page.getByRole("link", { name: "ИИ-помощник" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByTestId("live-register")).toHaveCount(0);
   await page.getByRole("button", { name: "Закрыть вход" }).click();
@@ -142,6 +142,8 @@ test("public landing shows only the hero and opens either screen", async ({
   for (const route of [
     "/api/export",
     "/api/dashboard",
+    "/api/canvas",
+    "/api/canvas/tickets",
     "/api/incident/DEMO-42-00019",
     "/api/simulation/stream",
     "/api/stream?ns=simulation",
@@ -181,7 +183,7 @@ test("jury viewers receive the same observed events and dismiss them independent
   const banner = page.getByRole("region", { name: "Уведомление об инциденте" });
   await expect(page.getByRole("heading", { name: "Эфир смены" })).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Рабочая очередь" }),
+    page.getByRole("link", { name: "ИИ-помощник" }),
   ).toHaveAttribute("href", "/simulation/workspace");
   await expect(current).toBeVisible();
   await expect(banner).toContainText("Новый критический инцидент", {
@@ -233,9 +235,9 @@ test("jury viewers receive the same observed events and dismiss them independent
     });
     await critical.getByText("На момент сигнала").click();
     await expect(critical).toContainText("Сопровождение платежей");
-    await page.getByRole("link", { name: "Рабочая очередь" }).click();
+    await page.getByRole("link", { name: "ИИ-помощник" }).click();
     await expect(
-      page.getByRole("heading", { name: "Рабочая очередь" }),
+      page.getByRole("heading", { name: "Холст смены" }),
     ).toBeVisible();
     await page.reload();
     await expect(page.getByTestId("source-status")).toContainText(
@@ -578,7 +580,7 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   await login(page, "demo-admin");
   await page.getByRole("link", { name: /Срез/ }).click();
   await expect(page).toHaveURL("/");
-  await page.getByRole("link", { name: "Рабочая очередь" }).click();
+  await page.getByRole("link", { name: "ИИ-помощник" }).click();
   await expect(page).toHaveURL("/workspace");
   await expect(
     page.getByRole("button", { name: "Профиль: demo-admin" }),

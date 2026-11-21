@@ -1,6 +1,7 @@
-import { glassMesh, melonMesh } from "./melonRenderGeometry";
+import { glassMesh, glassPlate, melonMesh } from "./melonRenderGeometry";
 import { fragmentSource, vertexSource } from "./melonRenderShaders";
-import type { Pose } from "./melonModel";
+import { rotate, type Pose } from "./melonModel";
+import { specimenDecals } from "./melonSpecimen";
 
 function makeProgram(gl: WebGLRenderingContext) {
   const program = gl.createProgram();
@@ -35,6 +36,7 @@ export type SceneFrame = {
   focus: number[];
   loads: number[];
   occupied: number[];
+  specimens?: Pose[];
 };
 export interface SceneRenderer {
   centers: number[];
@@ -68,17 +70,20 @@ export function webGLRenderer(
     return null;
   }
   const mesh = melonMesh(hero),
-    glass = glassMesh();
+    glass = glassMesh(12, 5, hero);
+  const pane = hero ? glassPlate(0.766, 0.008, 4) : new Float32Array();
+  const specimen = hero ? glassPlate(0.5, 0.036, 5) : new Float32Array();
   const floor = new Float32Array([
     -1, -1, 0, 0, 0, 1, 0, 3, -1, 0, 0, 0, 1, 0, -1, 3, 0, 0, 0, 1, 0,
   ]);
   const glassFirst = mesh.vertices.length / 7,
-    floorFirst = glassFirst + glass.length / 7;
-  const data = new Float32Array(
-    mesh.vertices.length + glass.length + floor.length,
-  );
+    specimenFirst = glassFirst + (glass.length + pane.length) / 7,
+    floorFirst = specimenFirst + specimen.length / 7;
+  const data = new Float32Array(floorFirst * 7 + floor.length);
   data.set(mesh.vertices);
   data.set(glass, mesh.vertices.length);
+  data.set(pane, mesh.vertices.length + glass.length);
+  data.set(specimen, specimenFirst * 7);
   data.set(floor, floorFirst * 7);
   gl.useProgram(program);
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -112,8 +117,38 @@ export function webGLRenderer(
       "occupied",
       "pick",
       "backdrop",
+      "decal",
     ].map((k) => [k, uniform(k)]),
   );
+  const decal = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, decal);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  if (hero)
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      specimenDecals(),
+    );
+  else
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      1,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      null,
+    );
+  gl.uniform1i(uniforms.decal, 1);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, backdrop);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -164,18 +199,51 @@ export function webGLRenderer(
       );
       gl.drawArrays(gl.TRIANGLES, s.first, s.count);
     });
-    pose(frame.frame);
-    if (!picking) {
-      gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
-      // Populate the nearest glass surface first to prevent self-blending along the bevel.
-      gl.colorMask(false, false, false, false);
-      gl.drawArrays(gl.TRIANGLES, glassFirst, glass.length / 7);
-      gl.colorMask(true, true, true, true);
-      gl.depthFunc(gl.LEQUAL);
+    const plates = [
+      {
+        pose: frame.frame,
+        first: glassFirst,
+        count: specimenFirst - glassFirst,
+        index: -1,
+      },
+      ...(frame.specimens ?? []).map((p, i) => ({
+        pose: p,
+        first: specimenFirst,
+        count: specimen.length / 7,
+        index: i,
+      })),
+    ];
+    if (hero && !picking) {
+      const normal = rotate([0, 0, 1], frame.frame.camera);
+      const side = (p: Pose) =>
+        normal.reduce(
+          (n, v, i) => n + v * (p.origin[i] - frame.frame.origin[i]),
+          0,
+        ) * Math.sign(normal[2]);
+      plates.sort((a, b) => side(a.pose) - side(b.pose));
       gl.enable(gl.BLEND);
+      gl.depthMask(false);
     }
-    gl.drawArrays(gl.TRIANGLES, glassFirst, glass.length / 7);
-    gl.depthFunc(gl.LESS);
+    for (const plate of plates) {
+      pose(plate.pose);
+      gl.uniform1f(uniforms.index, plate.index);
+      // Render one glass surface per pixel even on overlapping bevels.
+      if (!picking) {
+        // Each plate refracts the color already rendered behind it, including
+        // sample numbers visible through the large scanner.
+        gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+      }
+      if (!picking && !hero) {
+        gl.colorMask(false, false, false, false);
+        gl.drawArrays(gl.TRIANGLES, plate.first, plate.count);
+        gl.colorMask(true, true, true, true);
+        gl.depthFunc(gl.LEQUAL);
+        gl.enable(gl.BLEND);
+      }
+      gl.drawArrays(gl.TRIANGLES, plate.first, plate.count);
+      gl.depthFunc(gl.LESS);
+    }
+    gl.depthMask(true);
   }
   return {
     centers: mesh.sections.map((s) => s.center),
@@ -220,6 +288,7 @@ export function webGLRenderer(
     dispose() {
       gl.deleteBuffer(buffer);
       gl.deleteTexture(backdrop);
+      gl.deleteTexture(decal);
       gl.deleteProgram(program);
     },
   };

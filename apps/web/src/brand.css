@@ -14,6 +14,25 @@
   display: block;
   width: 40px;
   height: 40px;
+  overflow: visible;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .product-mark path {
+    transform-origin: 32px 32px;
+    animation: srez-open 1150ms cubic-bezier(.34,.04,.2,1) 1 both;
+  }
+  .product-mark__rind { --mark-x: -3px; --mark-y: -5px; --mark-turn: -5deg; }
+  .product-mark__cut { --mark-x: 2px; --mark-y: 4px; --mark-turn: 3deg; }
+  .product-mark .product-mark__seed { animation-name: srez-seed; }
+}
+@keyframes srez-open {
+  0%, 18%, 100% { transform: none; }
+  49%, 57% { transform: translate(var(--mark-x), var(--mark-y)) rotate(var(--mark-turn)); }
+}
+@keyframes srez-seed {
+  0%, 22%, 100% { transform: none; }
+  56% { transform: translate(5px, -4px) rotate(-5deg); }
+  78% { transform: translate(-1px, 1px); }
 }
 .mts-case-brand {
   gap: 9px;

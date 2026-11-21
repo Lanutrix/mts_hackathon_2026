@@ -106,25 +106,31 @@ const vocabulary = new Set(
     .trim()
     .split(/\s+/),
 );
+export function safeOperationalWord(word: string) {
+  return vocabulary.has(word);
+}
+export function scrubRehearsalQuestion(question: string) {
+  return question
+    .slice(0, 500)
+    .replace(/[\u0000-\u001f<>]/gu, " ")
+    .replace(
+      /(?:https?:\/\/|www\.)\S+|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/giu,
+      "[скрыто]",
+    )
+    .replace(
+      /(?:bearer\s+|(?:token|secret|password|api[_ -]?key|ключ|пароль|токен)\s*[:=]\s*)[^\s,;]+/giu,
+      "[скрыто]",
+    )
+    .replace(
+      /\b(?:sk-|ghp_|github_pat_|eyJ)[A-Za-z0-9._-]+|\b[A-Za-z0-9+/_=-]{24,}\b/gu,
+      "[скрыто]",
+    )
+    .replace(/(?:\+?\d[\s()-]*){10,}/gu, "[скрыто]");
+}
 function questionTask(question: string, rows: Incident[], namespace: string) {
   if (!question.trim()) return defaultQuestion;
   if (namespace === "simulation") {
-    let query = question
-      .slice(0, 500)
-      .replace(/[\u0000-\u001f<>]/gu, " ")
-      .replace(
-        /(?:https?:\/\/|www\.)\S+|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/giu,
-        "[скрыто]",
-      )
-      .replace(
-        /(?:bearer\s+|(?:token|secret|password|api[_ -]?key|ключ|пароль|токен)\s*[:=]\s*)[^\s,;]+/giu,
-        "[скрыто]",
-      )
-      .replace(
-        /\b(?:sk-|ghp_|github_pat_|eyJ)[A-Za-z0-9._-]+|\b[A-Za-z0-9+/_=-]{24,}\b/gu,
-        "[скрыто]",
-      )
-      .replace(/(?:\+?\d[\s()-]*){10,}/gu, "[скрыто]");
+    let query = scrubRehearsalQuestion(question);
     for (const [i, row] of rows.entries())
       query = query.replaceAll(row.id, "T" + (i + 1));
     return "Вопрос координатора по учебной подборке: " + query.trim();

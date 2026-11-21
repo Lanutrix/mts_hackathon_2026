@@ -86,7 +86,7 @@ export default function Landing({ go }: { go: (path: string) => void }) {
                   go={go}
                   className="landing-secondary"
                 >
-                  Рабочая очередь <Arrow />
+                  ИИ-помощник <Arrow />
                 </RouteLink>
               </div>
             </div>

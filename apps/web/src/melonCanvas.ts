@@ -1,4 +1,10 @@
-import { glassMesh, radii, sectionCuts } from "./melonRenderGeometry";
+import {
+  glassMesh,
+  glassPlate,
+  radii,
+  sectionCuts,
+} from "./melonRenderGeometry";
+import { specimenDecals } from "./melonSpecimen";
 import {
   groupColors,
   pixels,
@@ -147,17 +153,31 @@ function fallbackMesh(hero: boolean) {
       });
     }
   }
-  const rail = glassMesh(5, 3);
-  for (let i = 0; i < rail.length; i += 21) {
-    const vertices = [0, 7, 14].map(
-      (j) => [rail[i + j], rail[i + j + 1], rail[i + j + 2]] as Vec,
-    );
-    faces.push({
-      vertices,
-      object: 5,
-      normal: [rail[i + 3], rail[i + 4], rail[i + 5]],
-      paint: "glass",
-    });
+  function appendGlass(rail: Float32Array, object: number, paint: string) {
+    for (let i = 0; i < rail.length; i += 21) {
+      const vertices = [0, 7, 14].map(
+        (j) => [rail[i + j], rail[i + j + 1], rail[i + j + 2]] as Vec,
+      );
+      faces.push({
+        vertices,
+        object,
+        normal: [rail[i + 3], rail[i + 4], rail[i + 5]],
+        paint,
+        uv:
+          paint === "specimen" && Math.abs(rail[i + 5]) === 1
+            ? vertices.map(([x, y]) => [
+                (object - 6 + x + 0.5) * 160,
+                (0.5 - y) * 160,
+              ])
+            : undefined,
+      });
+    }
+  }
+  appendGlass(glassMesh(5, 3, hero), 5, "glass");
+  if (hero) {
+    appendGlass(glassPlate(0.766, 0.008, 4), 5, "pane");
+    for (let i = 0; i < 3; i++)
+      appendGlass(glassPlate(0.5, 0.036, 5), 6 + i, "specimen");
   }
   return { faces, centers };
 }
@@ -172,6 +192,7 @@ function paintTriangle(
   p: [number, number][],
   uv: number[][],
   sheet: HTMLCanvasElement,
+  overlap = false,
 ) {
   const [x, y] = p[0],
     [u, v] = uv[0];
@@ -190,6 +211,31 @@ function paintTriangle(
     b = (ay * bv - by * av) / det,
     d = (by * au - ay * bu) / det;
   ctx.save();
+  if (overlap) {
+    // Canvas antialiases both sides of a shared edge. Overlap textured faces
+    // by half a pixel so those edges never form a fan across the cut flesh.
+    const orientation = Math.sign(ax * by - bx * ay);
+    const outward = p.map(([x0, y0], i) => {
+      const [x1, y1] = p[(i + 1) % 3];
+      const length = Math.max(0.001, Math.hypot(x1 - x0, y1 - y0));
+      return [
+        ((y1 - y0) * orientation) / length,
+        ((x0 - x1) * orientation) / length,
+      ];
+    });
+    path(
+      ctx,
+      p.map(([px, py], i) => {
+        const u = outward[i],
+          v = outward[(i + 2) % 3];
+        const gap = 0.55 / Math.max(0.025, 1 + u[0] * v[0] + u[1] * v[1]);
+        return [px + gap * (u[0] + v[0]), py + gap * (u[1] + v[1])] as [
+          number,
+          number,
+        ];
+      }),
+    );
+  }
   ctx.clip();
   ctx.transform(a, b, c, d, x - a * u - c * v, y - b * u - d * v);
   ctx.drawImage(sheet, 0, 0);
@@ -204,6 +250,7 @@ export function canvasRenderer(
   const ctx = context,
     mesh = fallbackMesh(hero),
     sheet = fleshTexture();
+  const decals = hero ? specimenDecals() : null;
   const neutral = document.createElement("canvas");
   neutral.width = sheet.width;
   neutral.height = sheet.height;
@@ -243,7 +290,11 @@ export function canvasRenderer(
     visible = [];
     for (const face of mesh.faces) {
       const pose =
-        face.object === 5 ? frame.frame : frame.fruit[face.object - 1];
+        face.object > 5
+          ? frame.specimens![face.object - 6]
+          : face.object === 5
+            ? frame.frame
+            : frame.fruit[face.object - 1];
       const normal = rotate(rotate(face.normal, pose.twist), pose.camera);
       const pts = face.vertices.map((p) => world(p, pose));
       const depth = pts.reduce((s, p) => s + p[2], 0) / pts.length;
@@ -261,7 +312,35 @@ export function canvasRenderer(
     visible.sort((a, b) => a.depth - b.depth);
     for (const p of visible) {
       path(ctx, p.points);
-      if (p.face.uv) {
+      if (p.face.paint === "specimen" || p.face.paint === "pane") {
+        const tile = p.face.paint === "specimen";
+        const pose = tile ? frame.specimens![p.face.object - 6] : frame.frame;
+        const half = tile ? 0.5 : 0.766;
+        const bottom = project([-half, -half, 0], pose);
+        const top = project([half, half, 0], pose);
+        const sheen = ctx.createLinearGradient(...bottom, ...top);
+        sheen.addColorStop(
+          0,
+          tile ? "rgba(122,83,164,.64)" : "rgba(138,107,172,.19)",
+        );
+        sheen.addColorStop(
+          0.52,
+          tile ? "rgba(218,200,240,.72)" : "rgba(194,171,225,.17)",
+        );
+        sheen.addColorStop(
+          0.64,
+          tile ? "rgba(247,240,255,.82)" : "rgba(245,234,255,.30)",
+        );
+        sheen.addColorStop(
+          1,
+          tile ? "rgba(177,142,216,.63)" : "rgba(174,148,207,.23)",
+        );
+        ctx.fillStyle =
+          Math.abs(p.face.normal[2]) === 1 ? sheen : "rgba(246,230,255,.84)";
+        ctx.fill();
+        if (p.face.uv && decals)
+          paintTriangle(ctx, p.points, p.face.uv, decals);
+      } else if (p.face.uv) {
         const strength = hero ? 1 : frame.occupied[p.face.object - 1];
         ctx.fillStyle = strength > 0.5 ? "#ef6573" : "#c9c5d5";
         ctx.fill();
@@ -271,7 +350,7 @@ export function canvasRenderer(
         if (strength < 0.99) paintTriangle(ctx, p.points, p.face.uv, neutral);
         if (strength > 0.001) {
           ctx.globalAlpha = strength;
-          paintTriangle(ctx, p.points, p.face.uv, sheet);
+          paintTriangle(ctx, p.points, p.face.uv, sheet, hero);
           ctx.globalAlpha = 1;
         }
       } else {
@@ -286,6 +365,12 @@ export function canvasRenderer(
             "hsla(268,40%," +
             Math.max(32, Math.min(97, 25 + 66 * light)) +
             "%,.86)";
+        } else if (hero) {
+          const peel = ctx.createLinearGradient(...p.points[0], ...p.points[2]);
+          peel.addColorStop(0, "#315b4e");
+          peel.addColorStop(0.46, p.face.paint);
+          peel.addColorStop(1, "#265747");
+          ctx.fillStyle = peel;
         } else ctx.fillStyle = p.face.paint;
         if (
           !hero &&
@@ -337,7 +422,10 @@ export function canvasRenderer(
     pick(_, x, y) {
       for (let i = visible.length - 1; i >= 0; i--) {
         path(ctx, visible[i].points);
-        if (ctx.isPointInPath(x * w, y * h)) return visible[i].face.object;
+        if (ctx.isPointInPath(x * w, y * h)) {
+          const id = visible[i].face.object;
+          return id > 5 ? id - 5 : id;
+        }
       }
       return 0;
     },
@@ -345,6 +433,7 @@ export function canvasRenderer(
       visible = [];
       sheet.width = 0;
       neutral.width = 0;
+      if (decals) decals.width = 0;
     },
   };
 }

@@ -23,7 +23,8 @@ interface Reading {
   refs: string[];
 }
 type Result = { reading: Reading } | { error: string };
-const failure = (message: string): Result => ({ error: "VseLLM: " + message });
+type JsonReply = { json: unknown } | { error: string };
+const failure = (message: string) => ({ error: "VseLLM: " + message });
 const isLine = (s: unknown): s is string =>
   typeof s === "string" &&
   s.trim().length > 0 &&
@@ -32,9 +33,7 @@ const isLine = (s: unknown): s is string =>
   !/[<>\u0000-\u001f]/u.test(s);
 
 function validate(raw: unknown, packet: EvidencePacket): Result {
-  if (typeof raw !== "string" || raw.length > 5000)
-    return failure("не удалось проверить формат ответа.");
-  const data = JSON.parse(raw) as Partial<Reading> | null;
+  const data = raw as Partial<Reading> | null;
   if (
     !data ||
     !isLine(data.answer) ||
@@ -81,10 +80,10 @@ function validate(raw: unknown, packet: EvidencePacket): Result {
 // One instance per web process. Cache symbolic references only. Resolution to
 // current local source IDs and values is deliberately outside this client.
 export class VseLlm {
-  private readonly pending = new Map<string, Promise<Result>>();
+  private readonly pending = new Map<string, Promise<JsonReply>>();
   private readonly cache = new Map<
     string,
-    { expires: number; result: Result }
+    { expires: number; result: JsonReply }
   >();
   private started: number[] = [];
   constructor(
@@ -93,7 +92,25 @@ export class VseLlm {
     private readonly request: typeof fetch = fetch,
   ) {}
   async read(packet: EvidencePacket): Promise<Result> {
-    const id = hash([this.model, VSELLM_PROMPT, packet]);
+    const reply = await this.json(VSELLM_PROMPT, instructions, packet, 10_000);
+    if ("error" in reply) return reply;
+    const result = validate(reply.json, packet);
+    if ("error" in result) this.rejectJson(VSELLM_PROMPT, packet);
+    return result;
+  }
+  rejectJson(version: string, packet: object) {
+    const cached = this.cache.get(hash([this.model, version, packet]));
+    if (cached) cached.expires = Math.min(cached.expires, Date.now() + 10_000);
+  }
+  // Both analysis and canvas planning share this process's concurrency and
+  // spend limits. Callers validate the JSON against their own closed schema.
+  async json(
+    version: string,
+    system: string,
+    packet: object,
+    timeout: number,
+  ): Promise<JsonReply> {
+    const id = hash([this.model, version, packet]);
     const now = Date.now();
     const cached = this.cache.get(id);
     if (cached && cached.expires > now) return cached.result;
@@ -107,12 +124,12 @@ export class VseLlm {
     )
       return failure("достигнут лимит запросов.");
     this.started.push(now);
-    const job = this.complete(packet);
+    const job = this.complete(system, packet, timeout);
     this.pending.set(id, job);
     try {
       const result = await job;
       this.cache.set(id, {
-        expires: Date.now() + ("reading" in result ? 5 * 60_000 : 10_000),
+        expires: Date.now() + ("json" in result ? 5 * 60_000 : 10_000),
         result,
       });
       if (this.cache.size > 160)
@@ -122,14 +139,18 @@ export class VseLlm {
       this.pending.delete(id);
     }
   }
-  private async complete(packet: EvidencePacket): Promise<Result> {
+  private async complete(
+    system: string,
+    packet: object,
+    timeout: number,
+  ): Promise<JsonReply> {
     try {
       const response = await this.request(
         "https://api.vsellm.ru/v1/chat/completions",
         {
           method: "POST",
           redirect: "error",
-          signal: AbortSignal.timeout(10_000),
+          signal: AbortSignal.timeout(timeout),
           headers: {
             authorization: "Bearer " + this.key,
             "content-type": "application/json",
@@ -140,7 +161,7 @@ export class VseLlm {
             max_tokens: 450,
             response_format: { type: "json_object" },
             messages: [
-              { role: "system", content: instructions },
+              { role: "system", content: system },
               { role: "user", content: JSON.stringify(packet) },
             ],
           }),
@@ -153,7 +174,10 @@ export class VseLlm {
         );
       }
       const reply = await response.json();
-      return validate(reply?.choices?.[0]?.message?.content, packet);
+      const raw = reply?.choices?.[0]?.message?.content;
+      if (typeof raw !== "string" || raw.length > 5000)
+        return failure("не удалось проверить формат ответа.");
+      return { json: JSON.parse(raw) };
     } catch {
       return failure(
         "сервис не ответил вовремя или вернул некорректный ответ.",

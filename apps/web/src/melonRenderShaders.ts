@@ -32,7 +32,7 @@ precision highp float;
 uniform float u_floor, u_index, u_focus, u_hero, u_pick;
 uniform vec4 u_loads, u_selection, u_occupied;
 uniform vec2 u_viewport;
-uniform sampler2D u_backdrop;
+uniform sampler2D u_backdrop, u_decal;
 uniform vec2 u_scale;
 varying vec3 v_local,v_normal,v_world;
 varying float v_material;
@@ -74,7 +74,7 @@ vec3 seedRing(vec2 p,vec3 flesh,float radius,float count,float phase,float seedI
 
 void main() {
   if(u_pick>.5) {
-    gl_FragColor=vec4((v_material>2.5? 5.:u_index+1.)/255., 0., 0., 1.); return;
+    gl_FragColor=vec4((v_material>2.5 && v_material<4.5 ? 5.:u_index+1.)/255., 0., 0., 1.); return;
   }
   if(u_floor>0.5) {
     vec2 p=v_local.xy/u_scale;
@@ -87,6 +87,7 @@ void main() {
   if(v_material>2.5) {
     vec3 n=normalize(v_normal);
     vec3 eye=normalize(vec3(0.,0.,8.)-v_world);
+    if(u_hero>.5 && dot(n,eye)<=0.) discard;
     float facing=abs(dot(n,eye));
     vec3 ray=normalize(reflect(-eye,n)+vec3(.30*v_world.x-.17*v_world.y,.34*v_world.y+.14*v_world.x,0.));
     float fresnel=pow(1.-facing,2.25);
@@ -100,12 +101,45 @@ void main() {
     vec4 refractImage=texture2D(u_backdrop, clamp(uv-offset,vec2(.001),vec2(.999)));
     vec3 bg=vec3(.886,.878,.933);
     vec3 transmitted=(refractImage.rgb+bg*(1.-refractImage.a));
+    if (v_material>3.5) {
+      bool tile=v_material>4.5;
+      vec2 p=v_local.xy/(tile?.50:.766);
+      float edgeDist=1.-max(abs(p.x),abs(p.y));
+      float bevel=1.-smoothstep(.005,tile?.081:.019,edgeDist);
+      vec2 bend=n.xy*(tile?.010:.004)+p*bevel*.014;
+      vec4 image=texture2D(u_backdrop,clamp(uv-bend,vec2(.001),vec2(.999)));
+      vec4 blue=texture2D(u_backdrop,clamp(uv-1.34*bend,vec2(.001),vec2(.999)));
+      vec3 paper=image.rgb+bg*(1.-image.a);
+      paper.b=blue.b+bg.b*(1.-blue.a);
+      vec3 tint=tile ? vec3(.76,.63,.92) : vec3(.82,.73,.95);
+      vec3 pane=paper*tint+vec3(.035,.022,.044);
+      float stripe=exp(-pow((p.x+.69*p.y+.20*v_world.x-.30)*3.3,2.));
+      pane=mix(pane,vec3(1.,.974,1.),stripe*(tile?.34:.19));
+      pane=mix(pane,vec3(.99,.95,1.),bevel*(.40+.55*whiteStrip));
+      float strength=tile?.84:.38;
+      if(tile) {
+        float border=1.-smoothstep(.003,.021,abs(edgeDist-.125));
+        pane=mix(pane,vec3(.94,.9,1.),border*.85);
+        vec2 decalUV=vec2((u_index+.5+.5*p.x)/3.,.5-.5*p.y);
+        vec4 ink=texture2D(u_decal,decalUV);
+        pane=mix(pane,ink.rgb,ink.a);
+        strength=max(strength,ink.a);
+      } else {
+        float rule=1.-smoothstep(.004,.013,abs(edgeDist-.037));
+        float tick=1.-smoothstep(.03,.15,abs(fract((abs(p.x)>.90?p.y:p.x)*24.+.5)-.5));
+        float engraving=max(rule*.4,tick*step(.90,1.-edgeDist)*.7);
+        pane=mix(pane,vec3(.52,.33,.66),engraving);
+        strength+=engraving*.28;
+      }
+      gl_FragColor=vec4(pane,strength);
+      return;
+    }
     vec3 amethyst=mix(vec3(.42,.22,.61),vec3(.74,.60,.89),facing);
     vec3 glass=transmitted*mix(amethyst,vec3(1.),.37)+vec3(.019,.004,.039);
     glass=mix(glass,vec3(.24,.12,.36),.48*fresnel+.34*darkStrip);
     glass=mix(glass,vec3(.98,.95,1.),clamp(.43*windowLight+.80*whiteStrip+.55*edge,0.,1.));
-    vec2 railDistance=abs(v_local.xy)-vec2(.72-.165,.79-.165);
-    float across=(length(max(railDistance,vec2(0.)))+min(max(railDistance.x,railDistance.y),0.)-.165)/.116;
+    vec2 railDistance=abs(v_local.xy)-mix(vec2(.72-.165,.79-.165),vec2(.79-.08),u_hero);
+    float across=(length(max(railDistance,vec2(0.)))+min(max(railDistance.x,railDistance.y),0.)-mix(.165,.08,u_hero))/mix(.116,.043,u_hero);
     float strand=across+.10*sin(v_local.y*4.+v_local.x*2.1);
     float ghost=exp(-pow((strand+.49)*6.4,2.))*.38+exp(-pow((strand-.64)*13.,2.))*.66;
     float band=exp(-pow((strand+.75)*10.,2.))*.46+exp(-pow((strand-.45)*9.,2.))*.19;

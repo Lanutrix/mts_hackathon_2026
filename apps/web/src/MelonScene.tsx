@@ -23,7 +23,7 @@ type Props = {
   onGroupSelect?: (group: MelonFilter) => void;
 };
 const still = new URL("./assets/melon-studio-focus.webp", import.meta.url).href;
-const poster = new URL("./assets/focus-optic.webp", import.meta.url).href;
+const poster = new URL("./assets/melon-cut-poster.webp", import.meta.url).href;
 export default function MelonScene({
   active,
   counts,
@@ -122,14 +122,14 @@ export default function MelonScene({
     : active === "all"
       ? "Срезы инцидентов"
       : groupNames[active] + " — " + (counts?.[active] ?? 0);
-  const targetLabel = tracking
-    ? (hero ? "Демо · " : "") +
-      tracking.id +
-      " · " +
-      groupNames[tracking.group] +
-      " · " +
-      tracking.header
-    : undefined;
+  const targetLabel =
+    !hero && tracking
+      ? tracking.id +
+        " · " +
+        groupNames[tracking.group] +
+        " · " +
+        tracking.header
+      : undefined;
   const id = tracking?.id ?? "";
   const serial = /(?:^|[-_/#])(\d{1,8})$/.exec(id)?.[1];
   const shortId = serial
@@ -153,15 +153,19 @@ export default function MelonScene({
         className="melon-view"
         tabIndex={mode === "poster" ? -1 : 0}
         aria-label={
-          "Вращать 3D-объект: " + (target === "fruit" ? "арбуз" : "рамка")
+          mode === "poster"
+            ? title
+            : "Вращать 3D-объект: " + (target === "fruit" ? "арбуз" : "рамка")
         }
         aria-describedby={help}
         title={targetLabel}
         aria-keyshortcuts={
-          "1 2 ArrowUp ArrowDown ArrowLeft ArrowRight Home Space" +
-          (selectable ? " Enter" : "")
+          mode === "poster"
+            ? undefined
+            : "1 2 ArrowUp ArrowDown ArrowLeft ArrowRight Home Space" +
+              (selectable ? " Enter" : "")
         }
-        role="group"
+        role={mode === "poster" ? "img" : "group"}
       >
         <canvas
           className="melon-scene__canvas"
@@ -173,16 +177,14 @@ export default function MelonScene({
           ref={fallback}
           aria-hidden="true"
         />
-        {(hero || tracking) && (mode === "canvas" || mode === "webgl") && (
+        {!hero && tracking && (mode === "canvas" || mode === "webgl") && (
           <div
-            key={tracking ? tracking.group + "/" + tracking.id : "brand"}
+            key={tracking.group + "/" + tracking.id}
             className="melon-tracker"
-            data-ticket={tracking?.id}
-            data-group={tracking?.group}
-            data-brand={!tracking || undefined}
-            role={tracking ? "img" : undefined}
+            data-ticket={tracking.id}
+            data-group={tracking.group}
+            role="img"
             aria-label={targetLabel}
-            aria-hidden={!tracking || undefined}
           >
             <div className="melon-tracker__lock">
               <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
@@ -210,17 +212,14 @@ export default function MelonScene({
                   d="M5 24h38"
                 />
               </svg>
-              {tracking && (
-                <span className="melon-tracker__tag" title={targetLabel}>
-                  {hero && "Демо · "}
-                  <span className="melon-tracker__full-id">{tracking.id}</span>
-                  <span className="melon-tracker__short-id">{shortId}</span>
-                </span>
-              )}
+              <span className="melon-tracker__tag" title={targetLabel}>
+                <span className="melon-tracker__full-id">{tracking.id}</span>
+                <span className="melon-tracker__short-id">{shortId}</span>
+              </span>
             </div>
           </div>
         )}
-        {mode === "poster" && (
+        {(mode === "poster" || (hero && mode === "waiting")) && (
           <img
             src={hero ? poster : still}
             alt=""
@@ -228,7 +227,7 @@ export default function MelonScene({
             className="melon-scene__still"
           />
         )}
-        {mode === "waiting" && (
+        {!hero && mode === "waiting" && (
           <span role="status" className="melon-wait">
             <i />
             <i />
@@ -238,11 +237,13 @@ export default function MelonScene({
         )}
       </div>
       <span id={help} className="melon-sr">
-        Перетащите арбуз или рамку, чтобы повернуть их. На клавиатуре выберите
-        арбуз клавишей 1 или рамку клавишей 2 и вращайте стрелками. Home
-        возвращает исходный ракурс. Пробел ставит движение на паузу и
-        возобновляет его.
-        {selectable && " Клавиша Enter переключает группы инцидентов."}
+        {hero &&
+          "Стеклянная пластина разрезает дольку. Три маленьких стекла с номерами 01, 02 и 03 отмечают отдельные сечения. "}
+        {mode !== "poster" &&
+          "Перетащите арбуз или рамку, чтобы повернуть их. На клавиатуре выберите арбуз клавишей 1 или рамку клавишей 2 и вращайте стрелками. Home возвращает исходный ракурс. Пробел ставит движение на паузу и возобновляет его."}
+        {mode !== "poster" &&
+          selectable &&
+          " Клавиша Enter переключает группы инцидентов."}
         {!hero &&
           counts &&
           " От переднего среза к заднему: " +

@@ -23,7 +23,6 @@ import { isTrainingPath, screenLink, screenPath } from "./routes";
 import Loader from "./Loader";
 import { IncidentNotice, type IncidentSignal } from "./IncidentNotice";
 import { mergeSignals } from "./signalQueue";
-import Workspace from "./Workspace";
 import LiveBoard from "./LiveBoard";
 import CoordinatorDispatch from "./CoordinatorDispatch";
 import { groups } from "./liveFeed";
@@ -32,6 +31,8 @@ import "./ops.css";
 import "./ticket.css";
 import type { Incident } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
+const Workspace = React.lazy(() => import("./Workspace"));
+
 type User = {
   username: string;
   role: "viewer" | "coordinator" | "demo-admin";
@@ -233,7 +234,7 @@ function App({ initialRoute }: { initialRoute: URL }) {
     const names: Record<string, string> = {
       "/": "Инциденты в фокусе",
       "/live": "Эфир смены",
-      "/workspace": "Рабочая очередь",
+      "/workspace": "ИИ-помощник",
       "/wallboard": "Общий экран",
       "/simulation": "Учебный эфир",
       "/login": "Вход",
@@ -258,7 +259,12 @@ function App({ initialRoute }: { initialRoute: URL }) {
   }, []);
   const go = (path: string) => {
     const previous = location.pathname;
-    history.pushState(null, "", path);
+    const fromCanvas =
+      screenPath(previous) === "/workspace" &&
+      screenPath(new URL(path, location.origin).pathname).startsWith(
+        "/incident/",
+      );
+    history.pushState(fromCanvas ? { fromCanvas: true } : null, "", path);
     const next = readRoute();
     setRoute(next);
     if (next.pathname !== previous) window.scrollTo(0, 0);
@@ -616,7 +622,7 @@ function Dashboard({
           </a>
           <nav className="primary-switch" aria-label="Основная навигация">
             {nav("/live", "Эфир смены", "live", false, "Эфир")}
-            {nav("/workspace", "Рабочая очередь", "queue", false, "Очередь")}
+            {nav("/workspace", "ИИ-помощник", "layers", false, "Помощник")}
           </nav>
           <nav className="ops-actions" aria-label="Сервисы">
             {!wall && nav("/notifications", "Уведомления", "bell", true)}
@@ -772,7 +778,24 @@ function Dashboard({
           onJournal={() => go(link("/notifications"))}
         />
         <main id="main">
-          {!data || data.namespace !== ns ? (
+          {path === "/workspace" && (!training || data?.simulation?.runId) ? (
+            <React.Suspense
+              fallback={<Loader label="Открываем холст…" stage />}
+            >
+              <Workspace
+                ns={ns}
+                userKey={JSON.stringify([
+                  user.username,
+                  training ? data.simulation.runId : ns,
+                ])}
+                zone={zone}
+                csrf={user.csrf}
+                canAsk={write || (publicDemo && (ns === "demo" || training))}
+                revision={data?.namespace === ns ? data.revision : 0}
+                open={open}
+              />
+            </React.Suspense>
+          ) : !data || data.namespace !== ns ? (
             error ? null : (
               <Loader label="Загрузка данных…" stage />
             )
@@ -783,27 +806,6 @@ function Dashboard({
             error ? null : (
               <Loader label="Загрузка раздела…" stage />
             )
-          ) : path === "/workspace" ? (
-            <Workspace
-              data={data.namespace === ns ? data : null}
-              ns={ns}
-              userKey={
-                training
-                  ? data.simulation.runId
-                  : user
-                    ? "user:" + user.username
-                    : "public"
-              }
-              write={!!write}
-              zone={zone}
-              open={open}
-              canDispatch={
-                !!write && !training && (ns === "demo" || ns === "workspace")
-              }
-              analyze={(ids, question) =>
-                post("/analysis/selection", { ids, question, zone })
-              }
-            />
           ) : path === "/live" || wall ? (
             <LiveBoard
               data={data}
@@ -856,6 +858,11 @@ function Dashboard({
             extra.incident.id === decodeURIComponent(path.split("/")[2]) && (
               <Detail
                 key={extra.incident.key}
+                canvasBack={
+                  history.state?.fromCanvas === true
+                    ? link("/workspace")
+                    : undefined
+                }
                 item={extra}
                 dispatch={
                   <CoordinatorDispatch
@@ -1124,6 +1131,7 @@ function fieldCaption(field: string) {
   return names[field.split(":")[0]] ?? field;
 }
 function Detail({
+  canvasBack,
   item,
   dispatch,
   zone,
@@ -1134,6 +1142,7 @@ function Detail({
   onNavigate,
 }: {
   item: any;
+  canvasBack?: string;
   dispatch: React.ReactNode;
   zone: string;
   mock: boolean;
@@ -1150,6 +1159,25 @@ function Detail({
   const updated = i.revision !== previous.current;
   return (
     <section className="content detail">
+      {canvasBack && (
+        <a
+          className="canvas-back"
+          href={canvasBack}
+          onClick={(event) => {
+            if (
+              event.ctrlKey ||
+              event.metaKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return;
+            event.preventDefault();
+            history.back();
+          }}
+        >
+          <span aria-hidden="true">←</span> Вернуться на холст
+        </a>
+      )}
       <div className="section-heading">
         <div>
           <p className="meta">{i.id}</p>

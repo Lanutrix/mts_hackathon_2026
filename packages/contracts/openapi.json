@@ -25,6 +25,432 @@
       }
     },
     "schemas": {
+      "CanvasView": {
+        "type": "object",
+        "properties": {
+          "groupBy": {
+            "enum": [
+              "symptom",
+              "team",
+              "product",
+              "priority",
+              "deadline",
+              "status",
+              "escalation",
+              "ticket"
+            ]
+          },
+          "layout": {
+            "enum": [
+              "groups",
+              "list",
+              "comparison"
+            ]
+          }
+        },
+        "required": [
+          "groupBy",
+          "layout"
+        ],
+        "additionalProperties": false
+      },
+      "CanvasIntent": {
+        "type": "object",
+        "properties": {
+          "groupBy": {
+            "enum": [
+              "symptom",
+              "team",
+              "product",
+              "priority",
+              "deadline",
+              "status",
+              "escalation",
+              "ticket"
+            ]
+          },
+          "layout": {
+            "enum": [
+              "groups",
+              "list",
+              "comparison"
+            ]
+          },
+          "filters": {
+            "type": "object",
+            "properties": {
+              "teams": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "products": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "symptoms": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "priorities": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "enum": [
+                    1,
+                    2,
+                    3,
+                    4
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "states": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "enum": [
+                    0,
+                    2,
+                    7,
+                    10,
+                    20
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "deadline": {
+                "enum": [
+                  "overdue",
+                  "soon",
+                  "normal",
+                  "unset"
+                ]
+              },
+              "escalation": {
+                "enum": [
+                  "yes",
+                  "no",
+                  "unknown"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasView"
+            },
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "groupBy",
+          "layout",
+          "filters"
+        ],
+        "additionalProperties": false
+      },
+      "CanvasTicket": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "header": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "deadline": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overdue": {
+            "type": "boolean"
+          },
+          "escalated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "header",
+          "team",
+          "product",
+          "priority",
+          "state",
+          "deadline",
+          "overdue",
+          "escalated"
+        ]
+      },
+      "CanvasGroup": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overdue": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "escalated": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count",
+          "overdue",
+          "escalated"
+        ]
+      },
+      "CanvasBlock": {
+        "type": "object",
+        "properties": {
+          "groupBy": {
+            "enum": [
+              "symptom",
+              "team",
+              "product",
+              "priority",
+              "deadline",
+              "status",
+              "escalation",
+              "ticket"
+            ]
+          },
+          "layout": {
+            "enum": [
+              "groups",
+              "list",
+              "comparison"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasGroup"
+            }
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasTicket"
+            }
+          },
+          "selection": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "groupBy",
+          "layout",
+          "title",
+          "groups",
+          "tickets",
+          "selection"
+        ]
+      },
+      "CanvasResult": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasGroup"
+            }
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasTicket"
+            }
+          },
+          "selection": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mode": {
+            "enum": [
+              "snapshot",
+              "model",
+              "fallback",
+              "unsupported"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "notice": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "intent": {
+            "$ref": "#/components/schemas/CanvasIntent"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "value"
+              ]
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasBlock"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sourceTotal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "title",
+          "groups",
+          "tickets",
+          "selection",
+          "namespace",
+          "revision",
+          "asOf",
+          "mode",
+          "provider",
+          "summary",
+          "intent",
+          "metrics",
+          "blocks",
+          "total",
+          "sourceTotal",
+          "suggestions"
+        ]
+      },
+      "CanvasPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasTicket"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nextOffset": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "nextOffset"
+        ]
+      },
       "RawIncident": {
         "type": "object",
         "required": [
@@ -115,6 +541,158 @@
     }
   },
   "paths": {
+    "/api/canvas": {
+      "parameters": [
+        {
+          "in": "query",
+          "name": "ns",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Стартовый холст смены без обращения к модели",
+        "responses": {
+          "200": {
+            "description": "Представление данных источника",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Требуется вход"
+          }
+        }
+      },
+      "post": {
+        "summary": "Построить представление по вопросу и предыдущему плану",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string"
+                      },
+                      "context": {
+                        "$ref": "#/components/schemas/CanvasIntent"
+                      }
+                    },
+                    "required": [
+                      "question"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "refresh": {
+                        "const": true
+                      },
+                      "context": {
+                        "$ref": "#/components/schemas/CanvasIntent"
+                      }
+                    },
+                    "required": [
+                      "refresh",
+                      "context"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Представление данных источника",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный вопрос или контекст"
+          },
+          "403": {
+            "description": "Недостаточно прав или требуется CSRF"
+          }
+        }
+      }
+    },
+    "/api/canvas/tickets": {
+      "parameters": [
+        {
+          "in": "query",
+          "name": "ns",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "selection",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "group",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "offset",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "get": {
+        "summary": "Открыть тикеты выбранного блока по версии снимка",
+        "responses": {
+          "200": {
+            "description": "Представление данных источника",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasPage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Выборка устарела или недоступна для этого источника"
+          }
+        }
+      }
+    },
     "/api/push/device/test": {
       "post": {
         "summary": "Проверить доставку на текущее подключённое устройство",
