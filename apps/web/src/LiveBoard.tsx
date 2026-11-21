@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import type { Group, Incident } from "../../../packages/domain/index.ts";
+import type { Incident } from "../../../packages/domain/index.ts";
 import Loader from "./Loader";
 import MelonScene from "./MelonScene";
 import TriageCases, { caseRequest } from "./TriageCases";
@@ -20,7 +20,7 @@ import {
   type Dashboard,
   type Signal,
 } from "./liveFeed";
-import { Icon } from "./Brand";
+import { Icon, SignalMark, SignalBadge } from "./Brand";
 
 const label: Record<Signal, string> = {
   all: "Все",
@@ -36,86 +36,7 @@ const shortLabel: Record<Signal, string> = {
   high: "Высокие",
   research: "Исслед.",
 };
-const reasons: Record<Group, string> = {
-  critical: "Критический",
-  coordinators: "У координаторов",
-  high: "Высокий",
-  research: "Исследование",
-};
-const descriptions: Record<Group, string> = {
-  critical: "Активный инцидент наивысшего приоритета",
-  coordinators: "Назначен дежурной группе координаторов",
-  high: "Активный инцидент высокого приоритета",
-  research: "Уточняются причины инцидента",
-};
 const signals: Signal[] = ["all", ...groups];
-const seedPath =
-  "M14.8 2.7c.1 3.5-.2 9.1-3.6 12.1-1.8 1.6-4.6 1.4-6-.6-1.4-2.1-.7-4.8 1.4-6.4 2.9-2.3 5.4-3.5 8.2-5.1Z";
-export function SignalMark({ signal }: { signal: Signal }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      width="17"
-      height="17"
-      aria-hidden="true"
-      className={"signal-mark signal-" + signal}
-    >
-      {signal === "all" ? (
-        <>
-          <path
-            d="M2 7h16a8 8 0 0 1-16 0Z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-          />
-          <path
-            d="m6 9 1 1.5m3-1v2m4-2.5-1 1.5"
-            stroke="currentColor"
-            strokeWidth="1.35"
-            strokeLinecap="round"
-          />
-        </>
-      ) : signal === "critical" ? (
-        <path d={seedPath} fill="currentColor" />
-      ) : signal === "high" ? (
-        <path
-          d={seedPath}
-          stroke="currentColor"
-          strokeWidth="1.5"
-          fill="none"
-        />
-      ) : signal === "coordinators" ? (
-        <>
-          <path
-            d={seedPath}
-            transform="translate(0 2) scale(.74)"
-            fill="currentColor"
-          />
-          <path
-            d={seedPath}
-            transform="translate(6 -1) scale(.78)"
-            fill="currentColor"
-          />
-        </>
-      ) : (
-        <>
-          <path
-            d={seedPath}
-            stroke="currentColor"
-            strokeWidth="1.5"
-            fill="none"
-          />
-          <path
-            d="m7 12 4-4"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-        </>
-      )}
-    </svg>
-  );
-}
 function Count({ value }: { value: number }) {
   const reduced = useReducedMotion();
   return (
@@ -277,6 +198,7 @@ type Props = SelectionProps & {
   data: Dashboard & { triage: Triage };
   csrf?: string;
   canAnalyze: boolean;
+  canDispatch: boolean;
   filtering: boolean;
   now: number;
   zone: string;
@@ -290,6 +212,7 @@ export default function LiveBoard({
   filtering,
   csrf,
   canAnalyze,
+  canDispatch,
   now,
   zone,
   wall,
@@ -340,13 +263,13 @@ export default function LiveBoard({
             </dd>
           </div>
           <div>
-            <dt>Срок прошёл</dt>
+            <dt><Icon name="clock" size={14} /> Срок прошёл</dt>
             <dd className={triage.overdue ? "past-due" : ""}>
               {triage.overdue}
             </dd>
           </div>
           <div>
-            <dt>К эскалации</dt>
+            <dt><Icon name="escalation" size={14} /> К эскалации</dt>
             <dd>{triage.escalations}</dd>
           </div>
         </dl>
@@ -421,6 +344,7 @@ export default function LiveBoard({
           ns={search.ns}
           csrf={csrf}
           canAnalyze={canAnalyze}
+          canDispatch={canDispatch}
           open={open}
           setParam={search.setParam}
         />
@@ -727,9 +651,6 @@ function Ledger({
                 <td className="feed-subject">
                   <span className="ticket-detail">
                     {item.id}
-                    {item.raw.serviceType
-                      ? " · " + String(item.raw.serviceType)
-                      : ""}
                   </span>
                   <button onClick={() => open(item.id)}>
                     {String(item.raw.header || "Без заголовка")}
@@ -741,15 +662,10 @@ function Ledger({
                   )}
                 </td>
                 <td className="feed-reasons">
-                  {item.groups.map((g) => (
-                    <span key={g} title={descriptions[g]}>
-                      <SignalMark signal={g} />
-                      {reasons[g]}
-                    </span>
-                  ))}
-                  {item.raw.isNeedUp === true && (
-                    <small>Требует эскалации</small>
-                  )}
+                  <div className="feed-signals">
+                    {item.groups.map((g) => <SignalBadge key={g} signal={g} />)}
+                    {item.raw.isNeedUp === true && <SignalBadge signal="escalation" />}
+                  </div>
                 </td>
                 <td className="feed-state">{item.stateLabel}</td>
                 <td

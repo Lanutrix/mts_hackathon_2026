@@ -13,10 +13,17 @@ import type { MelonTracking } from "./melonModel";
 import type { Triage } from "../../../packages/domain/triage";
 import Loader from "./Loader";
 import { screenLink } from "./routes";
+import { Icon, SignalBadge, SignalMark } from "./Brand";
+import { fieldName, TicketMentions } from "./IncidentSources";
 
 export interface WorkspaceAnalysis {
   items: { id: string; analysis: Analysis }[];
   overview?: string[];
+  provider?: string;
+  model?: string;
+  promptVersion?: string;
+  mode?: "model" | "fallback" | "fields";
+  stale?: boolean;
 }
 const groups: Group[] = ["critical", "coordinators", "high", "research"];
 
@@ -56,6 +63,7 @@ type Props = {
   open: (id: string) => void;
   zone: string;
   write: boolean;
+  canDispatch?: boolean;
   userKey: string;
   analyze: (ids: string[], question: string) => Promise<WorkspaceAnalysis>;
 };
@@ -237,7 +245,7 @@ function FieldEvidence({ analysis }: { analysis: Analysis }) {
             <small>
               {analysis.evidence
                 .filter((item) => item.claim === i)
-                .flatMap((item) => item.fields)
+                .flatMap((item) => item.fields.map(fieldName))
                 .join(" · ")}
             </small>
           </li>
@@ -276,6 +284,7 @@ function WorkspaceScreen({
   open,
   zone,
   write,
+  canDispatch,
   userKey,
   analyze,
 }: Props) {
@@ -509,11 +518,22 @@ function WorkspaceScreen({
             {zone === "Europe/Moscow" ? "МСК" : zone}
           </time>
         )}
+        {modelData && modelData !== "unavailable" && (
+          <ul className="wq-signals" aria-label={selected.length ? "Сигналы выбранных инцидентов" : "Сигналы очереди"}>
+            {groups.map((g) => (
+              <li key={g} title={reasonLabels[g] + " · " + modelData.counts[g]}>
+                <SignalMark signal={g} />
+                <span>{reasonLabels[g]}</span>
+                <b>{modelData.counts[g]}</b>
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="wq-optic">
           {modelData === "unavailable" ? (
             <span className="wq-model-unavailable">Нет данных для среза</span>
           ) : modelData ? (
-            <MelonScene active="all" counts={modelData.counts} unique={modelData.unique} tracking={modelData.tracking} />
+            <MelonScene active="all" counts={modelData.counts} unique={modelData.unique} tracking={modelData.tracking} showMeters={false} />
           ) : listError ? null : (
             <Loader label="Загрузка среза…" />
           )}
@@ -523,11 +543,6 @@ function WorkspaceScreen({
         ref={shortcut}
         href={inContext ? "#workspace-incidents" : "#workspace-context"}
         className="wq-jump"
-        aria-label={
-          inContext
-            ? "К списку инцидентов"
-            : "К контексту, выбрано " + selectedIds.length
-        }
       >
         {inContext ? "К очереди" : "К контексту"}{" "}
         <span>{selectedIds.length} / {contextLimit}</span>
@@ -552,7 +567,7 @@ function WorkspaceScreen({
               <input
                 type="search"
                 aria-label="Поиск по очереди"
-                placeholder="ID, заголовок, продукт или команда"
+                placeholder="Найти инцидент"
                 maxLength={300}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -624,6 +639,9 @@ function WorkspaceScreen({
               <ul>
                 {tickets.map((ticket) => {
                   const selected = selectedIds.includes(ticket.id);
+                  const subject = String(ticket.raw.header || "Без заголовка");
+                  const product = String(ticket.raw.productName || "").trim();
+                  const showProduct = grouping !== "product" && product && !subject.toLocaleLowerCase("ru").startsWith(product.toLocaleLowerCase("ru") + ":");
                   return (
                     <li
                       className={"wq-row" + (selected ? " wq-row-picked" : "")}
@@ -641,14 +659,10 @@ function WorkspaceScreen({
                       <div className="wq-row-body">
                         <div className="wq-row-meta">
                           <span className="wq-id">{ticket.id}</span>
-                          {ticket.groups.map((group) => (
-                            <span
-                              key={group}
-                              className={"wq-reason wq-" + group}
-                            >
-                              {reasonLabels[group]}
-                            </span>
-                          ))}
+                          <div className="feed-signals">
+                            {ticket.groups.map((group) => <SignalBadge key={group} signal={group} />)}
+                            {ticket.raw.isNeedUp === true && <SignalBadge signal="escalation" />}
+                          </div>
                         </div>
                         <a
                           className="wq-ticket-link"
@@ -665,20 +679,16 @@ function WorkspaceScreen({
                             }
                           }}
                         >
-                          {String(ticket.raw.header || "Без заголовка")}{" "}
+                          {subject}{" "}
                           <Arrow />
                         </a>
                         <div className="wq-row-facts">
-                          <span>
-                            {String(
-                              ticket.raw.productName || "Продукт не указан",
-                            )}
-                          </span>
-                          <span>{ticket.team || "Команда не указана"}</span>
-                          <span>
+                          {showProduct && <span>{product}</span>}
+                          {grouping !== "team" && <span>{ticket.team || "Команда не указана"}</span>}
+                          <span className="wq-deadline">
+                            <Icon name="clock" size={14} />
                             {ticket.dates.deadline
-                              ? "Срок " +
-                                date.format(new Date(ticket.dates.deadline))
+                              ? <time dateTime={ticket.dates.deadline} aria-label={"Срок " + date.format(new Date(ticket.dates.deadline))}>{date.format(new Date(ticket.dates.deadline))}</time>
                               : "Срок не задан"}
                           </span>
                           {!ticket.sourcePresent && (
@@ -762,6 +772,11 @@ function WorkspaceScreen({
               ))}
             </ul>
           )}
+          {canDispatch && selected.length === 1 && !selected[0].unavailable && (
+            <a className="wq-dispatch" href={screenLink("/incident/" + encodeURIComponent(selected[0].id) + "#dispatch", ns)}>
+              <Icon name="coordinators" size={17} /> Выбрать команду <Arrow direction="right" />
+            </a>
+          )}
           <form
             className="wq-question"
             onSubmit={(event) => {
@@ -815,14 +830,19 @@ function WorkspaceScreen({
             >
               <h3>Результат разбора</h3>
               {currentAnswer.error && <p role="alert">{currentAnswer.error}</p>}
-              {data && currentAnswer.revision !== data.revision && (
+              {(currentAnswer.result?.stale || (data && currentAnswer.revision !== data.revision)) && (
                 <p>
                   После запроса источник обновился. Сверьте выводы с карточками.
                 </p>
               )}
               {currentAnswer.result?.overview?.map((line, i) => (
-                <p key={i}>{line}</p>
+                <p className="wq-overview" key={i}><TicketMentions text={line} ids={selectedIds} ns={ns} open={open} /></p>
               ))}
+              {(currentAnswer.result?.mode === "fallback" || currentAnswer.result?.mode === "fields") && <p className="wq-role-note">По полям карточек.</p>}
+              {currentAnswer.result?.mode === "model" && (currentAnswer.result.model || currentAnswer.result.provider) && (
+                <details><summary>Модель и источник</summary><p>{[currentAnswer.result.provider, currentAnswer.result.model, currentAnswer.result.promptVersion].filter(Boolean).join(" · ")}</p></details>
+              )}
+              {!!currentAnswer.result?.items.length && <h4>Источники</h4>}
               {currentAnswer.result?.items.map(({ id, analysis }) => {
                 const excerpt = analysis.summary
                   .filter((_, i) =>
@@ -841,13 +861,8 @@ function WorkspaceScreen({
                       <button type="button" onClick={() => open(id)}>
                         {id} <Arrow />
                       </button>
-                      <span>
-                        {analysis.mode === "model"
-                          ? "Модель · выдержки"
-                          : "По полям ITSM"}
-                      </span>
                     </div>
-                    <p>{excerpt || analysis.summary[0]}</p>
+                    {!currentAnswer.result?.overview?.length && <p>{excerpt || analysis.summary[0]}</p>}
                     {analysis.stale && (
                       <p>Данные карточки изменились во время разбора.</p>
                     )}

@@ -23,6 +23,8 @@ import {
 } from "./jurySimulation.ts";
 import type { AnalysisService } from "./analysis.ts";
 import { analyzeCase } from "./caseAnalysis.ts";
+import { analyzeSelection } from "./operationalAnalysis.ts";
+import { registerDispatch } from "./dispatch.ts";
 import {
   buildTriage,
   filterDashboard,
@@ -245,6 +247,7 @@ export async function createApp(o: AppOptions) {
       }
     }
   });
+  juryReadRoutes.add(registerDispatch(app, { db, identity, readStoreFor, requireRole }));
   app.setErrorHandler((error, req, reply) => {
     const e = error as Error & { statusCode?: number };
     reply.code(e.statusCode && e.statusCode < 500 ? e.statusCode : 400).send({
@@ -471,7 +474,10 @@ export async function createApp(o: AppOptions) {
   const analyses = new Map<string, CaseAnalysis>();
   app.post(
     "/api/triage/:id/analysis",
-    { config: { rateLimit: { max: 12, timeWindow: "1 minute" } } },
+    {
+      bodyLimit: 4096,
+      config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
+    },
     async (req, reply) => {
       if (
         !publicCase(req) &&
@@ -481,11 +487,24 @@ export async function createApp(o: AppOptions) {
       const selection = await readCase(req, reply);
       if (!selection) return;
       const { s, detail, rows } = selection;
-      const key = s.namespace + "/" + detail.id + "/" + detail.hash;
-      let result = analyses.get(key);
+      const question =
+        (req.body as { question?: unknown } | null)?.question ?? "";
+      if (typeof question !== "string" || question.length > 500)
+        return reply
+          .code(400)
+          .send({ message: "Вопрос должен быть строкой до 500 символов." });
+      const key = [
+        s.namespace,
+        detail.id,
+        detail.hash,
+        detail.overdue,
+        detail.soon,
+      ].join("/");
+      let result =
+        o.ai?.remote || question.trim() ? undefined : analyses.get(key);
       if (!result) {
-        result = await analyzeCase(detail, rows, o.ai);
-        if (result.mode === "model") {
+        result = await analyzeCase(detail, rows, o.ai, s.namespace, question);
+        if (result.mode === "model" && !o.ai?.remote) {
           analyses.set(key, result);
           if (analyses.size > 96)
             analyses.delete(analyses.keys().next().value!);
@@ -743,8 +762,58 @@ export async function createApp(o: AppOptions) {
     return { playing: demo.playing, step: demo.stepIndex, clock: demo.clock };
   });
   app.post(
+    "/api/analysis/selection",
+    {
+      bodyLimit: 4096,
+      config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
+    },
+    async (req, reply) => {
+      if (!requireRole(req, reply, ["coordinator", "demo-admin"])) return;
+      const s = storeFor(req, reply);
+      if (!s) return;
+      const b = req.body as {
+        ids?: unknown;
+        question?: unknown;
+        zone?: unknown;
+      } | null;
+      if (
+        !Array.isArray(b?.ids) ||
+        !b.ids.length ||
+        b.ids.length > 6 ||
+        !b.ids.every(
+          (id) => typeof id === "string" && id.length > 0 && id.length <= 200,
+        ) ||
+        typeof b.question !== "string" ||
+        !b.question.trim() ||
+        b.question.length > 500 ||
+        (b.zone !== undefined && b.zone !== "Europe/Moscow" && b.zone !== "UTC")
+      )
+        return reply
+          .code(400)
+          .send({ message: "Нужны 1–6 заявок и вопрос до 500 символов." });
+      const ids = [...new Set<string>(b.ids)];
+      const byId = new Map([...s.rows.values()].map((row) => [row.id, row]));
+      const rows = ids.flatMap((id) => byId.get(id) ?? []);
+      if (rows.length !== ids.length)
+        return reply
+          .code(404)
+          .send({ message: "Заявка отсутствует в выбранном источнике." });
+      return analyzeSelection(
+        rows,
+        (row) => s.rows.get(row.key),
+        s.namespace,
+        b.question,
+        b.zone ?? "Europe/Moscow",
+        o.ai?.remote,
+      );
+    },
+  );
+  app.post(
     "/api/analysis/:id",
-    { config: { rateLimit: { max: 6, timeWindow: "1 minute" } } },
+    {
+      bodyLimit: 4096,
+      config: { rateLimit: { max: 6, timeWindow: "1 minute" } },
+    },
     async (req, reply) => {
       if (!requireRole(req, reply, ["coordinator", "demo-admin"])) return;
       const s = storeFor(req, reply);
@@ -757,11 +826,19 @@ export async function createApp(o: AppOptions) {
         return reply
           .code(503)
           .send({ message: "Модель недоступна. Основные данные доступны." });
+      const question =
+        (req.body as { question?: unknown } | null)?.question ?? "";
+      if (typeof question !== "string" || question.length > 500)
+        return reply
+          .code(400)
+          .send({ message: "Вопрос должен быть строкой до 500 символов." });
       const history = await s.history(r.key);
       return o.ai.analyze(
         r,
         () => s.rows.get(r.key)!,
         history[0]?.kind === "updated" ? history[0].changed : [],
+        s.namespace,
+        question,
       );
     },
   );

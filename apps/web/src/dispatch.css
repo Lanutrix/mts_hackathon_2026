@@ -1,0 +1,133 @@
+.dispatch-panel {
+  border-block: 1px solid var(--border);
+  padding-block: 15px;
+  margin-block: 16px;
+  overflow-wrap: anywhere;
+  scroll-margin: 12px;
+}
+.detail .dispatch-panel h2 {
+  margin: 0 0 9px;
+  font-size: 1.15rem;
+}
+.dispatch-panel h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+.dispatch-panel p {
+  margin: 3px 0;
+  line-height: 1.45;
+}
+.dispatch-basis,
+.dispatch-panel small {
+  color: var(--muted);
+  font-size: 0.87rem;
+}
+.dispatch-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 9px 14px;
+  align-items: end;
+  margin-block-start: 13px;
+}
+.dispatch-form label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.dispatch-form .dispatch-alt {
+  grid-column: 1/-1;
+}
+.dispatch-form :is(input, select),
+.dispatch-handoff textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  font: inherit;
+  font-weight: 400;
+  font-size: 0.9rem;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+}
+.dispatch-handoff textarea {
+  display: block;
+  margin-top: 8px;
+}
+.dispatch-form :disabled {
+  cursor: default;
+}
+.dispatch-review,
+.dispatch-preview button:not(.dispatch-inline) {
+  justify-self: start;
+  min-height: 40px;
+  padding: 8px 14px;
+}
+.dispatch-preview,
+.dispatch-history {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+.dispatch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 14px;
+  margin-top: 5px;
+}
+.dispatch-actions a,
+.dispatch-inline {
+  font-size: 0.9rem;
+}
+.dispatch-panel button.dispatch-inline {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  padding: 4px 0;
+  min-height: 32px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.dispatch-handoff {
+  margin-top: 7px;
+}
+.dispatch-history ol {
+  padding-left: 1.5rem;
+}
+.dispatch-history li {
+  padding-bottom: 5px;
+}
+.dispatch-history li small {
+  display: block;
+}
+.dispatch-history details {
+  margin-top: 6px;
+}
+.case-insight .dispatch-entry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 5px;
+  padding: 5px 12px;
+  min-height: 32px;
+  font-size: 0.85rem;
+}
+@media (max-width: 620px) {
+  .dispatch-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dispatch-panel {
+    margin-block: 10px;
+    padding-block: 12px;
+  }
+  .dispatch-form :is(input, select),
+  .dispatch-review {
+    min-height: 44px;
+    font-size: 1rem;
+  }
+}

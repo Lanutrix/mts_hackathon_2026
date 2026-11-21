@@ -37,6 +37,7 @@ export interface TriageCase {
   team: string | null;
   product: string | null;
   recommendation: string;
+  recommendationId: string;
   evidence: CaseEvidence[];
 }
 export interface Triage {
@@ -122,9 +123,16 @@ const symptomPatterns: [RegExp, string][] = [
     "Недоступность операции",
   ],
 ];
+export function knownSymptom(r: Incident) {
+  for (const field of ["header", "shortDescription", "description"]) {
+    const value = spaces(r.raw[field]).slice(0, 2400);
+    const match = symptomPatterns.find(([pattern]) => pattern.test(value));
+    if (match) return { label: match[1], field };
+  }
+}
 const norm = (s: string) => s.toLocaleLowerCase("ru").normalize("NFKC");
 type Facet = { key: string; label: string; field: string };
-function facet(r: Incident, groupBy: GroupBy): Facet {
+export function facet(r: Incident, groupBy: GroupBy): Facet {
   if (groupBy === "priority")
     return {
       key: String(r.priorityId),
@@ -144,11 +152,8 @@ function facet(r: Incident, groupBy: GroupBy): Facet {
   }
   // Prefer the reporter's headline. A stock description can mention a second
   // symptom (or merely a check) that is not the subject of this ticket.
-  for (const field of ["header", "shortDescription", "description"]) {
-    const value = spaces(r.raw[field]).slice(0, 2400);
-    const match = symptomPatterns.find(([pattern]) => pattern.test(value));
-    if (match) return { key: "signal:" + match[1], label: match[1], field };
-  }
+  const symptom = knownSymptom(r);
+  if (symptom) return { key: "signal:" + symptom.label, ...symptom };
   const header = spaces(r.raw.header);
   return {
     key: header ? "header:" + norm(header) : "unknown",
@@ -240,8 +245,10 @@ function summarizeCase(
   cite(lead, signal.field);
   cite(lead, "priorityId");
   let recommendation: string;
+  let recommendationId = lead.id;
   if (earliest && (overdue || soon)) {
     cite(earliest, "deadline");
+    recommendationId = earliest.id;
     recommendation =
       (overdue
         ? "Уточните новый срок по "
@@ -255,6 +262,7 @@ function summarizeCase(
       ".";
   } else if (firstEscalation) {
     cite(firstEscalation, "isNeedUp");
+    recommendationId = firstEscalation.id;
     recommendation =
       "Уточните у исполнителя " +
       firstEscalation.id +
@@ -266,6 +274,7 @@ function summarizeCase(
   } else if (deadlineMissing) {
     const withoutDeadline = rows.find((r) => !r.dates.deadline)!;
     cite(withoutDeadline, "deadline");
+    recommendationId = withoutDeadline.id;
     recommendation =
       "Запросите срок по " +
       withoutDeadline.id +
@@ -314,6 +323,7 @@ function summarizeCase(
     team: mostCommon(rows, "assignedGroupName"),
     product: mostCommon(rows, "productName"),
     recommendation,
+    recommendationId,
     evidence,
   };
 }

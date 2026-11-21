@@ -23,11 +23,12 @@ import {
 } from "./IncidentNotice";
 import { mergeSignals } from "./signalQueue";
 import Workspace from "./Workspace";
-import { analyzeContext } from "./contextAnalysis";
 import LiveBoard from "./LiveBoard";
+import CoordinatorDispatch from "./CoordinatorDispatch";
 import { groups } from "./liveFeed";
 import { Mark, Icon, type IconName } from "./Brand";
 import "./ops.css";
+import "./ticket.css";
 import type { Incident } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
 type User = {
@@ -465,7 +466,8 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
   const updateParam = (key: string, value: string) => {
     const p = new URLSearchParams(query);
     value ? p.set(key, value) : p.delete(key);
-    if (["signal", "groupBy", "q", "service", "up"].includes(key)) p.delete("case");
+    if (["signal", "groupBy", "q", "service", "up"].includes(key))
+      p.delete("case");
     for (const g of groups) if (g !== key) p.delete(g);
     go(link(p.size ? path + "?" + p : path));
   };
@@ -534,32 +536,65 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
             )}
             {!wall &&
               (user ? (
-                <button
-                  className="user-pill"
-                  onClick={() =>
-                    void post("/logout", {})
-                      .then(() => go("/"))
-                      .catch((e) => setError(e.message))
-                  }
-                >
-                  Выйти: {user.username}
-                </button>
+                <>
+                  <button
+                    className="user-pill profile-trigger"
+                    type="button"
+                    aria-label={"Профиль: " + user.username}
+                    title={"Профиль: " + user.username}
+                    popoverTarget="profile-menu"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      width="17"
+                      height="17"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                    >
+                      <circle cx="12" cy="8" r="3.5" />
+                      <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+                    </svg>
+                    <span>
+                      {user.role === "coordinator"
+                        ? "Координатор"
+                        : user.role === "demo-admin"
+                          ? "Администратор"
+                          : "Наблюдатель"}
+                    </span>
+                  </button>
+                  <div
+                    className="service-menu profile-menu"
+                    id="profile-menu"
+                    popover="auto"
+                    key={path}
+                  >
+                    <strong>{user.username}</strong>
+                    {write && nav("/preferences", "Настройки")}
+                    {user.role === "demo-admin" && (
+                      <>
+                        {nav("/import", "Импорт")}
+                        {nav("/demo", "Демонстрация")}
+                      </>
+                    )}
+                    <button
+                      aria-label={"Выйти: " + user.username}
+                      onClick={() =>
+                        void post("/logout", {})
+                          .then(() => go("/"))
+                          .catch((e) => setError(e.message))
+                      }
+                    >
+                      Выйти
+                    </button>
+                  </div>
+                </>
               ) : (
                 nav("/login", "Войти")
               ))}
           </nav>
         </header>
-        {!wall && write && (
-          <nav className="role-nav" aria-label="Управление">
-            {nav("/preferences", "Настройки")}
-            {user?.role === "demo-admin" && (
-              <>
-                {nav("/import", "Импорт")}
-                {nav("/demo", "Демонстрация")}
-              </>
-            )}
-          </nav>
-        )}
         <div
           className={
             "source-banner " +
@@ -654,23 +689,23 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
               write={!!write}
               zone={zone}
               open={open}
-              analyze={(ids, q) =>
-                analyzeContext(
-                  ids,
-                  q,
-                  zone,
-                  async (id) =>
-                    (await api(suffix("/incident/" + encodeURIComponent(id))))
-                      .incident,
-                  (id) => post("/analysis/" + encodeURIComponent(id), {}),
-                )
+              canDispatch={
+                !!write && !training && (ns === "demo" || ns === "workspace")
+              }
+              analyze={(ids, question) =>
+                post("/analysis/selection", { ids, question, zone })
               }
             />
           ) : path === "/live" || wall ? (
             <LiveBoard
               data={data}
+              canDispatch={
+                !!write && (ns === "demo" || ns === "workspace") && !wall
+              }
               csrf={user?.csrf}
-              canAnalyze={!!write || (publicDemo && (ns === "demo" || training))}
+              canAnalyze={
+                !!write || (publicDemo && (ns === "demo" || training))
+              }
               filtering={data.filterQuery !== query && !error}
               params={params}
               ns={ns}
@@ -714,6 +749,25 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
               <Detail
                 key={extra.incident.key}
                 item={extra}
+                dispatch={
+                  <CoordinatorDispatch
+                    key={
+                      ns +
+                      "/" +
+                      extra.incident.key +
+                      "/" +
+                      (user?.username ?? "")
+                    }
+                    incident={extra.incident}
+                    ns={ns}
+                    sourceRevision={data.revision}
+                    csrf={user?.csrf}
+                    zone={zone}
+                    itsmHref={extra.itsmMock ? link(extra.itsm) : extra.itsm}
+                    itsmMock={extra.itsmMock}
+                    navigate={go}
+                  />
+                }
                 zone={zone}
                 mock={path.startsWith("/itsm/")}
                 write={!!write}
@@ -727,10 +781,6 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
           ) : path === "/notifications" ? (
             <section className="content">
               <h1>Уведомления</h1>
-              <p className="muted">
-                Здесь сохраняются сигналы источника. Отметка о прочтении видна
-                только вам.
-              </p>
               {extra?.items?.length ? (
                 extra.items.map((n: any) => (
                   <article
@@ -948,8 +998,25 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     </MotionConfig>
   );
 }
+function fieldCaption(field: string) {
+  const names: Record<string, string> = {
+    header: "Тема",
+    description: "Описание",
+    stateId: "Статус",
+    priorityId: "Приоритет",
+    deadline: "Срок",
+    productName: "Продукт",
+    assignedEmployee: "Исполнитель",
+    assignedGroupName: "Команда",
+    isNeedUp: "Эскалация",
+    "history.changed": "История изменений",
+    solution: "Решение",
+  };
+  return names[field.split(":")[0]] ?? field;
+}
 function Detail({
   item,
+  dispatch,
   zone,
   mock,
   itsmHref,
@@ -958,6 +1025,7 @@ function Detail({
   onNavigate,
 }: {
   item: any;
+  dispatch: React.ReactNode;
   zone: string;
   mock: boolean;
   itsmHref: string;
@@ -1010,94 +1078,15 @@ function Detail({
       )}
       {updated && (
         <p role="status" className="notice">
-          Данные карточки обновлены до версии {i.revision}. Положение и фокус
-          сохранены.
+          Карточка обновлена · версия {i.revision}
         </p>
       )}
-      <aside className="detail-guidance" aria-label="Рекомендация координатору">
-        <strong>Рекомендация координатору</strong>
-        <p>
-          {i.stateId === 7 || i.stateId === 10
-            ? "Сверьте результат восстановления с текстом решения."
-            : i.groups.includes("coordinators")
-              ? "Проверьте исполнителя и ближайший срок ответа."
-              : i.groups.includes("critical")
-                ? "Уточните у ответственной команды масштаб сбоя и срок восстановления."
-                : i.groups.includes("research")
-                  ? "Сверьте симптомы с описанием и уточните, какие данные нужны для исследования."
-                  : "Сверьте описание инцидента и ответственного исполнителя."}
-        </p>
-      </aside>
-      <dl className="facts">
-        {[
-          ["Статус", i.stateLabel],
-          ["Приоритет", i.priorityLabel],
-          ["Продукт", i.raw.productName],
-          ["Команда", i.team],
-          ["Исполнитель", i.raw.assignedEmployee],
-          ["Регистрация", formatDate(i.dates.submitDate, zone)],
-          [
-            "Срок",
-            i.dates.deadline
-              ? formatDate(i.dates.deadline, zone)
-              : "Срок не задан",
-          ],
-          ["Завершение", formatDate(i.dates.completionDate, zone)],
-          [
-            "Источник",
-            i.sourcePresent
-              ? "Запись присутствует"
-              : "Отсутствует; требуется сверка",
-          ],
-          ["Версия", i.revision],
-        ].map(([name, value]) => (
-          <div key={String(name)}>
-            <dt>{String(name)}</dt>
-            <dd>{text(value)}</dd>
-          </div>
-        ))}
-      </dl>
-      <h2>Описание</h2>
-      <p className="prose">{text(i.raw.description)}</p>
-      <div className="flags">
-        {["isNeedUp", "isMaster", "isDouble", "isEffect", "isReason"].map(
-          (f) => (
-            <span className="badge" key={f}>
-              {f}:{" "}
-              {i.raw[f] === null
-                ? "неизвестно"
-                : i.raw[f] === true
-                  ? "да"
-                  : i.raw[f] === false
-                    ? "нет"
-                    : "не указано"}
-            </span>
-          ),
-        )}
-      </div>
-      <p className="muted">
-        Master/Double не содержат ID связанного инцидента. Направление
-        Effect/Reason не подтверждено.
-      </p>
-      {!!i.raw.solution && (
-        <>
-          <h2>
-            {i.stateId === 0 || i.stateId === 2
-              ? "Предыдущая попытка / несогласованные данные"
-              : "Текст решения"}
-          </h2>
-          <p className="prose">{text(i.raw.solution)}</p>
-        </>
-      )}
-      <section className="analysis">
-        <h2>ИИ-сводка</h2>
-        <p className="muted">
-          Локальная модель выделяет важные фрагменты. Все выводы требуют
-          проверки координатором.
-        </p>
-        {write ? (
+      {!mock && dispatch}
+      {write && !mock && (
+        <section className="analysis detail-ai" aria-label="ИИ-сводка">
           <button
-            tabIndex={0}
+            type="button"
+            className="detail-ai-trigger"
             disabled={busy}
             onClick={async () => {
               setBusy(true);
@@ -1111,81 +1100,137 @@ function Detail({
               }
             }}
           >
-            {busy ? <Loader label="Анализ выполняется…" /> : "Составить сводку"}
-          </button>
-        ) : (
-          <p>Войдите как координатор для анализа.</p>
-        )}
-        {error && <p role="alert">{error}</p>}
-        {analysis && (
-          <div>
-            <p
-              className={
-                analysis.stale || analysis.inputRevision !== i.revision
-                  ? "warning"
-                  : "muted"
-              }
+            <svg
+              aria-hidden="true"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
             >
-              {analysis.stale || analysis.inputRevision !== i.revision
-                ? "Сводка устарела — данные изменились"
-                : `Сводка версии ${analysis.inputRevision}`}{" "}
-              ·{" "}
-              {analysis.mode === "model"
-                ? "Анализ локальной модели"
-                : "Сводка полей без ИИ"}
-            </p>
-            {analysis.error && <p role="alert">{analysis.error}</p>}
-            <ul>
-              {analysis.summary.map((s, n) => (
-                <li key={n}>
-                  {s}
-                  <small>
-                    Основание:{" "}
-                    {analysis.evidence
-                      .find((e) => e.claim === n)
-                      ?.fields.join(", ")}
-                  </small>
-                </li>
-              ))}
-            </ul>
-            <p>{analysis.uncertainties.join(" ")}</p>
-            <details>
-              <summary>Модель и версия анализа</summary>
-              <p className="prose">
-                {analysis.model} · {analysis.provider} ·{" "}
-                {analysis.promptVersion}
-              </p>
-            </details>
-          </div>
-        )}
-      </section>
-      <h2>Качество данных</h2>
-      {i.issues.length ? (
-        <ul>
-          {i.issues.map((q, n) => (
-            <li key={n}>{q.message}</li>
-          ))}
-        </ul>
-      ) : (
-        <p>Замечаний нет.</p>
+              <path d="m10 3 1.9 5.9L18 11l-6.1 2.1L10 19l-2-5.9L2 11l6-2.1L10 3Zm9 11 1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3Z" />
+            </svg>
+            {busy ? (
+              <Loader label="Готовим разбор…" />
+            ) : analysis ? (
+              "Обновить ИИ-разбор"
+            ) : (
+              "ИИ-разбор"
+            )}
+          </button>
+          {error && <p role="alert">{error}</p>}
+          {analysis && (
+            <div className="detail-ai-result">
+              {(analysis.stale || analysis.inputRevision !== i.revision) && (
+                <p role="status" className="warning">
+                  Составлен по предыдущей версии тикета.
+                </p>
+              )}
+              {analysis.mode === "fallback" && (
+                <p className="muted">Сводка по полям</p>
+              )}
+              <ul>
+                {analysis.summary.map((s, n) => (
+                  <li key={n}>{s}</li>
+                ))}
+              </ul>
+              {analysis.error && <p role="status">{analysis.error}</p>}
+              <details>
+                <summary>Основания и модель</summary>
+                {analysis.evidence.map((e, n) => (
+                  <p key={n}>
+                    {e.claim + 1}.{" "}
+                    {e.fields.map((field) => fieldCaption(field)).join(" · ")}
+                  </p>
+                ))}
+                {analysis.uncertainties.map((s, n) => (
+                  <p key={n}>{s}</p>
+                ))}
+                <small>
+                  {analysis.provider} · {analysis.model} · версия тикета{" "}
+                  {analysis.inputRevision}
+                </small>
+              </details>
+            </div>
+          )}
+        </section>
       )}
-      <h2>История версий</h2>
-      <ol className="history">
-        {item.history.map((e: any) => (
-          <li key={e.revision}>
-            <strong>Версия {e.revision}</strong> · {formatDate(e.at, zone)}
-            <p>
-              {e.kind === "missing"
-                ? "Запись исчезла из выписки; последнее состояние сохранено"
-                : e.kind === "created"
-                  ? "Первое наблюдение"
-                  : "Изменены поля: " + e.changed.join(", ")}
-            </p>
-          </li>
+      <dl className="facts">
+        {[
+          ["Статус", i.stateLabel],
+          ["Приоритет", i.priorityLabel],
+          ["Продукт", i.raw.productName],
+          ["Команда", i.team],
+          ["Исполнитель", i.raw.assignedEmployee],
+          [
+            "Срок",
+            i.dates.deadline
+              ? formatDate(i.dates.deadline, zone)
+              : "Срок не задан",
+          ],
+        ].map(([name, value]) => (
+          <div key={String(name)}>
+            <dt>{String(name)}</dt>
+            <dd>{text(value)}</dd>
+          </div>
         ))}
-      </ol>
-      <details>
-        <summary>Все исходные поля ({Object.keys(i.raw).length})</summary>
+      </dl>
+      {!!i.raw.description && (
+        <div className="ticket-description">
+          <h2>Описание</h2>
+          <p className="prose">{text(i.raw.description)}</p>
+        </div>
+      )}
+      {!i.sourcePresent && (
+        <p role="status" className="warning">
+          Тикет отсутствует в последней выгрузке. Проверьте данные в ITSM.
+        </p>
+      )}
+      {i.raw.isNeedUp === true && <p className="warning">Требует эскалации</p>}
+      {!!i.raw.solution && (
+        <>
+          <h2>
+            {i.stateId === 0 || i.stateId === 2
+              ? "Предыдущая попытка / несогласованные данные"
+              : "Текст решения"}
+          </h2>
+          <p className="prose">{text(i.raw.solution)}</p>
+        </>
+      )}
+      {i.issues.length > 0 && (
+        <details className="ticket-fold">
+          <summary>Проверить данные · {i.issues.length}</summary>
+          <ul>
+            {i.issues.map((q, n) => (
+              <li key={n}>{q.message}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <details className="ticket-fold">
+        <summary>История · {item.history.length}</summary>
+        <ol className="history">
+          {item.history.map((e: any) => (
+            <li key={e.revision}>
+              <strong>Версия {e.revision}</strong> · {formatDate(e.at, zone)}
+              <p>
+                {e.kind === "missing"
+                  ? "Запись исчезла из выписки; последнее состояние сохранено"
+                  : e.kind === "created"
+                    ? "Первое наблюдение"
+                    : "Изменены поля: " + e.changed.join(", ")}
+              </p>
+            </li>
+          ))}
+        </ol>
+      </details>
+      <details className="ticket-fold">
+        <summary>Исходная запись</summary>
+        <p className="muted">
+          Версия {i.revision} · Зарегистрирован{" "}
+          {formatDate(i.dates.submitDate, zone)}
+        </p>
         <dl className="raw">
           {Object.entries(i.raw).map(([k, v]) => (
             <div key={k}>
@@ -1228,7 +1273,6 @@ function Login({
       }}
     >
       <h1>Вход в рабочее место</h1>
-      <p className="muted">Доступ выдаёт администратор стенда.</p>
       <label>
         Имя пользователя
         <input name="username" autoComplete="username" required />

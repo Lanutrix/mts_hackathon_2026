@@ -6,6 +6,7 @@ import { Store, FileSource } from "../worker/ingestion.ts";
 import { Auth } from "./auth.ts";
 import { createApp } from "./api.ts";
 import { AnalysisService } from "./analysis.ts";
+import { loadVseLlm } from "./vsellm.ts";
 import { generate } from "../../packages/domain/generator.ts";
 const root = resolve(process.env.DATA_DIR ?? ".runtime");
 await mkdir(root, { recursive: true });
@@ -42,6 +43,8 @@ const ai = new AnalysisService(
   db,
   resolve(root, "models"),
   Number(process.env.AI_TIMEOUT_MS ?? 60_000),
+  undefined,
+  await loadVseLlm(root),
 );
 const app = await createApp({
   stores,

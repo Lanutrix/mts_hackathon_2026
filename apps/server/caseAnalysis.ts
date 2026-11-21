@@ -5,6 +5,7 @@ import type {
   TriageCase,
 } from "../../packages/domain/triage.ts";
 import { MODEL, type AnalysisService } from "./analysis.ts";
+import { operationalReading } from "./operationalAnalysis.ts";
 
 const stop = new Set(
   "без был была были для или как над нет она они под при про уже что это эта этот после время через которой которое также чем".split(
@@ -119,7 +120,46 @@ export async function analyzeCase(
   c: TriageCase,
   rows: Incident[],
   service?: AnalysisService,
+  namespace = "",
+  question = "",
 ): Promise<CaseAnalysis> {
+  if (service?.remote) {
+    const result = await operationalReading(
+      service.remote,
+      rows,
+      namespace,
+      question,
+      c,
+    );
+    const base = {
+      inputRevision: c.revision,
+      inputHash: c.hash,
+      stale: false,
+      uncertainties: [
+        "Общая причина и число затронутых пользователей требуют подтверждения.",
+      ],
+    };
+    if ("error" in result)
+      return {
+        ...base,
+        mode: "fallback",
+        model: "",
+        provider: "Поля ITSM",
+        summary: [c.recommendation],
+        evidence: c.evidence,
+        sampled: 0,
+        error: result.error,
+      };
+    return {
+      ...base,
+      mode: "model",
+      model: service.remote.model,
+      provider: "VseLLM",
+      summary: result.summary,
+      evidence: result.evidence,
+      sampled: result.sampled,
+    };
+  }
   const { candidates, sampleSize } = passages(rows);
   const base: CaseAnalysis = {
     mode: "fallback",
@@ -135,6 +175,13 @@ export async function analyzeCase(
       "Общая причина и число затронутых пользователей требуют подтверждения.",
     ],
   };
+  if (question.trim())
+    return {
+      ...base,
+      summary: [c.recommendation],
+      evidence: c.evidence,
+      error: "VseLLM не настроен. Показаны поля кейса.",
+    };
   if (sampleSize < c.count)
     base.uncertainties.push(
       "Текстовый разбор охватывает " +

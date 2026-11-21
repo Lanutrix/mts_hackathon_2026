@@ -53,6 +53,9 @@
   min-width: 0;
 }
 .triage-indices dt {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: clamp(0.68rem, 1vw, 0.86rem);
   color: var(--subtle);
 }
@@ -206,8 +209,8 @@
 }
 .case-insight {
   margin-top: 16px;
-  padding: 12px 0;
-  border-top: 1px solid var(--rule);
+  padding: 10px 0 10px 12px;
+  border-inline-start: 3px solid var(--critical);
 }
 .case-insight-head {
   display: flex;
@@ -231,7 +234,7 @@
 }
 .case-insight p {
   margin: 7px 0 3px;
-  color: var(--subtle);
+  color: var(--text);
   font-size: 0.82rem;
   line-height: 1.46;
 }
@@ -251,6 +254,12 @@
   text-decoration: underline;
   text-underline-offset: 3px;
   font-size: 0.76rem;
+}
+.case-insight p .case-source,
+.case-dialog p .case-source {
+  font: inherit;
+  padding: 0;
+  overflow-wrap: anywhere;
 }
 .triage-ledger-title > div {
   min-width: 0;
@@ -288,7 +297,13 @@
   overflow: hidden;
 }
 .triage-register .feed-table th:nth-child(1) {
-  width: 46%;
+  width: 50%;
+}
+.triage-register .feed-table th:nth-child(2) {
+  width: 15%;
+}
+.triage-register .feed-table th:nth-child(3) {
+  width: 20%;
 }
 .triage-register .feed-table th:nth-child(4) {
   width: 15%;
@@ -351,6 +366,24 @@
 }
 .case-result ul {
   padding-left: 1.1rem;
+}
+.case-result p,
+.case-next p {
+  margin: 0.48rem 0;
+}
+.case-method {
+  margin-top: 1rem;
+  color: var(--subtle);
+  overflow-wrap: anywhere;
+}
+.case-method summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 0.4rem 0;
+}
+.case-method p {
+  font-size: 0.78rem;
+  margin: 0.4rem 0;
 }
 .case-evidence > div {
   display: grid;
@@ -440,6 +473,11 @@
     font-size: clamp(0.58rem, 1.7vw, 0.72rem);
     white-space: nowrap;
   }
+  .triage-indices dt svg {
+    width: 11px;
+    height: 11px;
+    flex: none;
+  }
   .triage-indices dd,
   .triage-indices dd .shift-count {
     font-size: clamp(22px, 4.3vw, 31px);
@@ -490,35 +528,18 @@
     display: none;
   }
   .case-insight {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
     grid-column: 1/-1;
-    margin: 0;
-    padding: 1px 0 4px;
-    border: 0;
+    margin: 3px 0;
+    padding: 3px 0 3px 9px;
     min-width: 0;
   }
-  .case-insight-head {
-    display: contents;
-  }
-  .case-insight h3,
-  .case-insight-name,
-  .case-insight > .case-source {
+  .case-insight-name {
     display: none;
   }
   .case-insight p {
-    order: -1;
     margin: 0;
-    min-width: 0;
-    flex: 1;
-    color: var(--subtle);
-    font-size: 0.72rem;
-    line-height: 1.3;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    overflow: hidden;
+    font-size: 0.78rem;
+    line-height: 1.42;
   }
   .case-analyze {
     min-height: 28px;
@@ -577,10 +598,21 @@
 
 .case-risk {
   grid-column: 1/-1;
-  font-size: 0.68rem;
-  font-weight: 400;
-  color: var(--subtle);
+  display: inline-flex;
+  gap: 12px;
+  font:
+    500 0.73rem/1.3 ui-monospace,
+    monospace;
+  color: var(--text);
   margin-top: 3px;
+}
+.case-risk > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.case-risk svg {
+  color: var(--critical);
 }
 .case-evidence span small {
   display: block;
@@ -598,15 +630,5 @@
     display: block;
     grid-row: 2;
     grid-column: 1/-1;
-  }
-}
-
-.case-mobile-topic {
-  display: none;
-}
-@media (max-width: 740px) {
-  .case-mobile-topic {
-    display: inline;
-    color: var(--text);
   }
 }

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CaseAnalysis, TriageCase } from "../../../packages/domain/triage";
 import Loader from "./Loader";
+import { Icon } from "./Brand";
+import { fieldName, TicketMentions } from "./IncidentSources";
 
 const dimensions = [
   ["symptom", "По симптому"],
@@ -29,20 +31,6 @@ export function caseRequest(
   );
 }
 
-const fieldLabels: Record<string, string> = {
-  header: "Тема",
-  description: "Описание",
-  priorityId: "Код приоритета",
-  deadline: "Срок",
-  sourcePresent: "Есть в выгрузке",
-  isNeedUp: "Эскалация",
-  assignedGroupName: "Группа",
-  productName: "Продукт",
-  solution: "Решение",
-  stateId: "Код статуса",
-};
-const fieldName = (field: string) => fieldLabels[field] ?? field;
-
 type Props = {
   cases: TriageCase[];
   chosen: TriageCase | undefined;
@@ -53,6 +41,7 @@ type Props = {
   ns: string;
   csrf?: string;
   canAnalyze: boolean;
+  canDispatch: boolean;
   open: (id: string) => void;
   setParam: (key: string, value: string) => void;
 };
@@ -129,12 +118,20 @@ export default function TriageCases(props: Props) {
             <b>{k.count}</b>
             {(k.overdue > 0 || k.escalations > 0) && (
               <small className="case-risk">
-                {[
-                  k.overdue && "Срок прошёл у " + k.overdue,
-                  k.escalations && "К эскалации " + k.escalations,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+                {k.overdue > 0 && (
+                  <span title={"Просрочено: " + k.overdue}>
+                    <Icon name="clock" size={15} />
+                    <span className="sr-only">Просрочено </span>
+                    {k.overdue}
+                  </span>
+                )}
+                {k.escalations > 0 && (
+                  <span title={"К эскалации: " + k.escalations}>
+                    <Icon name="escalation" size={15} />
+                    <span className="sr-only">К эскалации </span>
+                    {k.escalations}
+                  </span>
+                )}
               </small>
             )}
             <span className="case-scale" aria-hidden="true">
@@ -181,15 +178,24 @@ export default function TriageCases(props: Props) {
           </div>
           <strong className="case-insight-name">{focus.label}</strong>
           <p>
-            {!chosen && <b className="case-mobile-topic">{focus.label}. </b>}
-            {focus.recommendation}
+            <TicketMentions
+              text={focus.recommendation}
+              ids={[focus.topId, ...focus.evidence.map((e) => e.id)]}
+              ns={props.ns}
+              open={props.open}
+              className="case-source"
+            />
           </p>
-          <button
-            className="case-source"
-            onClick={() => props.open(focus.topId)}
-          >
-            {focus.topId} ↗
-          </button>
+          {props.canDispatch && (
+            <button
+              className="dispatch-entry"
+              type="button"
+              aria-label={"Выбрать команду для " + focus.recommendationId}
+              onClick={() => props.open(focus.recommendationId)}
+            >
+              Выбрать команду <span aria-hidden="true">→</span>
+            </button>
+          )}
         </div>
       )}
       {opened && (
@@ -253,6 +259,15 @@ function CaseDialog({
   const stale =
     inQueue && result && (result.stale || result.inputHash !== record.hash);
   const evidence = result?.evidence.length ? result.evidence : record.evidence;
+  const sourceIds = [
+    record.topId,
+    ...record.evidence.map((e) => e.id),
+    ...evidence.map((e) => e.id),
+  ];
+  const hasNextCheck = result?.summary.some(
+    (line) =>
+      line === record.recommendation || line.startsWith("Следующая проверка"),
+  );
   return (
     <dialog
       className="case-dialog"
@@ -281,8 +296,6 @@ function CaseDialog({
           <dd>{record.escalations}</dd>
         </div>
       </dl>
-      <h3>Что проверить</h3>
-      <p>{record.recommendation}</p>
       {canAnalyze && !result && !fault && (
         <Loader label="Сопоставляем описания тикетов…" />
       )}
@@ -305,28 +318,20 @@ function CaseDialog({
       {result && (
         <section className="case-result">
           <h3>
-            {result.mode === "model" ? "Сводка по группе" : "Сводка по полям"}
+            {result.mode === "model" ? "Вывод по кейсу" : "Сводка по полям"}
           </h3>
-          {result.mode === "model" && (
-            <small>
-              {result.model}
-              {result.sampled < record.count &&
-                " · По выборке " + result.sampled + " из " + record.count}
-            </small>
-          )}
-          {result.mode === "model" && result.summary.length > 0 && (
-            <ul>
-              {result.summary.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          )}
-          {result.mode === "fallback" && result.error && <p>{result.error}</p>}
-          {result.uncertainties.map((s, i) => (
-            <p className="case-limit" key={i}>
-              {s}
+          {result.summary.map((line, i) => (
+            <p key={i}>
+              <TicketMentions
+                text={line}
+                ids={sourceIds}
+                ns={ns}
+                open={open}
+                className="case-source"
+              />
             </p>
           ))}
+          {result.mode === "fallback" && result.error && <p>{result.error}</p>}
           {stale && (
             <p role="status">
               Состав кейса изменился.{" "}
@@ -340,11 +345,23 @@ function CaseDialog({
           )}
         </section>
       )}
+      {!hasNextCheck && (
+        <section className="case-next">
+          <h3>Что проверить</h3>
+          <p>
+            <TicketMentions
+              text={record.recommendation}
+              ids={sourceIds}
+              ns={ns}
+              open={open}
+              className="case-source"
+            />
+          </p>
+        </section>
+      )}
       {!!evidence.length && (
         <div className="case-evidence">
-          <h3>
-            {result?.mode === "model" ? "Цитаты из тикетов" : "Основания"}
-          </h3>
+          <h3>Источники</h3>
           {evidence.map((e, i) => (
             <div key={i}>
               <button
@@ -363,6 +380,28 @@ function CaseDialog({
             </div>
           ))}
         </div>
+      )}
+      {result && (
+        <details className="case-method">
+          <summary>Как получен разбор</summary>
+          <p>
+            {[
+              result.provider,
+              result.model,
+              "Версия данных " + result.inputRevision,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          {result.sampled > 0 && (
+            <p>
+              В выборке {result.sampled} из {record.count} тикетов.
+            </p>
+          )}
+          {result.uncertainties.map((line, i) => (
+            <p key={i}>{line}</p>
+          ))}
+        </details>
       )}
     </dialog>
   );

@@ -96,7 +96,7 @@ async function login(page: Page, role = "coordinator") {
   await page.getByLabel("Пароль", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Войти", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Выйти: " + role }),
+    page.getByRole("button", { name: "Профиль: " + role }),
   ).toBeVisible();
   await expect(page).toHaveURL("/live");
 }
@@ -531,8 +531,9 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   await page.getByRole("link", { name: "Рабочая очередь" }).click();
   await expect(page).toHaveURL("/workspace");
   await expect(
-    page.getByRole("button", { name: "Выйти: demo-admin" }),
+    page.getByRole("button", { name: "Профиль: demo-admin" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Профиль: demo-admin" }).click();
   await page.getByRole("link", { name: "Настройки", exact: true }).click();
   await page.getByLabel("Часовой пояс", { exact: true }).selectOption("UTC");
   await page.getByRole("button", { name: "Сохранить настройки" }).click();
@@ -543,6 +544,7 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   await expect(page.getByLabel("Часовой пояс", { exact: true })).toHaveValue(
     "UTC",
   );
+  await page.getByRole("button", { name: "Профиль: demo-admin" }).click();
   await page.getByRole("link", { name: "Импорт", exact: true }).click();
   await page.getByLabel("JSON-файл").setInputFiles({
     name: "broken.json",
@@ -565,6 +567,7 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   ).toBeVisible();
   const raw = await page.request.get("/api/export");
   expect(await raw.json()).toEqual(rows);
+  await page.getByRole("button", { name: "Профиль: demo-admin" }).click();
   await page.getByRole("link", { name: "Демонстрация", exact: true }).click();
   await page.getByRole("button", { name: "Следующий шаг" }).click();
   await page.getByRole("link", { name: "Уведомления", exact: true }).click();
@@ -582,6 +585,7 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   await expect(
     page.getByRole("button", { name: "Прочитано", exact: true }).first(),
   ).toBeDisabled();
+  await page.getByRole("button", { name: "Профиль: demo-admin" }).click();
   await page.getByRole("button", { name: "Выйти: demo-admin" }).click();
   await expect(page).toHaveURL("/");
   await expect(

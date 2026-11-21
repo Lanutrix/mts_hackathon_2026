@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { hash, type Incident } from "../../packages/domain/index.ts";
 import type { DB } from "./db.ts";
+import { analyzeOperationalTicket } from "./operationalAnalysis.ts";
+import type { VseLlm } from "./vsellm.ts";
 export const MODEL =
   "Xenova/multilingual-e5-small@761b726dd34fb83930e26aab4e9ac3899aa1fa78/q8";
 export const PROMPT_VERSION = "extractive-evidence-1";
@@ -40,6 +42,7 @@ export class AnalysisService {
     public cacheDir = resolve(".runtime/models"),
     public timeout = 60_000,
     private runner?: Runner,
+    public readonly remote?: VseLlm,
   ) {}
   async run(sentences: string[], query: string, localFilesOnly = false) {
     if (this.runner) return this.runner(sentences, query);
@@ -141,7 +144,18 @@ export class AnalysisService {
     incident: Incident,
     current: () => Incident,
     changed: string[] = [],
+    namespace = "",
+    question = "",
   ): Promise<Analysis> {
+    if (this.remote || question.trim())
+      return analyzeOperationalTicket(
+        this.remote,
+        incident,
+        current,
+        namespace,
+        question,
+        changed,
+      );
     const relevant = {
       header: clean(incident.raw.header),
       description: clean(incident.raw.description),

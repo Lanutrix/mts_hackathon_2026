@@ -562,18 +562,20 @@
   text-underline-offset: 3px;
   color: var(--accent);
 }
-.feed-reasons > span {
+.feed-signals {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  line-height: 1.55;
-  color: #423b4e;
+  gap: 3px;
+  flex-wrap: wrap;
 }
-.feed-reasons .signal-mark {
-  width: 13px;
-  height: 13px;
+.signal-badge {
+  display: inline-flex;
+  width: 23px;
+  height: 23px;
+  align-items: center;
+  justify-content: center;
 }
+.escalation-mark { color: var(--warning); }
 .feed-reasons small,
 .feed-subject small.warning {
   display: block;
@@ -894,10 +896,6 @@
     text-align: right;
     align-self: end;
     max-width: 97px;
-  }
-  .feed-reasons .signal-mark {
-    width: 10px;
-    height: 10px;
   }
   .service-menu {
     inset: 50px 12px auto auto;

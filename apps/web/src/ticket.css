@@ -1,0 +1,103 @@
+.ops-actions .profile-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.profile-menu strong {
+  font-size: 0.83rem;
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.profile-menu button {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  min-height: 36px;
+  border-radius: 6px;
+  padding: 8px;
+}
+.profile-menu button:hover {
+  background: var(--tint);
+}
+.detail .facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 28px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 0;
+}
+.detail .facts dd {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+.detail .facts dt {
+  font-size: 0.77rem;
+}
+.detail-ai {
+  margin: 10px 0 18px;
+  padding: 0;
+  border: 0;
+}
+.detail-ai .detail-ai-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--control-border);
+  border-radius: 2rem;
+  padding: 5px 13px;
+  font-size: 0.9rem;
+  min-height: 34px;
+}
+.detail-ai-trigger:hover {
+  background: var(--tint);
+}
+.detail-ai-result {
+  margin-top: 10px;
+  max-width: 72ch;
+  padding-left: 14px;
+  border-left: 2px solid var(--research);
+}
+.detail-ai-result ul {
+  padding-left: 1.1rem;
+}
+.detail-ai-result li {
+  margin: 0.3rem 0;
+}
+.detail-ai-result details {
+  margin-top: 0.25rem;
+}
+.detail-ai-result details summary,
+.ticket-fold summary {
+  width: fit-content;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+.ticket-fold {
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+.ticket-description h2 {
+  font-size: 1rem;
+}
+@media (max-width: 640px) {
+  .ops-actions .profile-trigger {
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+  .profile-trigger span {
+    display: none;
+  }
+  .detail .facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}

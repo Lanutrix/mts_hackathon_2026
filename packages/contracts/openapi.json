@@ -151,7 +151,8 @@
         { "in":"query", "name":"hash", "required":true, "schema":{"type":"string"} }
       ],
       "post": {
-        "summary": "Локальный экстрактивный разбор кейса по запросу",
+        "summary": "Разбор кейса с привязкой к снимку и полям заявок",
+        "requestBody": {"content":{"application/json":{"schema":{"type":"object","properties":{"question":{"type":"string","maxLength":500}}}}}},
         "description": "Фильтры и источник совпадают с запросом очереди. Публичный разбор разрешён для demo и simulation при включённой демонстрации. Остальные источники требуют роли координатора или demo-admin и CSRF.",
         "responses": {
           "200":{"description":"Режим, модель, текст, цитаты с ID и полем, ограничения, хэш и версия"},
@@ -466,6 +467,45 @@
             }
           }
         ]
+      }
+    },
+    "/api/incident/{id}/dispatch": {
+      "parameters": [
+        { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } },
+        { "in": "query", "name": "ns", "schema": { "enum": ["demo", "workspace", "original", "simulation"], "default": "demo" } }
+      ],
+      "get": {
+        "summary": "Команды из выгрузки и основания маршрутизации",
+        "description": "Счётчики product, symptom и both отражают другие присутствующие обращения без критических ошибок в том же источнике. Каталог исполнителей и последние 20 локальных решений доступны координатору и demo-admin только в demo и workspace.",
+        "responses": {
+          "200": { "description": "snapshot, sourceRevision, incidentRevision, recommended (команда или null), product, symptom, teams, history, canSave, readOnlyReason. Для предпросмотра сохраните snapshot и последнюю history[0].version или 0." },
+          "401": { "description": "Для закрытого источника требуется вход" },
+          "404": { "description": "Обращение или источник отсутствует" },
+          "503": { "description": "Не удалось прочитать журнал" }
+        }
+      },
+      "post": {
+        "summary": "Записать решение координатора в журнал обращения",
+        "description": "Роли coordinator и demo-admin, источники demo и workspace. Сохранение локальное. Повтор того же запроса с тем же requestId возвращает исходную запись.",
+        "security": [{ "session": [], "csrf": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["requestId", "snapshot", "expectedVersion", "team", "member", "note"],
+          "properties": {
+            "requestId": { "type": "string", "format": "uuid" }, "snapshot": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "expectedVersion": { "type": "integer", "minimum": 0 }, "team": { "type": "string" },
+            "member": { "type": ["string", "null"], "description": "id исполнителя из выбранной команды или null для назначения на группу" },
+            "note": { "type": "string", "maxLength": 500 }
+          }
+        } } } },
+        "responses": {
+          "200": { "description": "decision с version, actor, at, team, member, note, incidentRevision, sourceRevision" },
+          "400": { "description": "Поля запроса или получатель недопустимы" },
+          "401": { "description": "Требуется вход" },
+          "403": { "description": "Роль, источник или проверка CSRF запрещает запись" },
+          "404": { "description": "Обращение отсутствует" },
+          "409": { "description": "Снимок или решение изменились, обращение недоступно для назначения либо requestId повторно использован с иными данными" },
+          "503": { "description": "Журнал временно недоступен" }
+        }
       }
     },
     "/api/incident/{id}": {
@@ -874,9 +914,26 @@
         }
       }
     },
+    "/api/analysis/selection": {
+      "post": {
+        "summary": "Один ответ по 1–6 выбранным заявкам",
+        "description": "Координатор или demo-admin с CSRF. Быстрый запрос о сроках или ответственных читается по полям ITSM. Разбор другим способом помечается model или fallback.",
+        "parameters": [{"in":"query","name":"ns","schema":{"type":"string","enum":["demo","workspace","original"]}}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["ids","question"],"properties":{"ids":{"type":"array","items":{"type":"string","maxLength":200},"minItems":1,"maxItems":6},"question":{"type":"string","minLength":1,"maxLength":500},"zone":{"type":"string","enum":["UTC","Europe/Moscow"]}}}}}},
+        "responses":{
+          "200":{"description":"overview содержит ответ и источники, items — индивидуальные поля и ревизии. mode равен fields, model или fallback. provider, model и stale указывают метод и актуальность."},
+          "400":{"description":"Некорректный вопрос или список заявок"},
+          "401":{"description":"Требуется вход"},
+          "403":{"description":"Недостаточно прав или неверный CSRF"},
+          "404":{"description":"Источник или одна из заявок отсутствует"},
+          "429":{"description":"Превышен лимит запросов"}
+        }
+      }
+    },
     "/api/analysis/{id}": {
       "post": {
-        "summary": "Coordinator/demo-admin; bounded local model, evidence, stale/fallback, 6 запросов/мин",
+        "summary": "Сводка или вопрос по одной заявке с полями-основаниями, ревизией и методом анализа",
+        "requestBody": {"content":{"application/json":{"schema":{"type":"object","properties":{"question":{"type":"string","maxLength":500}}}}}},
         "responses": {
           "200": {
             "description": "Успешный результат"
