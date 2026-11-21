@@ -218,7 +218,15 @@ export class Store extends EventEmitter {
   ) {
     return (
       await this.db.query(
-        `SELECT n.*,r.username IS NOT NULL AS read FROM notifications n LEFT JOIN reads r ON r.namespace=n.namespace AND r.revision=n.revision AND r.key=n.key AND r.username=$2 WHERE n.namespace=$1 AND n.revision> $3 AND n.revision <= $4 ORDER BY n.revision DESC,n.key LIMIT 200 OFFSET $5`,
+        `SELECT n.*, r.username IS NOT NULL AS read,
+                e.after_doc->'raw'->>'header' AS header,
+                e.after_doc->'raw'->>'productName' AS product,
+                e.after_doc->'dates'->>'deadline' AS deadline
+           FROM notifications n
+           LEFT JOIN events e USING (namespace, revision, key)
+           LEFT JOIN reads r ON r.namespace=n.namespace AND r.revision=n.revision AND r.key=n.key AND r.username=$2
+          WHERE n.namespace=$1 AND n.revision > $3 AND n.revision <= $4
+          ORDER BY n.revision DESC,n.key LIMIT 200 OFFSET $5`,
         [this.namespace, username, after, maxRevision, offset],
       )
     ).rows;

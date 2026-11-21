@@ -17,6 +17,7 @@ import {
 import { Auth, type Role } from "./auth.ts";
 import { Store, FileSource } from "../worker/ingestion.ts";
 import { Demo, atomicWrite } from "./demo.ts";
+import { registerJurySimulation } from "./jurySimulation.ts";
 import type { AnalysisService } from "./analysis.ts";
 export interface AppOptions {
   stores: Map<string, Store>;
@@ -549,6 +550,7 @@ export async function createApp(o: AppOptions) {
       );
     },
   );
+  registerJurySimulation(app, o.publicDemo);
   app.get("/api/stream", async (req, reply) => {
     const s = storeFor(req, reply);
     if (!s) return;

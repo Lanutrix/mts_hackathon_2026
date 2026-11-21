@@ -14,6 +14,13 @@ import "@fontsource/golos-text/latin-400.css";
 import "@fontsource/golos-text/latin-600.css";
 import "./style.css";
 import Landing from "./Landing";
+import JuryBroadcast from "./JuryBroadcast";
+import {
+  IncidentNotice,
+  signalTitle,
+  type IncidentSignal,
+} from "./IncidentNotice";
+import { mergeSignals } from "./signalQueue";
 import Workspace from "./Workspace";
 import { analyzeContext } from "./contextAnalysis";
 import LiveBoard from "./LiveBoard";
@@ -77,6 +84,7 @@ function App({ initialRoute }: { initialRoute: URL }) {
       "/live": "Эфир смены",
       "/workspace": "Рабочая очередь",
       "/wallboard": "Общий экран",
+      "/simulation": "Учебный эфир",
       "/login": "Вход",
     };
     document.title = (names[path] ?? "Дашборд координатора") + " · Watermelon";
@@ -103,8 +111,14 @@ function App({ initialRoute }: { initialRoute: URL }) {
   };
   return route.pathname === "/" ? (
     <Landing go={go} />
+  ) : route.pathname === "/simulation" ? (
+    <JuryBroadcast key={visit} />
   ) : (
-    <Dashboard key={visit} route={route} go={go} />
+    <Dashboard
+      key={visit + ":" + (route.searchParams.get("ns") || "demo")}
+      route={route}
+      go={go}
+    />
   );
 }
 function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
@@ -116,7 +130,7 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
     [ready, setReady] = useState(false),
     [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
-    [announcement, setAnnouncement] = useState(""),
+    [signals, setSignals] = useState<IncidentSignal[]>([]),
     [connection, setConnection] = useState("Подключение…"),
     [extra, setExtra] = useState<any>(null),
     [prefs, setPrefs] = useState({
@@ -162,26 +176,29 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
       setData(dashboard);
       lastRevision.current = dashboard.revision;
       setError("");
+      if (dashboard.revision < lastNotified.current) setSignals([]);
       if (
-        dashboard.revision > lastNotified.current &&
-        lastNotified.current > 0
+        lastNotified.current > 0 &&
+        dashboard.revision > lastNotified.current
       ) {
-        const note = dashboard.events?.[0];
-        if (note && note.revision > lastNotified.current) {
-          const fresh = dashboard.events.filter(
-            (n: any) => n.revision > lastNotified.current,
-          );
-          setAnnouncement(
-            `${fresh.length}${fresh.length === 20 ? "+" : ""} важных событий. ${note.reasons.map((r: string) => reasons[r]).join("; ")}: ${note.id}`,
-          );
+        const fresh: IncidentSignal[] = dashboard.events.filter(
+          (n: IncidentSignal) => n.revision > lastNotified.current,
+        );
+        if (fresh.length) {
+          setSignals((previous) => mergeSignals(previous, fresh));
+          const note = fresh[0];
           if (
             prefsRef.current.notifications &&
             "Notification" in window &&
             Notification.permission === "granted"
           )
-            new Notification("Watermelon: важное событие", {
-              body: note.id,
-            });
+            try {
+              new Notification(signalTitle(note), {
+                body: note.header || note.id,
+              });
+            } catch {
+              /* In-app delivery also works when system notifications are unavailable. */
+            }
           if (prefsRef.current.sound) beep();
         }
       }
@@ -405,6 +422,10 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                   {nav("/history", "История", "history")}
                   {nav("/quality", "Качество данных", "quality")}
                   {nav("/wallboard", "Общий экран", "expand")}
+                  <a href="/simulation">
+                    <Icon name="live" size={16} />
+                    Учебный эфир
+                  </a>
                 </div>
               </>
             )}
@@ -471,6 +492,25 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
             </button>
           </div>
         )}
+        <IncidentNotice
+          signal={
+            path === "/notifications" || path === "/login"
+              ? null
+              : (signals[0] ?? null)
+          }
+          pendingCount={signals.length}
+          onDismiss={() =>
+            setSignals((items) => items.filter((item) => item !== signals[0]))
+          }
+          onOpen={() => {
+            const current = signals[0];
+            if (current) {
+              setSignals((items) => items.filter((item) => item !== current));
+              open(current.id);
+            }
+          }}
+          onJournal={() => go(link("/notifications"))}
+        />
         <main id="main">
           {path === "/login" ? (
             <Login
@@ -532,11 +572,6 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                   {nav("/quality", "Проверить качество данных")}
                 </div>
               )}
-              {announcement && (
-                <div className="notice" role="status">
-                  {announcement} {nav("/notifications", "Открыть уведомления")}
-                </div>
-              )}
               {data.recent.length > 0 && (
                 <section className="recent" aria-label="Недавние решения">
                   <strong>Недавно завершены критические</strong>
@@ -572,8 +607,8 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
             <section className="content">
               <h1>Уведомления</h1>
               <p className="muted">
-                Прочтение — ваша личная отметка. Статус инцидента и ACK не
-                меняются.
+                Здесь сохраняются сигналы источника. Отметка о прочтении видна
+                только вам.
               </p>
               {extra?.items?.length ? (
                 extra.items.map((n: any) => (
@@ -595,7 +630,8 @@ function Dashboard({ route, go }: { route: URL; go: (path: string) => void }) {
                         className="link"
                         onClick={() => open(n.id)}
                       >
-                        {n.id}
+                        {n.header && <span>{n.header} · </span>}
+                        <span>{n.id}</span>
                       </button>
                       <p className="muted">
                         {formatDate(n.at, zone)} · версия {n.revision}

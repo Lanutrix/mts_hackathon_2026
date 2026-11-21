@@ -145,6 +145,65 @@ test("public landing shows only the hero and opens either screen", async ({
   await page.goForward();
   await expect(page.getByRole("region", { name: "Инциденты" })).toBeVisible();
 });
+test("jury viewers receive the same observed events and dismiss them independently", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(75000);
+  const writes: string[] = [];
+  page.on("request", (r) => {
+    if (r.method() !== "GET") writes.push(r.method() + " " + r.url());
+  });
+  await page.goto("/simulation");
+  const current = page.getByRole("region", { name: "Инцидент в эфире" });
+  const banner = page.getByRole("region", { name: "Уведомление об инциденте" });
+  const journal = page.getByRole("region", { name: "Журнал сигналов" });
+  await expect(current).toContainText("SIM-001");
+  await expect(banner).toContainText("Новый критический инцидент", {
+    timeout: 12000,
+  });
+  const guest = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    const second = await guest.newPage();
+    await second.goto("/simulation");
+    const secondNotice = second.getByRole("region", {
+      name: "Уведомление об инциденте",
+    });
+    await expect(secondNotice).toContainText("Новый критический инцидент");
+    await banner
+      .getByRole("button", { name: "Скрыть это уведомление" })
+      .click();
+    await expect(banner).toHaveCount(0);
+    await expect(secondNotice).toBeVisible();
+    await page.reload();
+    await expect(current).toContainText("SIM-001");
+    await expect(banner).toHaveCount(0);
+    await expect(banner).toContainText("Назначен группе координаторов", {
+      timeout: 16000,
+    });
+    await banner.getByRole("button", { name: "Открыть инцидент" }).click();
+    const detail = page.getByRole("region", { name: "Сведения об инциденте" });
+    await expect(detail).toContainText("Рекомендация координатору");
+    await expect(banner).toHaveCount(0);
+    await expect(current).toContainText("У координаторов");
+    await expect(banner).toContainText("Критический инцидент завершён", {
+      timeout: 27000,
+    });
+    await expect(journal.locator("li")).toHaveCount(3);
+    await journal
+      .getByRole("button")
+      .filter({ hasText: "Новый критический инцидент" })
+      .click();
+    await expect(detail).toContainText("Снимок события, версия 2");
+    await expect(detail).toContainText("Сопровождение платежей");
+    expect(writes).toEqual([]);
+  } finally {
+    await guest.close();
+  }
+});
+
 test("legacy live bookmarks keep filters, fragments and browser history", async ({
   page,
 }) => {
@@ -181,10 +240,16 @@ test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers wit
   await mutate("critical");
   await expect(page.getByTestId("count-critical")).toHaveText("13");
   await expect(other.getByTestId("count-critical")).toHaveText("13");
+  const notice = other.getByRole("region", {
+    name: "Уведомление об инциденте",
+  });
+  await expect(notice).toContainText("Новый критический инцидент");
+  await expect(notice).toContainText("Платёжный шлюз");
   await mutate("coordinator");
   const ticket = page.getByTestId("card-DEMO-42-00001");
   await expect(ticket).toHaveCount(1);
   await expect(ticket).toContainText("У координаторов");
+  await expect(notice).toContainText("Назначен группе координаторов");
   await page.getByTestId("group-coordinators").click();
   await expect(ticket).toContainText("Критический");
   await page.getByTestId("group-critical").click();
@@ -201,6 +266,7 @@ test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers wit
   ).toBeVisible();
   await mutate("state", "7");
   await expect(other.getByTestId("count-critical")).toHaveText("12");
+  await expect(notice).toContainText("Критический инцидент завершён");
   await expect(
     other.getByRole("region", { name: "Недавние решения" }),
   ).toContainText("DEMO-42-00001");
