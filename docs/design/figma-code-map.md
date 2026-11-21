@@ -17,6 +17,8 @@
 | Эфир смены | [51:2](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-2) | `LiveBoard.tsx`, `TriageCases.tsx`, `/live`, `/wallboard` | Кейсы по четырём признакам, разбор с основаниями, отслеживание ID на модели, постраничный реестр и поток событий в `tests/e2e/workflows.spec.ts`. |
 | Холст смены | [51:160](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=51-160) | `Workspace.tsx`, `packages/contracts/canvas.ts`, `/workspace` | Стартовое представление, диалог, раскрытие группы и переход к тикету в `tests/e2e/workspace.spec.ts`. |
 
+У холста есть прототип составного ответа. Запрос о командах и сроках открывает два графика на одной выборке. В режиме сравнения видны количество заявок, просрочки и эскалации в каждой группе. [Команды и сроки](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Srez?node-id=127-130892) · [Сравнение](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe/Srez?node-id=127-131103)
+
 Мобильные прототипы актуальной версии собраны в ширине 390 px. [Эфир](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=62-246) · [Холст](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=63-498) · [Открытый контекст](https://www.figma.com/design/m2BesMwHFooNLVqbU9jCDe?node-id=68-1742)
 
 ## Ранние макеты и вспомогательные сценарии

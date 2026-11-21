@@ -194,6 +194,51 @@ test("named source values and private text stay local, even across turns", async
     await app.close();
   }
 });
+test("explicit overdue refinement survives contradictory VseLLM filters, clear and reset", async () => {
+  const { app, ask, prompts, respond } = await setup();
+  try {
+    const context = {
+      groupBy: "team",
+      layout: "groups",
+      blocks: [{ groupBy: "deadline", layout: "groups" }],
+      filters: { products: ["PRIVATE-PRODUCT"] },
+    };
+    respond({
+      supported: true,
+      filters: { deadline: "unset" },
+      reset: true,
+      clear: ["products", "deadline"],
+      blocks: [],
+    });
+    const result = (
+      await ask("А теперь только просроченные", context)
+    ).json<CanvasResult>();
+    assert.deepEqual(result.intent, {
+      ...context,
+      filters: { ...context.filters, deadline: "overdue" },
+    });
+    assert.equal(result.total, 23);
+    assert.ok(result.tickets.every((t) => t.overdue));
+    assert.equal(result.blocks[0].groups[0].key, "overdue");
+    const packet = JSON.parse(JSON.parse(prompts[0]).messages[1].content);
+    assert.match(packet.question, /только просроченные/u);
+    assert.doesNotMatch(prompts[0], /PRIVATE-/);
+    respond({
+      supported: true,
+      clear: ["deadline"],
+      groupBy: "priority",
+      layout: "comparison",
+    });
+    const cleared = (
+      await ask("Сними фильтр по срокам и сравни приоритеты", result.intent)
+    ).json<CanvasResult>();
+    assert.deepEqual(cleared.intent.filters, context.filters);
+    assert.equal(cleared.total, 46);
+    assert.equal(cleared.intent.groupBy, "priority");
+  } finally {
+    await app.close();
+  }
+});
 test("canvas session, CSRF, training toggle, role and context guards", async () => {
   const { app, ask, headers } = await setup();
   try {
