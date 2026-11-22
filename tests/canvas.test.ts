@@ -1316,3 +1316,19 @@ test("a conversational introduction cannot discard a requested deadline filter",
     assert.equal(result.total, result.metrics.find((m) => m.key === "overdue")?.value);
   } finally { await app.close(); }
 });
+
+test("a named relationship keeps its evidence when the model only explains it", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    respond({ conversation: {
+      title: "Связи продуктов и команд",
+      text: "Посмотрите, какие команды ведут заявки по каждому продукту.",
+    } });
+    const result = (await ask("Связи продуктов и команд", undefined, "demo")).json<CanvasResult>();
+    const relation = result.insights?.find((item) => item.id === "product-team");
+    assert.ok(result.selection && relation?.evidence?.length);
+    assert.equal(relation.points.reduce((sum, point) => sum + point.value, 0), result.total);
+  } finally {
+    await app.close();
+  }
+});

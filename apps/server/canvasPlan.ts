@@ -1116,7 +1116,8 @@ async function planData(
         source.shaped,
       );
     const proseOnly = keys(p, ["conversation", "supported", "showData"]);
-    if ((asksForCount || asksForView || changesSelection) && (proseOnly || p.showData === false)) {
+    const requiresSelection = asksForCount || asksForView || changesSelection || detectedInsights.length > 0;
+    if (requiresSelection && (proseOnly || p.showData === false)) {
       if (asksForCount || /\d/u.test(conversation.text + conversation.title))
         return { intent: localIntent, mode: "fallback", provider: "Поля ITSM" };
       return {
