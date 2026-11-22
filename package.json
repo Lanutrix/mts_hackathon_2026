@@ -15,6 +15,7 @@
     "test:e2e": "playwright test",
     "generate": "tsx scripts/generate.ts",
     "user": "tsx scripts/user.ts",
+    "qr-login": "tsx scripts/qr-login.ts",
     "ai:smoke": "tsx scripts/ai-smoke.ts"
   },
   "dependencies": {

@@ -3,13 +3,14 @@ import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { openDB } from "./db.ts";
 import { Store, FileSource } from "../worker/ingestion.ts";
-import { Auth } from "./auth.ts";
+import { Auth, loadQrLogin, qrLoginFile } from "./auth.ts";
 import { createApp } from "./api.ts";
 import { AnalysisService } from "./analysis.ts";
 import { loadVseLlm } from "./vsellm.ts";
 import { trainingRows } from "../../packages/domain/trainingShift.ts";
 const root = resolve(process.env.DATA_DIR ?? ".runtime");
 await mkdir(root, { recursive: true });
+const qrLogin = await loadQrLogin(resolve(root, qrLoginFile));
 const db = await openDB(resolve(root, "db"), process.env.DATABASE_URL),
   stores = new Map<string, Store>(),
   sources = new Map<string, FileSource>();
@@ -54,6 +55,7 @@ const app = await createApp({
   publicDemo: process.env.PUBLIC_DEMO !== "false",
   secure,
   origin,
+  qrLogin,
   push: { dataDir: root, subject: process.env.VAPID_SUBJECT ?? (origin.startsWith("https://") ? origin : "https://mts-watermelon.ru") },
   ai,
   itsmUrl: process.env.ITSM_URL,
