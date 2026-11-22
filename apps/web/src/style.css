@@ -1,4 +1,6 @@
 :root {
+  -webkit-tap-highlight-color: transparent;
+  accent-color: var(--accent);
   font-family: "Golos Text", sans-serif;
   color: var(--text);
   background: var(--background);
@@ -79,11 +81,10 @@ a {
 a:hover {
   text-decoration-thickness: 2px;
 }
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-summary:focus-visible {
+:where(:focus:not(:focus-visible)) {
+  outline: none;
+}
+:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }

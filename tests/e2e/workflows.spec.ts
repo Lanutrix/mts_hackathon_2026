@@ -444,6 +444,36 @@ test("system and explicit themes persist from the landing to help and authentica
   await expect(page.getByRole("tooltip")).toHaveCount(0);
 });
 
+test.describe("touch feedback", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  test("public landing tap has no browser overlay and keyboard navigation retains visible focus", async ({ page }) => {
+    await page.goto("/");
+    const link = page.getByRole("link", { name: "Войти" });
+    const supportsHighlight = await page.evaluate(() => CSS.supports("-webkit-tap-highlight-color", "transparent"));
+    if (supportsHighlight) {
+      await expect(link).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
+      await expect(link.locator("svg")).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
+    }
+    await link.tap();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    if (supportsHighlight)
+      await expect(dialog.getByRole("button", { name: "Войти", exact: true })).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
+    await dialog.getByLabel("Имя пользователя").focus();
+    await page.keyboard.press("Tab");
+    // The login field uses a branded focus-within ring on its wrapper.
+    await expect(dialog.getByLabel("Пароль", { exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.locator(":focus-visible")).toHaveCSS("outline-style", "solid");
+    await viewerSession(page);
+    await page.goto("/live");
+    const filter = page.getByLabel("Фильтры и сортировка");
+    await filter.tap();
+    if (supportsHighlight) await expect(filter).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
+    await expect(filter).toHaveCSS("outline-style", "none");
+  });
+});
+
 test("live embeds a quiet 3D slice with the active count and opens evidence from cases", async ({
   page,
 }) => {
