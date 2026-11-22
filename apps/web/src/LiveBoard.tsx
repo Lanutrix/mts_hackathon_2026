@@ -357,7 +357,8 @@ function Ledger({
   open: (id: string) => void;
 }) {
   const register = useRef<HTMLDivElement>(null);
-  const [pageSize, setPageSize] = useState(4);
+  const [{ rows, columns }, setCapacity] = useState({ rows: 4, columns: 1 });
+  const pageSize = Math.min(rows * columns, 100);
   useLayoutEffect(() => {
     const el = register.current;
     if (!el) return;
@@ -387,11 +388,13 @@ function Ledger({
         (footer?.getBoundingClientRect().height ?? 0) -
         after -
         4;
-      setPageSize(Math.max(1, Math.floor((available + 0.1) / rowHeight)));
+      const columns = Number(getComputedStyle(el).getPropertyValue("--ledger-columns")) || 1;
+      const rows = Math.max(1, Math.floor((available + 0.1) / rowHeight));
+      setCapacity(old => old.rows === rows && old.columns === columns ? old : { rows, columns });
     };
     const observer = new ResizeObserver(fit);
     for (const node of document.querySelectorAll(
-      ".ops-shell,.ops-header,.incident-notice,.triage-header,.feed-tools,.case-lens,.role-nav,.source-banner,.triage-ledger-title,.triage-register table,.platform-footer",
+      ".ops-shell,.ops-header,.incident-notice,.triage-header,.feed-tools,.case-lens,.role-nav,.source-banner,.triage-ledger-title,.ledger-tables,.platform-footer",
     ))
       observer.observe(node);
     const changes = new MutationObserver(fit);
@@ -480,7 +483,8 @@ function Ledger({
     const timer = setTimeout(() => setFresh([]), 4000);
     return () => clearTimeout(timer);
   }, [fresh]);
-  const visible = records;
+  const tables = Array.from({ length: Math.max(1, Math.min(columns, Math.ceil(records.length / rows))) },
+    (_, index) => records.slice(index * rows, (index + 1) * rows));
   function turnPage(next: number) {
     history.replaceState({ ...history.state, livePage: next }, "");
     setPage(next);
@@ -521,107 +525,113 @@ function Ledger({
           </nav>
         )}
       </div>
-      <table className="feed-table">
-        <caption className="sr-only">Инциденты в эфире</caption>
-        <thead>
-          <tr>
-            <th scope="col">Инцидент</th>
-            <th scope="col">{responseOrder ? "Почему в очереди" : "Сигнал"}</th>
-            <th scope="col">Статус</th>
-            <th scope="col">Срок</th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((item) => {
-            const deadline = item.dates.deadline
-                ? Date.parse(item.dates.deadline)
-                : null,
-              delta = deadline === null ? null : deadline - now;
-            const clock =
-              delta === null
-                ? "Срок не задан"
-                : delta < 0
-                  ? "Просрочен"
-                  : delta <= 900000
-                    ? "Срок близко"
-                    : "До срока";
-            const band = responseOrder ? responseBands[responseRank(item, now)] : undefined;
-            return (
-              <tr
-                key={item.key}
-                data-testid={"card-" + item.id}
-                className={fresh.includes(item.key) ? "feed-new" : undefined}
-              >
-                <td className="feed-subject">
-                  <span className="ticket-detail">
-                    <a
-                      className="feed-itsm"
-                      href={
-                        data.itsmMock !== false
-                          ? screenLink(
-                              "/itsm/" + encodeURIComponent(item.id),
-                              data.namespace,
-                            )
-                          : "/api/incident/" +
-                            encodeURIComponent(item.id) +
-                            "/itsm?ns=" +
-                            encodeURIComponent(data.namespace)
+      <div className="ledger-tables">
+        {tables.map((visible, index) => (
+          <table className="feed-table" key={index}>
+            <caption className="sr-only">
+              {tables.length > 1 ? "Инциденты в эфире · колонка " + (index + 1) : "Инциденты в эфире"}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Инцидент</th>
+                <th scope="col">{responseOrder ? "Почему в очереди" : "Сигнал"}</th>
+                <th scope="col">Статус</th>
+                <th scope="col">Срок</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((item) => {
+                const deadline = item.dates.deadline
+                    ? Date.parse(item.dates.deadline)
+                    : null,
+                  delta = deadline === null ? null : deadline - now;
+                const clock =
+                  delta === null
+                    ? "Срок не задан"
+                    : delta < 0
+                      ? "Просрочен"
+                      : delta <= 900000
+                        ? "Срок близко"
+                        : "До срока";
+                const band = responseOrder ? responseBands[responseRank(item, now)] : undefined;
+                return (
+                  <tr
+                    key={item.key}
+                    data-testid={"card-" + item.id}
+                    className={fresh.includes(item.key) ? "feed-new" : undefined}
+                  >
+                    <td className="feed-subject">
+                      <span className="ticket-detail">
+                        <a
+                          className="feed-itsm"
+                          href={
+                            data.itsmMock !== false
+                              ? screenLink(
+                                  "/itsm/" + encodeURIComponent(item.id),
+                                  data.namespace,
+                                )
+                              : "/api/incident/" +
+                                encodeURIComponent(item.id) +
+                                "/itsm?ns=" +
+                                encodeURIComponent(data.namespace)
+                          }
+                          title={
+                            data.itsmMock !== false
+                              ? "Открыть макет ITSM"
+                              : "Открыть в ITSM"
+                          }
+                          aria-label={
+                            (data.itsmMock !== false ? "Макет ITSM" : "ITSM") +
+                            " · " +
+                            item.id
+                          }
+                        >
+                          {item.id} <span aria-hidden="true">↗</span>
+                        </a>
+                        {!item.sourcePresent && (
+                          <small className="source-absent">
+                            {" "}
+                            · Требуется сверка
+                          </small>
+                        )}
+                      </span>
+                      <button onClick={() => open(item.id)}>
+                        {String(item.raw.header || "Без заголовка")}
+                      </button>
+                    </td>
+                    <td className="feed-reasons">
+                      {band && <small className="queue-reason" title={band.basis}>
+                        {band.key === "criticalDeadline" ? (delta !== null && delta < 0 ? "Критический · просрочен" : "Критический · срок близко") : band.label}
+                      </small>}
+                      <div className="feed-signals">
+                        {item.groups.map((g) => (
+                          <SignalBadge key={g} signal={g} />
+                        ))}
+                        {item.raw.isNeedUp === true && (
+                          <SignalBadge signal="escalation" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="feed-state">{item.stateLabel}</td>
+                    <td
+                      className={
+                        "feed-time" +
+                        (delta !== null && delta <= 900000 ? " due" : "")
                       }
                       title={
-                        data.itsmMock !== false
-                          ? "Открыть макет ITSM"
-                          : "Открыть в ITSM"
-                      }
-                      aria-label={
-                        (data.itsmMock !== false ? "Макет ITSM" : "ITSM") +
-                        " · " +
-                        item.id
+                        deadline === null ? undefined : timeFormat.format(deadline)
                       }
                     >
-                      {item.id} <span aria-hidden="true">↗</span>
-                    </a>
-                    {!item.sourcePresent && (
-                      <small className="source-absent">
-                        {" "}
-                        · Требуется сверка
-                      </small>
-                    )}
-                  </span>
-                  <button onClick={() => open(item.id)}>
-                    {String(item.raw.header || "Без заголовка")}
-                  </button>
-                </td>
-                <td className="feed-reasons">
-                  {band && <small className="queue-reason" title={band.basis}>
-                    {band.key === "criticalDeadline" ? (delta !== null && delta < 0 ? "Критический · просрочен" : "Критический · срок близко") : band.label}
-                  </small>}
-                  <div className="feed-signals">
-                    {item.groups.map((g) => (
-                      <SignalBadge key={g} signal={g} />
-                    ))}
-                    {item.raw.isNeedUp === true && (
-                      <SignalBadge signal="escalation" />
-                    )}
-                  </div>
-                </td>
-                <td className="feed-state">{item.stateLabel}</td>
-                <td
-                  className={
-                    "feed-time" +
-                    (delta !== null && delta <= 900000 ? " due" : "")
-                  }
-                  title={
-                    deadline === null ? undefined : timeFormat.format(deadline)
-                  }
-                >
-                  {delta !== null && <strong>{duration(delta)}</strong>}
-                  <small>{clock}</small>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                      {delta !== null && <strong>{duration(delta)}</strong>}
+                      <small>{clock}</small>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ))}
+      </div>
       {error && loading ? (
         <div className="feed-empty" role="alert">
           {error}{" "}

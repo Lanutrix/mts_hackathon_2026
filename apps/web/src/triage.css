@@ -1064,3 +1064,41 @@
   .case-dialog .case-facts { grid-template-columns: 1fr 1fr; gap: .7rem; }
   .case-evidence > div, .case-theme-source { grid-template-columns: 1fr; gap: .12rem; }
 }
+
+@media (min-width: 1500px) and (min-aspect-ratio: 3/1) {
+  .ops-shell.ops-shell--live {
+    --gutter: clamp(24px, 2vw, 96px);
+    max-width: none;
+  }
+  .ops-shell--live .triage-layout {
+    grid-template-columns: clamp(215px, 11vw, 320px) minmax(0, 1fr);
+    gap: clamp(18px, 1.5vw, 48px);
+  }
+  .incident-register { --ledger-columns: 2; }
+  .ledger-tables {
+    display: grid;
+    grid-template-columns: repeat(var(--ledger-columns), minmax(0, 1fr));
+    align-items: start;
+    gap: clamp(12px, 1vw, 32px);
+  }
+  .ledger-tables .feed-table + .feed-table {
+    border-inline-start: 1px solid var(--rule);
+  }
+  .ledger-tables .feed-table + .feed-table :is(th, td):first-child {
+    padding-inline-start: .65rem;
+  }
+}
+@media (min-width: 2350px) and (min-aspect-ratio: 3/1) {
+  .incident-register { --ledger-columns: 3; }
+}
+@media (min-width: 3500px) and (min-aspect-ratio: 3/1) {
+  .incident-register { --ledger-columns: 4; }
+}
+@media (min-width: 4700px) and (min-aspect-ratio: 3/1) {
+  .incident-register { --ledger-columns: 5; }
+  .triage-register { --ledger-row: 5rem; }
+  .triage-register .feed-subject button { font-size: 1.25rem; }
+  .ledger-tables :is(th, .feed-state, .queue-reason) { font-size: .9rem; }
+  .ledger-tables :is(.ticket-detail, .feed-time small) { font-size: .8rem; }
+  .ledger-tables .feed-time strong { font-size: 1.15rem; }
+}
