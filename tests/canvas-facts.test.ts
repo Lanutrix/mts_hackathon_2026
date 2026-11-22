@@ -234,6 +234,170 @@ test("graph distinguishes source reference, matching attributes, and absent IDs;
   );
   assert.equal(edges.filter((e) => e.kind === "reference").length, 1);
 });
+
+test("counts distinguish completed in the period, registered in the period and an exact Closed transition", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { source, service, calls } = setup();
+  const oldClosed = row("INC-8", 10, "2026-11-20T12:00:00Z", {
+    completionDate: "2026-11-21T22:30:00Z",
+  });
+  const newClosed = row("INC-9", 10, "2026-11-21T22:00:00Z");
+  source.rows.set(oldClosed.id, oldClosed);
+  source.rows.set(newClosed.id, newClosed);
+  const read = (q: string) => service.read(source, "me", q);
+  const closed = await read("Сколько тикетов закрыто сегодня?");
+  assert.deepEqual(
+    closed.tickets.map((r) => r.id),
+    ["INC-8"],
+  );
+  assert.match(closed.summary, /completionDate/);
+  assert.match(closed.summary, /перехода в статус «Закрыт»/);
+  assert.equal(validContext(closed.intent), true);
+  const completed = await read("Сколько заявок завершили сегодня?");
+  assert.deepEqual(completed.tickets.map((r) => r.id).sort(), [
+    "INC-2",
+    "INC-8",
+  ]);
+  const registered = await read(
+    "Сколько заявок зарегистрировано сегодня со статусом «Закрыт»?",
+  );
+  assert.deepEqual(
+    registered.tickets.map((r) => r.id),
+    ["INC-9"],
+  );
+  assert.match(registered.summary, /submitDate/);
+  const prior = await read("Какой статус чаще всего сегодня?");
+  const follow = await service.read(
+    source,
+    "me",
+    "А из них сколько уже закрыли?",
+    prior.intent,
+    prior.turnToken,
+  );
+  assert.equal(follow.intent.fact?.operation, "count");
+  assert.deepEqual(
+    follow.tickets.map((r) => r.id),
+    ["INC-9"],
+  );
+  assert.match(follow.summary, /submitDate/);
+  const brief = await service.read(
+    source,
+    "me",
+    "А сколько закрытых?",
+    prior.intent,
+  );
+  assert.deepEqual(
+    brief.tickets.map((r) => r.id),
+    ["INC-9"],
+  );
+  assert.equal(validContext({ ...closed.intent, filters: {} }), false);
+  assert.equal(calls(), 0);
+});
+
+test("team exclusions keep their polarity across a refresh and do not turn unknown names into broad counts", async () => {
+  const { source, service, calls } = setup();
+  for (const q of [
+    "Сколько разных команд, если не считать Платформу?",
+    "Сколько команд кроме команды Платформа?",
+  ]) {
+    const answer = await service.read(source, "me", q);
+    assert.deepEqual(answer.groups.map((g) => g.label).sort(), [
+      "Архив",
+      "Сеть",
+    ]);
+    assert.equal(validContext(answer.intent), true);
+    const live = await service.read(source, "me", undefined, answer.intent);
+    assert.deepEqual(live.groups, answer.groups);
+  }
+  const unknown = await service.read(
+    source,
+    "me",
+    "Сколько команд, если не считать Призраков?",
+  );
+  assert.equal(unknown.mode, "unsupported");
+  const ranked = await service.read(
+    source,
+    "me",
+    "Кроме команды Платформа, какой статус встречается чаще всего?",
+  );
+  assert.equal(ranked.intent.groupBy, "status");
+  assert.deepEqual(
+    ranked.groups.map((g) => g.label).sort(),
+    ["Закрыт", "Завершён"].sort(),
+  );
+  assert.equal(calls(), 0);
+});
+
+test("negated closure events never become a positive count", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { source, service } = setup();
+  for (const q of ["Сколько заявок не закрыто сегодня?", "Сколько сегодня не закрыли?"]) {
+    const r = await service.read(source, "me", q);
+    assert.equal(r.mode, "unsupported");
+    assert.match(r.summary, /открыты/);
+    assert.equal(r.selection, "");
+  }
+});
+
+test("coordinated exceptions exclude all known teams and request clarification on unknown operands", async () => {
+  const { source, service } = setup();
+  for (const q of ["Сколько команд кроме Платформы и команды Сеть?", "Сколько команд кроме Платформы, Сети?"]) {
+    const r = await service.read(source, "me", q);
+    assert.deepEqual(r.groups.map(g => g.label), ["Архив"]);
+    assert.equal(r.intent.filters.teams, undefined);
+  }
+  for (const q of ["Сколько команд кроме Платформы и Призраков?", "Сколько команд кроме Платформы, Призраков и Сети?"]) {
+    const r = await service.read(source, "me", q);
+    assert.equal(r.mode, "unsupported");
+    assert.match(r.summary, /команд/);
+    assert.equal(r.selection, "");
+  }
+});
+
+test("referential counts intersect state filters on refresh, and explicit finished-or-closed includes both", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { source, service } = setup();
+  const open = await service.read(source, "me", "Какой статус открытых заявок чаще всего сегодня?");
+  const alsoClosed = row("INC-8", 10, "2026-11-21T22:00:00Z");
+  source.rows.set(alsoClosed.id, alsoClosed);
+  const r = await service.read(source, "me", "А из них сколько уже закрыли?", open.intent, open.turnToken);
+  assert.equal(r.total, 0);
+  assert.deepEqual(r.intent.filters.states, []);
+  assert.equal(validContext(r.intent), true);
+  assert.equal((await service.read(source, "me", undefined, r.intent)).total, 0);
+  const both = await service.read(source, "me", "Сколько заявок со статусом „Завершён“ или „Закрыт“?");
+  assert.equal(both.intent.fact?.operation, "count");
+  assert.deepEqual([...both.intent.filters.states!].sort(), [10,7]);
+  assert.deepEqual(both.tickets.map(t => t.id).sort(), ["INC-2","INC-3","INC-4","INC-6","INC-8"]);
+});
+
+test("common count typos, a resolution record and a chain of specific incidents retain their measurements", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { source, service, calls } = setup();
+  for (const q of ["Сколко сейчас команд?", "Сколькo сейчас команд?"]) {
+    const count = await service.read(source, "me", q);
+    assert.equal(count.intent.fact?.operation, "distinct");
+    assert.equal(count.groups.length, 3);
+  }
+  for (const q of [
+    "Какая заявка поставила рекорд по времени решения за год?",
+    "Назови рекорд по времени решения за год",
+  ]) {
+    const record = await service.read(source, "me", q);
+    assert.equal(record.fact?.durations?.[0].id, "INC-3", q);
+  }
+  const chain = await service.read(
+    source,
+    "me",
+    "Нарисуй цепочку между INC-1 и INC-2",
+  );
+  assert.ok(
+    chain.fact?.edges?.some(
+      (e) => e.kind === "reference" && e.from === "INC-1" && e.to === "INC-2",
+    ),
+  );
+  assert.equal(calls(), 0);
+});
 test("verified model operations support novel paraphrases and reject made-up outputs or mismatched dates", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now });
   const q = "Каков разброс по стадиям за сегодняшний день?";

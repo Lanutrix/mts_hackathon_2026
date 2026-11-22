@@ -10,15 +10,22 @@ import {
   type FactPlan,
 } from "../../packages/contracts/canvasFacts.ts";
 
+import { supportsFactDisplay } from "./factDisplay.ts";
+
 export function validFact(fact: unknown): fact is FactPlan {
   if (!fact || typeof fact !== "object") return false;
   const f = fact as Record<string, unknown>;
   return (
     Object.keys(f).every((k) =>
-      ["operation", "period", "ascending"].includes(k),
+      ["operation", "period", "ascending", "dateField", "display"].includes(k),
     ) &&
     factOperations.some((v) => v === f.operation) &&
+    (f.display === undefined || supportsFactDisplay(f.operation, f.display)) &&
     factPeriods.some((v) => v === f.period) &&
+    (f.dateField === undefined ||
+      (f.dateField === "completionDate" &&
+        f.operation === "count" &&
+        f.period !== "snapshot")) &&
     (f.ascending === undefined || f.ascending === true)
   );
 }
@@ -30,23 +37,26 @@ const dimensions: [RegExp, CanvasDimension][] = [
   [/приоритет/u, "priority"],
   [/симптом/u, "symptom"],
 ];
-const quantity = /сколько|подсчита[йть]|количеств|число/u;
+const quantity = /ск[оo]ль?к[оo]|подсчита[йть]|количеств|число/u;
 const list =
   /перечисл|перечень|список|назови|какие|каков\p{L}* состав|как\p{L}* называ/u;
 const frequency =
   /сам\p{L}*\s+(?:часто\s+)?встреча|чаще|часты[йемх]|частая|частом|наиболее част|распростран|преоблада|превалир|доминиру|лидиру|больше всего|большинств|популярн|реже|редк(?:ий|ая|ое)|меньше всего/u;
 const extremum =
-  /дольш|долг|длительн|медлен|быстр|коротк|минимальн|максимальн|больше всего|меньше всего|наибольш|наименьш|сам\p{L}* много/u;
+  /рекорд|дольш|долг|длительн|медлен|быстр|коротк|минимальн|максимальн|больше всего|меньше всего|наибольш|наименьш|сам\p{L}* много/u;
 const resolution =
   /долгореша|реш(?:ени|али|ал[ио]?|ен|ил|а[лт]с)|устран|закры[тв]|закрыли|закрывал|заверш|чинил|почин|восстанов/u;
 const timeQuestion =
   /сегодня|сегодняш|вчера|недел|месяц|год(?:а|у|ом)?(?!\p{L})|сутки/u;
 const graph =
-  /связ[ьиьяеи]|связан|связыва|зависимост|отношени|граф(?!ик)|схем|диаграмм/u;
-const relation = /связ[ьиьяеи]|связан|связыва|зависимост|отношени/u;
+  /связ[ьиьяеи]|связан|связыва|зависимост|отношени|цепочк|граф(?!ик)|схем|диаграмм/u;
+const relation = /связ[ьиьяеи]|связан|связыва|зависимост|отношени|цепочк/u;
+const closed = /(?<!\p{L})закры(?:ли|т)/u;
+const finished = /(?<!\p{L})(?:заверш(?:или|ен)|реш(?:или|ен)|устранили)/u;
+const intake = /регистрац|зарегистр|поступ|создан|создали|завели|пода(?:ли|н)/u;
 const ticketTerm = /заяв[ко]|инцидент|тикет|обращени|сбо[яией]|проблем/u;
 const follow =
-  /^(?:а |и |теперь |тогда )*(?:только|среди|из них|для |в продукте|по продукту|за |вчера|сегодня|без |оставь|огранич|сколько (?:таких|из них))/u;
+  /^(?:а |и |теперь |тогда )*(?:только|среди|из них|для |в продукте|по продукту|за |вчера|сегодня|без |кроме|исключ|не счи|оставь|огранич|ск[оo]ль?к[оo] (?:таких|из них))|^(?:а |и |теперь )ск[оo]ль?к[оo]\s+(?:уже\s+)?(?:закры|заверш|решен)/u;
 const namedId =
   /(?<![\p{L}\p{N}_])(?:[a-zа-я][a-zа-я0-9]*(?:-[a-zа-я0-9]+)+|(?:inc|инц)\d+|\d{5,})(?![\p{L}\p{N}_-])/giu;
 const normalized = (s: string) =>
@@ -74,6 +84,12 @@ export function validFactView(
   dimension: CanvasDimension,
   filters: CanvasFilters,
 ) {
+  if (
+    fact.dateField &&
+    (!filters.states ||
+      !filters.states.every((state) => state === 7 || state === 10))
+  )
+    return false;
   if (fact.operation === "relations")
     return (
       dimension === "ticket" &&
@@ -127,6 +143,7 @@ type Reading =
       fact: FactPlan;
       dimension: CanvasDimension;
       ids?: string[];
+      states?: number[];
       continuation: boolean;
     }
   | { problem: string };
@@ -139,16 +156,28 @@ export function readFact(
   const original = normalized(question);
   if (/что такое|что означает|что значит|объясни понятие/u.test(original))
     return;
+  if (/(?<!\p{L})не\s+(?:были?\s+|было\s+)?(?:закры(?:ли|т)|заверш(?:или|ен)|реш(?:или|ен))\p{L}*(?!\p{L})/u.test(shaped))
+    return {
+      problem:
+        "Уточните, нужны ли заявки, которые сейчас открыты, или число переходов статуса за период. В снимке видны текущие статусы и даты завершения.",
+    };
   // A named scope can precede the measured dimension ("для команды E1 какой статус...").
   const measure = shaped.replace(
-    /(?:для|из|в|у|по|от|к)\s+(?:команд|продукт|сервис|статус|приоритет)\p{L}*\s+E\d+/gu,
+    /(?:для|из|в|у|по|от|к|исключить)\s+(?:команд|продукт|сервис|статус|приоритет)\p{L}*\s+E\d+/gu,
     " ",
   );
   const dim = dimensions
     .map(([pattern, dimension]) => ({ at: measure.search(pattern), dimension }))
     .filter((d) => d.at >= 0)
     .sort((a, b) => a.at - b.at)[0]?.dimension;
-  const continuation = !!previous?.fact && follow.test(shaped);
+  const continuation =
+    !!previous?.fact &&
+    (follow.test(shaped) || /(?:из|среди) них/u.test(shaped));
+  const namedStatus = /(?:со\s+статус(?:ом|ами)|в\s+статус(?:е|ах))/u.test(shaped);
+  const hasClosed = closed.test(shaped);
+  const actionStates = finished.test(shaped)
+    ? (namedStatus && !hasClosed ? [7] : [7, 10])
+    : hasClosed ? [10] : undefined;
   const period =
     periodIn(shaped) ?? (continuation ? previous!.fact!.period : "snapshot");
   let operation: FactPlan["operation"] | undefined;
@@ -181,7 +210,7 @@ export function readFact(
     extremum.test(shaped) &&
     resolution.test(shaped) &&
     (ticketTerm.test(shaped) ||
-      /котор|како|какая|какие|кто|топ|рейтинг/u.test(shaped))
+      /котор|како|какая|какие|кто|топ|рейтинг|рекорд/u.test(shaped))
   ) {
     operation = "duration";
     dimension = "ticket";
@@ -193,9 +222,9 @@ export function readFact(
     !/(?:список|перечисли|какие|назови)\s+(?:заяв|инцидент|тикет|обращен)/u.test(
       shaped,
     ) &&
-    !/диаграмм|рейтинг|график|карточк|матриц|таблиц|схем|сравн|сгрупп|группиру/u.test(
+    (quantity.test(shaped) || !/диаграмм|рейтинг|график|карточк|матриц|таблиц|схем|сравн|сгрупп|группиру/u.test(
       shaped,
-    ) &&
+    )) &&
     !/(?:сколько|число|количеств\p{L}*)\s+(?:всего\s+)?(?:заяв|инцидент|тикет|обращен)/u.test(
       shaped,
     )
@@ -203,8 +232,8 @@ export function readFact(
     operation = "distinct";
   } else if (
     quantity.test(shaped) &&
-    ticketTerm.test(shaped) &&
-    timeQuestion.test(shaped)
+    (ticketTerm.test(shaped) || actionStates || continuation) &&
+    (timeQuestion.test(shaped) || continuation || (namedStatus && actionStates))
   ) {
     operation = "count";
     dimension = "ticket";
@@ -227,13 +256,15 @@ export function readFact(
     };
   }
   if (
-    /изменял|менял|переход|поменял|побывал|перешл|денег|выручк|ущерб|клиент(?:ов|ам)|пользователей|эскалаци|первопричин|прогноз|(?:кроме|исключая)\s|(?:не |без )просроч/u.test(
+    /изменял|менял|переход|поменял|побывал|перешл|денег|выручк|ущерб|клиент(?:ов|ам)|пользователей|эскалаци|первопричин|прогноз|(?:кроме|исключая|не считать|не считая|без учета|за исключением)\s|(?:не |без )просроч/u.test(
       shaped,
     ) ||
     /(?:по|для|из|в|у|к)\s+(?:команд[ыеу]|продукт[аеу]|сервис[аеу])\s+(?!E\d+(?!\d)|(?:с|без|и|где)\s)[\p{L}\d_-]+/u.test(
       shaped.trim().replace(/\s+/gu, " "),
     ) ||
-    /[«"][^»"]*[\p{L}\d][^»"]*[»"]/u.test(shaped.replace(/\bE\d+\b/gu, ""))
+    /[«"][^»"]*[\p{L}\d][^»"]*[»"]/u.test(
+      shaped.replace(/\bE\d+\b|[«"](?:закрыт|завершен)[»"]/gu, ""),
+    )
   ) {
     return {
       problem:
@@ -244,11 +275,31 @@ export function readFact(
     /реже|редк(?:ий|ая|ое)|меньше всего|быстр|коротк|минимальн|наименьш/u.test(
       shaped,
     ) ||
-    (continuation && previous!.fact!.ascending);
+    (continuation &&
+      previous!.fact!.operation === operation &&
+      previous!.fact!.ascending);
+  // «Из них» refers to the previous cohort. Its date field stays in effect
+  // unless the question explicitly introduces a new event period.
+  const pinnedPeriod = continuation && !periodIn(shaped);
+  const completionWindow =
+    operation === "count" &&
+    period !== "snapshot" &&
+    (pinnedPeriod
+      ? previous!.fact!.dateField || previous!.fact!.operation === "duration"
+      : actionStates &&
+        !intake.test(shaped) &&
+        !/(?:со |в )статусе|со статусом/u.test(shaped));
+  const states = operation === "count" ? actionStates : undefined;
   return {
-    fact: { operation, period, ...(ascending ? { ascending: true } : {}) },
+    fact: {
+      operation,
+      period,
+      ...(completionWindow ? { dateField: "completionDate" } : {}),
+      ...(ascending ? { ascending: true } : {}),
+    },
     dimension,
     ids,
+    states,
     continuation,
   };
 }

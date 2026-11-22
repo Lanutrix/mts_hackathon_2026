@@ -16,9 +16,13 @@ export const factOperations = [
 ] as const;
 export type FactOperation = (typeof factOperations)[number];
 
+export type FactDisplay = "ring" | "table" | "bars" | "list" | "cards" | "diagram";
+
 export interface FactPlan {
+  display?: FactDisplay;
   operation: FactOperation;
   period: FactPeriod;
+  dateField?: "completionDate";
   ascending?: true;
 }
 export interface DurationEvidence {

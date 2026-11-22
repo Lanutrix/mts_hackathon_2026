@@ -37,6 +37,26 @@ const weights: Record<CanvasWeight, string> = {
   overdue: "Просроченные",
   escalated: "Устранение последствий",
 };
+export function GroupDirectory({
+  groups,
+  total,
+  choose,
+}: Pick<GroupMarks, "groups" | "choose"> & { total: number }) {
+  return (
+    <ul className="fact-directory" aria-label="Перечень значений">
+      {groups.map((g) => (
+        <li key={g.key}>
+          <button type="button" onClick={() => choose(g)} title={g.label}>
+            <strong>{g.label}</strong>
+            <span>
+              Заявок: {count(g.count)} · {percent(g.count, total)} ↗
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
 function Ranking({ groups, choose, start, weight, all }: GroupMarks) {
   const ceiling = Math.max(1, ...all.map((g) => g[weight]));
   const total = all.reduce((sum, g) => sum + g[weight], 0);
@@ -76,10 +96,27 @@ type GroupMarks = {
   choose: DataFigureProps["choose"];
   weight: CanvasWeight;
 };
-function Orbit({ all, groups, start, weight, choose }: GroupMarks) {
+// Two circular arcs also describe a group occupying the whole ring.
+function sectorStroke(start: number, end: number) {
+  const point = (percent: number) => {
+    const radians = (percent * Math.PI) / 50 - Math.PI / 2;
+    return 100 + 77 * Math.cos(radians) + " " + (100 + 77 * Math.sin(radians));
+  };
+  return (
+    "M" +
+    point(start) +
+    " A77 77 0 0 1 " +
+    point((start + end) / 2) +
+    " A77 77 0 0 1 " +
+    point(end)
+  );
+}
+export function Orbit({ all, groups, start, weight, choose }: GroupMarks) {
   const total = all.reduce((a, g) => a + g[weight], 0);
   const here = groups.reduce((a, g) => a + g[weight], 0);
-  let cursor = 0;
+  let cursor = total
+    ? (100 * all.slice(0, start).reduce((sum, g) => sum + g[weight], 0)) / total
+    : 0;
   return (
     <div {...el("share-wheel")} className="ar-orbit">
       <div className="ar-dial">
@@ -99,21 +136,18 @@ function Orbit({ all, groups, start, weight, choose }: GroupMarks) {
             cursor += part;
             return (
               part > 0 && (
-                <circle
+                <path
                   {...el("share-arc")}
                   key={g.key}
-                  cx="100"
-                  cy="100"
-                  r="77"
-                  pathLength="100"
+                  d={sectorStroke(offset, offset + part)}
                   fill="none"
                   stroke="var(--tone)"
                   style={hue(start + i)}
                   strokeWidth="21"
-                  strokeDasharray={part + " " + (100 - part)}
-                  strokeDashoffset={-offset}
-                  transform="rotate(-90 100 100)"
-                />
+                  onClick={() => choose(g)}
+                >
+                  <title>{g.label + " · " + percent(g[weight], total)}</title>
+                </path>
               )
             );
           })}
@@ -150,7 +184,7 @@ function Orbit({ all, groups, start, weight, choose }: GroupMarks) {
     </div>
   );
 }
-function Branches({ all, groups, start, choose, weight }: GroupMarks) {
+export function Branches({ all, groups, start, choose, weight }: GroupMarks) {
   const total = all.reduce((a, g) => a + g[weight], 0),
     peak = Math.max(1, ...all.map((g) => g[weight]));
   const rows = Math.max(1, groups.length),
@@ -194,6 +228,7 @@ function Branches({ all, groups, start, choose, weight }: GroupMarks) {
             key={g.key}
             style={hue(start + i)}
             onClick={() => choose(g)}
+            title={g.label}
           >
             <i {...el("terminal-port")} aria-hidden="true" />
             <span>{g.label}</span>
@@ -259,7 +294,7 @@ function HeatGrid({ all, groups, choose }: GroupMarks) {
     </div>
   );
 }
-function Dossiers({ groups, start, choose }: GroupMarks) {
+export function Dossiers({ groups, start, choose }: GroupMarks) {
   return (
     <div className="ar-dossiers">
       {groups.map((g, i) => (

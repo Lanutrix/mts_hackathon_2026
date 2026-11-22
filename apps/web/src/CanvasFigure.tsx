@@ -5,7 +5,7 @@ import type {
   CanvasWeight,
 } from "../../../packages/contracts/canvas";
 import { answerElement as el } from "../../../packages/contracts/answerCatalog";
-import { DataChart, Spotlight } from "./AnswerCharts";
+import { DataChart, GroupDirectory, Spotlight, percent } from "./AnswerCharts";
 import { Briefing, ExhibitTray } from "./AnswerEvidence";
 import { formatCount, PageControls, useBox } from "./CanvasControls";
 import { CanvasTicketLink } from "./CanvasTickets";
@@ -290,7 +290,8 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
               {...el("notch-key")}
               title="Длина верхней отметки соответствует доле заявок с отметкой об устранении последствий внутри группы"
             >
-              <i className="cx-key-line" />Устранение последствий{" "}
+              <i className="cx-key-line" />
+              Устранение последствий{" "}
               {formatCount(
                 result.metrics.find((m) => m.key === "escalated")?.value ?? 0,
               )}
@@ -343,28 +344,45 @@ function Comparison({
   result,
   choose,
 }: Pick<FigureProps, "result" | "choose">) {
-  const { ref, height } = useBox();
+  const { ref, height, width } = useBox();
   const [requested, setPage] = useState(0);
-  const perPage = Math.max(1, Math.min(9, Math.floor((height - 60) / 43)));
+  const directory = result.intent.presentation === "register";
+  const showShares = result.intent.presentation === "compare";
+  const directoryColumns = Math.max(1, Math.floor((width + 18) / 268));
+  const directoryRows = Math.max(1, Math.floor((height - 48) / 88));
+  const perPage = directory
+    ? Math.min(12, directoryColumns * directoryRows)
+    : Math.max(1, Math.min(9, Math.floor((height - 60) / 43)));
   const pages = Math.ceil(result.groups.length / perPage),
     page = Math.max(0, Math.min(requested, pages - 1));
   const max = Math.max(1, ...result.groups.map((g) => g.count));
+  const visible = result.groups.slice(page * perPage, (page + 1) * perPage);
   return (
-    <div ref={ref} className="cx-compare" data-testid="group-comparison">
-      <table {...el("comparison-table")}>
-        <thead>
-          <tr>
-            {["Группа", "Всего", "Просрочено", "Последствия"].map((h) => (
-              <th key={h} scope="col">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {result.groups
-            .slice(page * perPage, (page + 1) * perPage)
-            .map((g) => (
+    <div
+      ref={ref}
+      className="cx-compare"
+      data-testid={directory ? "group-directory" : "group-comparison"}
+    >
+      {directory ? (
+        <GroupDirectory groups={visible} total={result.total} choose={choose} />
+      ) : (
+        <table {...el("comparison-table")}>
+          <thead>
+            <tr>
+              {[
+                "Группа",
+                showShares ? "Всего · доля" : "Всего",
+                "Просрочено",
+                "Последствия",
+              ].map((h) => (
+                <th key={h} scope="col">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((g) => (
               <tr key={g.key}>
                 <th scope="row" {...el("row-heading")}>
                   <button
@@ -378,6 +396,11 @@ function Comparison({
                 {[g.count, g.overdue, g.escalated].map((n, i) => (
                   <td key={i}>
                     <span {...el("cell-value")}>{formatCount(n)}</span>
+                    {showShares && i === 0 && (
+                      <small className="cx-cell-share">
+                        {percent(n, result.total)}
+                      </small>
+                    )}
                     <i
                       {...el("cell-bar")}
                       aria-hidden="true"
@@ -390,10 +413,16 @@ function Comparison({
                 ))}
               </tr>
             ))}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      )}
       <PageControls
-        {...{ page, pages, goto: setPage, label: "Страницы сравнения" }}
+        {...{
+          page,
+          pages,
+          goto: setPage,
+          label: directory ? "Страницы групп" : "Страницы сравнения",
+        }}
       />
     </div>
   );
@@ -438,6 +467,12 @@ function StandardFigure({ result, choose, ns, open, zone }: FigureProps) {
         {result.sourceTotal > 0 && <p>Измените условия отбора.</p>}
       </div>
     );
+  if (
+    result.intent.layout === "comparison" &&
+    result.intent.groupBy !== "ticket" &&
+    result.intent.presentation === "register"
+  )
+    return <Comparison {...{ result, choose }} />;
   if (
     result.intent.presentation === "register" ||
     result.intent.layout === "list" ||

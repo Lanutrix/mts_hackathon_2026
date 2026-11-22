@@ -24,6 +24,7 @@ export type CanvasWeight = (typeof canvasWeights)[number];
 export type CanvasDeadline = "overdue" | "soon" | "normal" | "unset";
 export interface CanvasFilters {
   teams?: string[];
+  excludedTeams?: string[];
   products?: string[];
   ids?: string[];
   symptoms?: string[];

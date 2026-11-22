@@ -25,7 +25,9 @@ let fault: {
   method: string;
   respond: (reply: FastifyReply) => Promise<void> | void;
 } | null;
-test.beforeAll(async () => {
+// Independent scenarios share the same loopback IP. Isolate their request quotas.
+test.beforeEach(async () => {
+  fault = null;
   db = await openDB(":memory:");
   const store = new Store(db, "demo");
   const original = new Store(db, "original");
@@ -98,7 +100,7 @@ test.beforeAll(async () => {
   origin = await app.listen({ host: "127.0.0.1", port: 0 });
   options.origin = origin;
 });
-test.afterAll(async () => {
+test.afterEach(async () => {
   await app?.close();
   await db?.close();
 });
@@ -668,16 +670,13 @@ test("free-form answers paginate on a phone and follow-up uses the same conversa
     followUp,
   };
   const token = "test-conversation";
-  let followUpBody;
-  await page.route("**/api/canvas?*", async (route) => {
-    const body = route.request().postDataJSON();
-    if (body.question === followUp) followUpBody = body;
-    await route.fulfill({ json: body.question === followUp ? initial : {
+  fault = { method: "POST", path: "/api/canvas", respond: (reply) => {
+    reply.send({
       ...initial, title: answer.title, summary: answer.text, conversation: answer,
       turnToken: token, mode: "model", provider: "VseLLM", total: 0, selection: "",
       groups: [], blocks: [], tickets: [], metrics: [],
-    } });
-  });
+    });
+  } };
   await ask(page, "Расскажи как сказку");
   const prose = page.getByTestId("conversation-answer");
   await expect(prose).toBeVisible();
@@ -688,7 +687,141 @@ test("free-form answers paginate on a phone and follow-up uses the same conversa
   expect(await prose.locator(".cx-prose-sheet").evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1
     && document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+  fault = { method: "POST", path: "/api/canvas", respond: (reply) => { reply.send(initial); } };
+  const pending = page.waitForRequest(req => req.method() === "POST" && new URL(req.url()).pathname === "/api/canvas");
   await prose.getByRole("button", { name: followUp }).click();
+  const followUpBody = (await pending).postDataJSON();
   await expect(page.getByTestId("group-field")).toBeVisible();
   expect(followUpBody).toMatchObject({ question: followUp, turnToken: token, context: initial.intent });
+});
+test("a factual frequency keeps the same sample when drawn as a ring, directory, table, diagram and cards", async ({
+  page,
+}) => {
+  await enter(page);
+  await page.goto(origin + "/workspace?ns=workspace");
+  await expect(page.getByTestId("group-field")).toBeVisible();
+  const first = await ask(page, "Какой продукт встречается чаще всего?");
+  expect(first.groups).toHaveLength(10);
+  const ringAnswer = await ask(
+    page,
+    "А теперь покажи это кольцевой диаграммой",
+  );
+  const board = page.locator(".fact-board");
+  const ring = board.locator('[data-answer-element="share-wheel"]');
+  await expect(ring).toBeVisible();
+  const labels = await new AxeBuilder({ page })
+    .include(".ar-orbit")
+    .withRules(["label-content-name-mismatch"])
+    .analyze();
+  expect(labels.violations).toEqual([]);
+  expect(ringAnswer.groups).toEqual(first.groups);
+  expect(ringAnswer.total).toBe(first.total);
+  await expect(
+    ring.locator('[data-answer-element="wheel-total"]'),
+  ).toContainText(String(first.total));
+  const firstArc = ring.locator('[data-answer-element="share-arc"]').first();
+  const fraction = await firstArc.evaluate(
+    (el) => (el as SVGPathElement).getTotalLength() / (2 * Math.PI * 77),
+  );
+  expect(fraction).toBeCloseTo(first.groups[0].count / first.total, 3);
+  const arcPoint = await firstArc.evaluate((el) => {
+    const path = el as SVGPathElement;
+    const middle = path.getPointAtLength(path.getTotalLength() / 2);
+    const onPage = middle.matrixTransform(path.getScreenCTM()!);
+    return { x: onPage.x, y: onPage.y };
+  });
+  await page.mouse.click(arcPoint.x, arcPoint.y);
+  await expect(page.getByRole("dialog").getByRole("link")).toHaveCount(
+    first.groups[0].count,
+  );
+  await page.keyboard.press("Escape");
+  const legend = ring.locator('[data-answer-element="share-key"]');
+  await expect(legend.getByText(/Остальные группы/)).toBeVisible();
+  await board
+    .getByRole("navigation", { name: "Страницы групп" })
+    .getByRole("button", { name: "Следующая страница" })
+    .click();
+  await expect(legend.getByRole("button").last()).toContainText(
+    first.groups.at(-1)!.label,
+  );
+  await legend.getByRole("button").last().focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog").getByRole("link")).toHaveCount(
+    first.groups.at(-1)!.count,
+  );
+  await page.keyboard.press("Escape");
+  await capture(page, "fact-group-ring");
+  for (const [form, selector] of [
+    ["Сравни команды в таблице", ".fact-group-table"],
+    ["Покажи результат списком", ".fact-directory"],
+    ["Покажи результат схемой", '[data-answer-element="branch-map"]'],
+    ["Покажи результат карточками", ".ar-dossiers"],
+    ["Покажи результат столбцами", ".fact-bar"],
+  ]) {
+    const answer = await ask(
+      page,
+      "Какой продукт встречается чаще всего? " + form,
+    );
+    expect(answer.groups).toEqual(first.groups);
+    await expect(board.locator(selector).first()).toBeVisible();
+    await expect(
+      board.getByText(first.groups[0].label, { exact: true }).first(),
+    ).toBeVisible();
+  }
+});
+
+test("resolution time supports bars and an accessible list with the original dates and ticket", async ({
+  page,
+}) => {
+  await enter(page);
+  const plain = await ask(page, "Назови самую долгорешаемую проблему");
+  const leader = plain.fact!.durations![0];
+  for (const [form, selector] of [
+    ["столбчатой диаграммой", ".fact-duration-bars"],
+    ["списком", ".fact-duration-list"],
+  ]) {
+    const answer = await ask(
+      page,
+      "Назови самую долгорешаемую проблему, покажи результат " + form,
+    );
+    expect(answer.fact!.durations).toEqual(plain.fact!.durations);
+    const item = page.locator(selector).locator("li").first();
+    await expect(item.getByRole("link", { name: leader.id })).toBeVisible();
+    await expect(item).toContainText(leader.header!);
+    await expect(item.locator("time").first()).toHaveAttribute(
+      "datetime",
+      leader.start,
+    );
+    await expect(item.locator("time").last()).toHaveAttribute(
+      "datetime",
+      leader.end,
+    );
+  }
+});
+test("a list and a comparison table retain the groups and proportions of the ordinary ring", async ({
+  page,
+}) => {
+  await enter(page);
+  const response = await ask(page, "Покажи доли команд круговой диаграммой");
+  const group = response.groups[0];
+  const label = new Intl.NumberFormat("ru-RU", {
+    style: "percent",
+    maximumFractionDigits: 1,
+  }).format(group.count / response.total);
+  const list = await ask(page, "Покажи доли команд списком");
+  expect(list.groups).toEqual(response.groups);
+  const directory = page.getByTestId("group-directory");
+  const item = directory.getByRole("button").filter({ hasText: group.label });
+  await expect(item).toContainText(label);
+  await item.click();
+  await expect(
+    page.getByRole("dialog").getByRole("link").first(),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  const compared = await ask(page, "Покажи доли команд таблицей");
+  expect(compared.groups).toEqual(response.groups);
+  const table = page.getByTestId("group-comparison").getByRole("table");
+  await expect(
+    table.getByRole("row").filter({ hasText: group.label }),
+  ).toContainText(label);
 });

@@ -136,11 +136,18 @@ export function prepareFact(
     if (invalidStart)
       notes.push("Без корректной пары дат в периоде: " + invalidStart + ".");
   } else if (plan.period !== "snapshot") {
-    const missing = rows.filter((r) => !r.dates.submitDate).length;
+    const field = plan.dateField ?? "submitDate";
+    const missing = rows.filter((r) => !r.dates[field]).length;
     if (missing)
-      notes.push("Без даты регистрации в исходной выборке: " + missing + ".");
+      notes.push(
+        "Без даты " +
+          (field === "completionDate" ? "завершения" : "регистрации") +
+          " в исходной выборке: " +
+          missing +
+          ".",
+      );
     rows = rows.filter((r) => {
-      const t = Date.parse(r.dates.submitDate ?? "");
+      const t = Date.parse(r.dates[field] ?? "");
       return t >= range.start && t <= range.end;
     });
   }
@@ -328,6 +335,20 @@ export function describeFact(
   } else if (operation === "count") {
     title = "Количество заявок";
     headline = "Заявок в выборке: " + n + ".";
+    if (intent.fact!.dateField === "completionDate") {
+      method = "По дате завершения (completionDate). " + range;
+      if (
+        intent.filters.states?.length === 1 &&
+        intent.filters.states[0] === 10
+      ) {
+        headline =
+          "Сейчас закрыты и имеют дату завершения в периоде: " + n + ".";
+        method += " Дата перехода в статус «Закрыт» в снимке отсутствует.";
+      } else {
+        headline =
+          "Заявок с подтверждённой датой завершения в периоде: " + n + ".";
+      }
+    }
   } else {
     const field = fields[intent.groupBy];
     if (operation === "frequency") {

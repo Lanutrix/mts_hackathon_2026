@@ -9,6 +9,13 @@ import {
 } from "../../../packages/contracts/canvasFacts";
 import { TicketMentions } from "./IncidentSources";
 import { formatCount, PageControls } from "./CanvasControls";
+import {
+  Branches,
+  Dossiers,
+  GroupDirectory,
+  Orbit,
+  percent,
+} from "./AnswerCharts";
 import "./factBoard.css";
 
 type Navigation = { ns: string; open: (id: string) => void };
@@ -115,22 +122,213 @@ function RelationDiagram({
     </div>
   );
 }
+type GroupChoice = (g: CanvasGroup | null) => void;
+
+function GroupValues({
+  result,
+  choose,
+}: {
+  result: CanvasResult;
+  choose: GroupChoice;
+}) {
+  const plan = result.intent.fact!;
+  const groups = result.groups;
+  const display =
+    plan.display ?? (plan.operation === "distinct" ? "list" : "bars");
+  const perPage = ["cards", "ring", "diagram"].includes(display) ? 6 : 8;
+  const [requested, setPage] = useState(0);
+  const pages = Math.ceil(groups.length / perPage);
+  const page = Math.min(requested, pages - 1);
+  const start = page * perPage;
+  const visible = groups.slice(start, start + perPage);
+  const maximum = groups.reduce((n, g) => Math.max(n, g.count), 1);
+  const marks = {
+    all: groups,
+    groups: visible,
+    start,
+    choose,
+    weight: "count" as const,
+  };
+  let chart;
+  switch (display) {
+    case "ring":
+      chart = <Orbit {...marks} />;
+      break;
+    case "diagram":
+      chart = <Branches {...marks} />;
+      break;
+    case "cards":
+      chart = <Dossiers {...marks} />;
+      break;
+    case "list":
+      chart = (
+        <GroupDirectory groups={visible} total={result.total} choose={choose} />
+      );
+      break;
+    case "table":
+      chart = (
+        <table className="fact-rank fact-group-table">
+          <caption className="sr-only">Распределение заявок по группам</caption>
+          <thead>
+            <tr>
+              <th scope="col">Группа</th>
+              <th scope="col">Заявки</th>
+              <th scope="col">Доля</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((g) => (
+              <tr key={g.key}>
+                <th scope="row">
+                  <button type="button" onClick={() => choose(g)}>
+                    {g.label}
+                  </button>
+                </th>
+                <td>{formatCount(g.count)}</td>
+                <td>{percent(g.count, result.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+      break;
+    default:
+      chart = visible.map((g) => (
+        <button
+          key={g.key}
+          type="button"
+          className="fact-bar"
+          onClick={() => choose(g)}
+          style={{ "--fraction": g.count / maximum } as CSSProperties}
+        >
+          <span>{g.label}</span>
+          <b>{formatCount(g.count)} ↗</b>
+          <i aria-hidden="true" />
+        </button>
+      ));
+  }
+  return (
+    <div className="fact-distribution" data-display={display}>
+      {chart}
+      <PageControls
+        page={page}
+        pages={pages}
+        goto={setPage}
+        label="Страницы групп"
+      />
+    </div>
+  );
+}
+
+function Moment({ iso }: { iso: string }) {
+  return <time dateTime={iso}>{fmt.format(new Date(iso))}</time>;
+}
+
+function DurationRanking({
+  result,
+  ...navigation
+}: Navigation & { result: CanvasResult }) {
+  const rows = result.fact!.durations!;
+  const display = result.intent.fact?.display;
+  const [requested, setPage] = useState(0);
+  const pages = Math.ceil(rows.length / 10);
+  const page = Math.min(requested, pages - 1);
+  const shown = rows.slice(page * 10, (page + 1) * 10);
+  const maximum = rows.reduce((n, r) => Math.max(n, r.ms), 1);
+  const caption =
+    "Длительность решения · " +
+    formatCount(rows.length) +
+    " из " +
+    formatCount(result.total);
+  const isBars = display === "bars";
+  return (
+    <div className="fact-durations">
+      {isBars || display === "list" ? (
+        <>
+          <p className="fact-duration-caption">{caption}</p>
+          <ol
+            start={page * 10 + 1}
+            className={isBars ? "fact-duration-bars" : "fact-duration-list"}
+            aria-label="Длительность решения"
+          >
+            {shown.map((row) => (
+              <li key={row.id}>
+                <div className="fact-duration-row">
+                  <div className="fact-duration-identity">
+                    <SourceId id={row.id} {...navigation} />
+                    <span>{row.header ?? "Тема не указана"}</span>
+                  </div>
+                  <strong>{formatFactDuration(row.ms)}</strong>
+                </div>
+                {isBars && (
+                  <div className="fact-duration-track" aria-hidden="true">
+                    <i style={{ width: (100 * row.ms) / maximum + "%" }} />
+                  </div>
+                )}
+                <p className="fact-duration-dates">
+                  <span>
+                    Регистрация <Moment iso={row.start} />
+                  </span>
+                  <span>
+                    Завершение <Moment iso={row.end} /> МСК
+                  </span>
+                </p>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <table className="fact-rank">
+          <caption>{caption}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Заявка</th>
+              <th scope="col">Длительность</th>
+              <th scope="col">Регистрация, МСК</th>
+              <th scope="col">Завершение, МСК</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <SourceId id={row.id} {...navigation} />
+                  <span className="fact-rank-subject">
+                    {row.header ?? "Тема не указана"}
+                  </span>
+                </td>
+                <td>{formatFactDuration(row.ms)}</td>
+                <td>
+                  <Moment iso={row.start} />
+                </td>
+                <td>
+                  <Moment iso={row.end} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <PageControls
+        page={page}
+        pages={pages}
+        goto={setPage}
+        label="Страницы рейтинга"
+      />
+    </div>
+  );
+}
+
 export default function FactBoard({
   result,
   choose,
   ...navigation
 }: Navigation & {
   result: CanvasResult;
-  choose: (g: CanvasGroup | null) => void;
+  choose: GroupChoice;
 }) {
-  const fact = result.fact!,
-    groups = result.groups;
-  const [requested, setPage] = useState(0);
-  const durations = fact.durations ?? [];
-  const perPage = durations.length ? 10 : 8,
-    pages = Math.ceil((durations.length || groups.length) / perPage),
-    page = Math.max(0, Math.min(requested, pages - 1));
-  const maximum = Math.max(1, groups[0]?.count ?? 0, groups.at(-1)?.count ?? 0);
+  const fact = result.fact!;
+  const viewKey = result.selection + ":" + (result.intent.fact?.display ?? "");
   return (
     <div
       className="fact-board"
@@ -141,92 +339,11 @@ export default function FactBoard({
         <p className="fact-value">{fact.headline}</p>
         <p className="fact-method">{fact.method}</p>
       </div>
-      {groups.length > 0 && (
-        <div className="fact-distribution">
-          {result.intent.fact?.operation === "distinct" ? (
-            <ul className="fact-directory" aria-label="Перечень значений">
-              {groups
-                .slice(page * perPage, (page + 1) * perPage)
-                .map((group) => (
-                  <li key={group.key}>
-                    <button type="button" onClick={() => choose(group)}>
-                      <strong>{group.label}</strong>
-                      <span>Заявок: {formatCount(group.count)} ↗</span>
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          ) : (
-            groups.slice(page * perPage, (page + 1) * perPage).map((group) => (
-              <button
-                key={group.key}
-                type="button"
-                className="fact-bar"
-                onClick={() => choose(group)}
-                style={{ "--fraction": group.count / maximum } as CSSProperties}
-              >
-                <span>{group.label}</span>
-                <b>{formatCount(group.count)} ↗</b>
-                <i aria-hidden="true" />
-              </button>
-            ))
-          )}
-          <PageControls
-            page={page}
-            pages={pages}
-            goto={setPage}
-            label="Страницы групп"
-          />
-        </div>
+      {result.groups.length > 0 && (
+        <GroupValues key={viewKey} result={result} choose={choose} />
       )}
-      {durations.length > 0 && (
-        <div>
-          <table className="fact-rank">
-            <caption>
-              Длительность решения · {durations.length} из{" "}
-              {formatCount(result.total)}
-            </caption>
-            <thead>
-              <tr>
-                <th>Заявка</th>
-                <th>Длительность</th>
-                <th>Регистрация, МСК</th>
-                <th>Завершение, МСК</th>
-              </tr>
-            </thead>
-            <tbody>
-              {durations
-                .slice(page * perPage, (page + 1) * perPage)
-                .map((row) => (
-                  <tr key={row.id}>
-                    <td>
-                      <SourceId id={row.id} {...navigation} />
-                      <span className="fact-rank-subject">
-                        {row.header ?? "Тема не указана"}
-                      </span>
-                    </td>
-                    <td>{formatFactDuration(row.ms)}</td>
-                    <td>
-                      <time dateTime={row.start}>
-                        {fmt.format(new Date(row.start))}
-                      </time>
-                    </td>
-                    <td>
-                      <time dateTime={row.end}>
-                        {fmt.format(new Date(row.end))}
-                      </time>
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          <PageControls
-            page={page}
-            pages={pages}
-            goto={setPage}
-            label="Страницы рейтинга"
-          />
-        </div>
+      {!!fact.durations?.length && (
+        <DurationRanking key={viewKey} result={result} {...navigation} />
       )}
       {fact.nodes && <RelationDiagram fact={fact} {...navigation} />}
       {fact.notes.map((text) => (

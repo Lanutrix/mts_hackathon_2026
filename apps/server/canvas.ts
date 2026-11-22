@@ -1,3 +1,4 @@
+import { canRedrawGroups, formatOnly, groupDisplay, requestedFactDisplay, supportsFactDisplay } from "./factDisplay.ts";
 import { randomUUID } from "node:crypto";
 import type {
   CanvasBlock,
@@ -69,6 +70,7 @@ const escalation = (row: Incident) =>
     : row.raw.isNeedUp === false
       ? "no"
       : "unknown";
+
 const openStates = [0, 2, 20];
 
 function includesLabel(values: string[] | undefined, label: string, canonical: boolean) {
@@ -90,6 +92,7 @@ function selected(row: Incident, f: CanvasFilters, now: number, allStates = fals
   return (
     (!f.ids || f.ids.includes(row.id)) &&
     includesLabel(f.teams, row.team, allStates) &&
+    (!f.excludedTeams || !includesLabel(f.excludedTeams, row.team, true)) &&
     includesLabel(f.products, spaces(row.raw.productName), allStates) &&
     (!f.priorities || f.priorities.includes(row.priorityId!)) &&
     (!f.deadline || deadlineStatus(row.dates.deadline, now) === f.deadline) &&
@@ -129,11 +132,13 @@ function describe(filters: CanvasFilters) {
   const terms = [
     ...(filters.ids ?? []),
     ...(filters.teams ?? []),
+    ...(filters.excludedTeams?.map(team => "кроме команды «" + team + "»") ?? []),
     ...(filters.products ?? []),
     ...(filters.symptoms ?? []),
     ...(filters.priorities?.map((p) => "приоритет «" + PRIORITIES[p] + "»") ??
       []),
     ...(filters.states?.map((s) => STATES[s].label) ?? []),
+    ...(filters.states?.length === 0 ? ["нет общих статусов с предыдущей выборкой"] : []),
     ...(filters.deadline
       ? [deadlineLabels[filters.deadline].toLocaleLowerCase("ru")]
       : []),
@@ -144,6 +149,7 @@ function describe(filters: CanvasFilters) {
   return terms.join(" · ");
 }
 interface PinnedSelection {
+  displayResult?: CanvasResult;
   namespace: string;
   actor: string;
   expires: number;
@@ -160,6 +166,7 @@ export class CanvasService {
       run?: string;
       expires: number;
       history: DialogueTurn[];
+      displaySelection?: string;
     }
   >();
   constructor(private readonly client?: VseLlm) {}
@@ -168,6 +175,7 @@ export class CanvasService {
     actor: string,
     history: DialogueTurn[],
     turn: DialogueTurn,
+    displaySelection?: string,
   ) {
     const now = Date.now();
     for (const [key, entry] of this.turns)
@@ -181,6 +189,7 @@ export class CanvasService {
       run: source.simulation?.runId,
       expires: now + 15 * 60_000,
       history: [...history.slice(-2), turn],
+      displaySelection,
     });
     return token;
   }
@@ -311,14 +320,20 @@ export class CanvasService {
     const { namespace, revision } = source;
     const now = Date.now();
     const prior = turnToken && this.turns.get(turnToken);
-    const history =
-      prior &&
-      prior.namespace === namespace &&
-      prior.actor === actor &&
-      prior.run === source.simulation?.runId &&
-      prior.expires > now
-        ? prior.history
-        : [];
+    const activeTurn = prior && prior.namespace === namespace && prior.actor === actor &&
+      prior.run === source.simulation?.runId && prior.expires > now ? prior : undefined;
+    const history = activeTurn?.history ?? [];
+    if (question && activeTurn?.displaySelection) {
+      const pinned = this.pinned.get(activeTurn.displaySelection);
+      const result = pinned?.displayResult;
+      const display = requestedFactDisplay(question);
+      if (pinned && pinned.expires > now && result && display && formatOnly(question, display)) {
+        if (result.intent.fact && supportsFactDisplay(result.intent.fact.operation, display))
+          return { ...result, intent: { ...result.intent, fact: { ...result.intent.fact, display } } };
+        if (canRedrawGroups(result.intent))
+          return { ...result, intent: { ...result.intent, ...groupDisplay(display) } };
+      }
+    }
     if (question && asksForScopeExplanation(question)) {
       const active = { ...(context ?? initialIntent) };
       delete active.topic;
@@ -443,11 +458,14 @@ export class CanvasService {
       if (intent.fact.ascending && intent.fact.operation === "frequency")
         primary.groups.sort((a,b) => a.count - b.count || collator.compare(a.label,b.label));
       const answer = describeFact(intent, prepared, primary.groups, describe(intent.filters));
-      return { ...base, ...answer, total: tickets.length, metrics: [], groups: primary.groups,
+      const result: CanvasResult = { ...base, ...answer, total: tickets.length, metrics: [], groups: primary.groups,
         tickets: primary.tickets, selection: primary.selection, blocks: [],
-        ...(question ? { turnToken: this.remember(source, actor, history, {
+        turnToken: this.remember(source, actor, history, {
           question: "Расчёт по полям ITSM", answer: "Результат доступен в предыдущем срезе."
-        }) } : {}) };
+        }, primary.selection) };
+      const pinned = this.pinned.get(primary.selection);
+      if (pinned) pinned.displayResult = result;
+      return result;
     }
     const insights = intent.insightIds?.length
       ? buildAnswerInsights("", matches, now, intent.insightIds)
@@ -489,7 +507,7 @@ export class CanvasService {
         ", устранение последствий требуется у " +
         escalated +
         ".";
-    return {
+    const result: CanvasResult = {
       ...base,
       ...(question
         ? {
@@ -507,7 +525,7 @@ export class CanvasService {
               ]
                 .filter(Boolean)
                 .join(" "),
-            }),
+            }, primary.selection),
           }
         : {}),
       title,
@@ -525,5 +543,8 @@ export class CanvasService {
       selection: primary.selection,
       blocks,
     };
+    const pinned = this.pinned.get(primary.selection);
+    if (pinned && result.turnToken && !result.conversation && canRedrawGroups(intent)) pinned.displayResult = result;
+    return result;
   }
 }

@@ -356,7 +356,7 @@
         ],
         "additionalProperties": false
       },
-      "CanvasFactPlan": {"type":"object","properties":{"operation":{"enum":["frequency","distinct","count","duration","relations"]},"period":{"enum":["snapshot","today","yesterday","week","month","year"]},"ascending":{"enum":[true]}},"required":["operation","period"],"additionalProperties":false},
+      "CanvasFactPlan": {"type":"object","properties":{"operation":{"enum":["frequency","distinct","count","duration","relations"]},"period":{"enum":["snapshot","today","yesterday","week","month","year"]},"display":{"enum":["ring","table","bars","list","cards","diagram"]},"dateField":{"enum":["completionDate"]},"ascending":{"enum":[true]}},"required":["operation","period"],"additionalProperties":false},
       "CanvasFact": {"type":"object","properties":{"headline":{"type":"string"},"method":{"type":"string"},"notes":{"type":"array","items":{"type":"string"}},"durations":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"header":{"type":["string","null"]},"start":{"type":"string","format":"date-time"},"end":{"type":"string","format":"date-time"},"ms":{"type":"integer","minimum":0}},"required":["id","header","start","end","ms"],"additionalProperties":false}},"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"found":{"type":"boolean"},"label":{"type":"string"}},"required":["id","found"],"additionalProperties":false},"maxItems":10},"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"kind":{"enum":["reference","similarity"]},"evidence":{"type":"array","items":{"type":"string"}}},"required":["from","to","kind","evidence"],"additionalProperties":false}}},"required":["headline","method","notes"],"additionalProperties":false},
       "CanvasIntent": {
         "type": "object",
@@ -393,6 +393,7 @@
           "filters": {
             "type": "object",
             "properties": {
+              "excludedTeams":{"type":"array","items":{"type":"string","minLength":1,"maxLength":500},"minItems":1,"maxItems":10},
               "teams": {
                 "type": "array",
                 "items": {
@@ -459,7 +460,7 @@
                     20
                   ]
                 },
-                "minItems": 1,
+                "minItems": 0,
                 "maxItems": 10
               },
               "deadline": {
