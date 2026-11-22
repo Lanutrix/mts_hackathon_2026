@@ -11,6 +11,7 @@ import { buildTriage, filterDashboard } from "../packages/domain/triage.ts";
 import { createApp } from "../apps/server/api.ts";
 import { AnalysisService } from "../apps/server/analysis.ts";
 import { analyzeCase } from "../apps/server/caseAnalysis.ts";
+import { liveChecks } from "../packages/domain/liveStep.ts";
 import { refineLiveStep } from "../apps/server/liveGuidance.ts";
 import { VseLlm } from "../apps/server/vsellm.ts";
 import { Auth } from "../apps/server/auth.ts";
@@ -112,6 +113,7 @@ test("live AI renders distinct grounded manual checks and rejects invented facts
   const group = buildTriage([row], "priority", 1, now).cases[0];
   for (const [action, ref, expected] of [
     ["Уточните у команды новый срок решения.", "deadline", "model"],
+    ["Уточните у координатора причину задержки срока решения в карточке заявки.", "deadline", "model"],
     ["Спросите, когда исполнитель сообщит новый срок.", "deadline", "model"],
     ["Уточните срок восстановления после пожара.", "deadline", "local"],
     ["Уточните у команды новый срок решения.", "unverifiedCause", "local"],
@@ -123,6 +125,23 @@ test("live AI renders distinct grounded manual checks and rejects invented facts
     const result = await refineLiveStep(client, group.step, row, group, now);
     assert.equal(result.mode, expected);
     assert.equal(result.action, expected === "model" ? action : group.step.action);
+  }
+});
+
+test("live model can explicitly rank a grounded check when its free wording is unusable", async () => {
+  const row = ticket(0);
+  const group = buildTriage([row], "priority", 1, now).cases[0];
+  const replies = [
+    { ref: "deadline", preferredCheck: "B", action: "Фантазия модели" },
+    { ref: "unverified", preferredCheck: "B", action: "Фантазия модели" },
+  ];
+  for (const reply of replies) {
+    const client = new VseLlm("key", "test-model", async () =>
+      Response.json({ choices: [{ message: { content: JSON.stringify(reply) } }] }));
+    const result = await refineLiveStep(client, group.step, row, group, now);
+    assert.equal(result.mode, reply.ref === "deadline" ? "model" : "local");
+    assert.doesNotMatch(result.action, /Фантазия/);
+    if (result.mode === "model") assert.equal(result.action, liveChecks[group.step.reason][1]);
   }
 });
 
