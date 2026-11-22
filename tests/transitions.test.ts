@@ -71,7 +71,7 @@ test("F11 F35 demo terminal Closed rejects edit, repeat uses new ID; reset uses 
     await writeFile(path, "[]");
     await source.tick();
     await demo.action("reset");
-    assert.equal(s.rows.size, 600);
+    assert.equal(s.rows.size, 800);
     const rows = generate(1).rows;
     rows[0].stateId = 10;
     rows[0].stateEnum = "Closed";

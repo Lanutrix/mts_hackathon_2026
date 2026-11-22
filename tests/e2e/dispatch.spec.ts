@@ -55,13 +55,14 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
   try {
     const origin = await app.listen({ host: "127.0.0.1", port: 0 });
     options.origin = origin;
-    await page.goto(origin + "/live");
+    const feed = origin + "/live?groupBy=team";
+    await page.goto(feed);
     const login = page.getByRole("dialog");
     await expect(login).toBeVisible();
     await login.getByLabel("Имя пользователя").fill("дежурный");
     await login.getByLabel("Пароль").fill(password);
     await login.getByRole("button", { name: "Войти", exact: true }).click();
-    await expect(page).toHaveURL(origin + "/live");
+    await expect(page).toHaveURL(feed);
     await page.getByTestId("live-guidance").getByRole("link", { name: "Открыть заявку " + rows[0].id }).click();
     await expect(page).toHaveURL(new RegExp("/incident/" + rows[0].id));
     const facts = page.getByRole("region", { name: "Текущее состояние" });
@@ -167,6 +168,15 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
       true,
     );
+    await journal.getByRole("link", { name: "Вернуться в эфир" }).click();
+    await expect(page).toHaveURL(feed);
+    const stamp = page.getByRole("status").filter({ hasText: "Решение в журнале" });
+    await expect(stamp).toContainText(String(rows[0].id));
+    await expect(stamp).toContainText("Сеть");
+    await expect(page.getByTestId("card-" + rows[0].id)).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId("live-register")).toBeVisible();
+    await expect(stamp).toHaveCount(0);
   } finally {
     await page.close();
     await app.close();

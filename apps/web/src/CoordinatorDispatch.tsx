@@ -4,6 +4,8 @@ import type { DispatchDecision, DispatchMember, DispatchTeam, DispatchView } fro
 import { Icon } from "./Brand";
 import DispatchHints from "./DispatchHints";
 import { ItsmLink } from "./TicketRecord";
+import { rememberHandoff } from "./DispatchReturn";
+import { liveReturnHref } from "./routes";
 import "./dispatch.css";
 
 type Draft = {
@@ -17,6 +19,7 @@ type Draft = {
 };
 type Props = {
   incident: Incident;
+  username: string;
   ns: string;
   sourceRevision: number;
   csrf?: string;
@@ -331,6 +334,7 @@ export default function CoordinatorDispatch(props: Props) {
         throw new Error(body.message || "Не удалось сохранить решение.");
       }
       const decision: DispatchDecision = body.decision;
+      rememberHandoff(props.username, ns, incident.id, decision.team);
       setView(
         (previous) =>
           previous && {
@@ -530,6 +534,11 @@ export default function CoordinatorDispatch(props: Props) {
                 decision={view.history[0]}
                 props={props}
               />
+              <a className="dispatch-return-link" href={liveReturnHref(ns)} onClick={event => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                props.navigate(liveReturnHref(ns));
+              }}><Icon name="live" size={17} />Вернуться в эфир</a>
               {view.history.length > 1 && (
                 <details>
                   <summary>

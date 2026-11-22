@@ -8,19 +8,10 @@ import { screenLink } from "./routes";
 
 import { responseBands } from "../../../packages/domain/responseOrder";
 
-const dimensions = [
-  ["response", "Порядок разбора", "ranking"],
-  ["symptom", "Симптом", "symptom"],
-  ["symptomProduct", "Симптом и продукт", "relation"],
-  ["priority", "Приоритет", "high"],
-  ["product", "Продукт", "layers"],
-  ["team", "Команда", "team"],
-] as const;
-
 type Check = { record: TriageCase; step: LiveStep };
 
 function caseCriterion(record: TriageCase, dimension: string) {
-  if (dimension === "symptom" || dimension === "symptomProduct") {
+  if (dimension === "semantic" || dimension === "symptom" || dimension === "symptomProduct") {
     const field = record.evidence[0]?.field;
     const source =
       field === "header"
@@ -53,7 +44,7 @@ function CaseExample({
   if (dimension === "response" && record.responseRank !== undefined)
     return <p className="case-criterion">{responseBands[record.responseRank].basis}</p>;
   const quote =
-    dimension === "symptom" || dimension === "symptomProduct" ? record.evidence[0]?.value : record.label;
+    ["semantic", "symptom", "symptomProduct"].includes(dimension) ? record.evidence[0]?.value : record.label;
   return (
     <div className="case-example">
       <p className="case-criterion">{caseCriterion(record, dimension)}</p>
@@ -115,32 +106,35 @@ export default function TriageCases(props: Props) {
   const band = focus?.responseRank === undefined ? undefined : responseBands[focus.responseRank];
   const inspected = inspection?.query === props.query ? cases.find(item => item.id === inspection.record.id) : undefined;
   const inspectedStep = inspected && (inspected.id === focus?.id ? step : inspected.step);
+  useEffect(() => {
+    if (inspection && !inspected) setInspection(null);
+  }, [inspection, inspected]);
+  const [expanded, setExpanded] = useState(false);
+  const visibleCases = expanded ? cases : cases.slice(0, 6);
+  if (chosen && !visibleCases.includes(chosen)) visibleCases.push(chosen);
+  const modeled = cases.filter(item => item.origin === "model").length;
   const pick = (id: string) => {
     setParam("case", id);
   };
   return (
     <aside className="case-lens" aria-label="Группировка и разбор инцидентов">
       <div className="case-groups-heading">
-        <h2>Группировка</h2>
-      </div>
-      <div className="case-dimensions" role="group" aria-label="Группировка инцидентов">
-        {dimensions.map(([value, name, icon]) => (
-          <button key={value} type="button" aria-pressed={dimension === value}
-            onClick={() => setParam("groupBy", value)}>
-            <Icon name={icon} size={16} />{name}
-          </button>
-        ))}
+        <h2>Группы инцидентов</h2>
+        {dimension === "semantic" && <small>{modeled === 0 ? "По описаниям" :
+          modeled === cases.length ? "VseLLM" : "VseLLM и локальный разбор"}</small>}
       </div>
       <div className="case-group-options" role="group" aria-label="Выбрать группу">
         <button type="button" aria-pressed={!chosen} onClick={() => pick("")}>
-          Все инциденты <b>{amount}</b>
+          <Icon name="queue" size={17} /><span>Все инциденты</span><b>{amount}</b>
         </button>
-        {cases.map(item => (
+        {visibleCases.map(item => (
           <button type="button" key={item.id} aria-pressed={item.id === chosen?.id} onClick={() => pick(item.id)}>
-            <span>{item.label}</span><b>{item.count}</b>
+            <Icon name={item.icon ?? "relation"} size={17} /><span>{item.label}</span><b>{item.count}</b>
           </button>
         ))}
       </div>
+      {cases.length > 6 && <button type="button" className="more-cases" aria-expanded={expanded}
+        onClick={() => setExpanded(value => !value)}>{expanded ? "Свернуть группы" : "Все группы · " + cases.length}</button>}
       {props.ready && focus && step && (
         <LiveAdvice key={JSON.stringify([props.query, focus.id, step.key])} {...props} record={focus} step={step}
           inspect={advice => setInspection({ record: focus, step, query: props.query, advice, dimension })}
@@ -152,10 +146,10 @@ export default function TriageCases(props: Props) {
               По симптомам и продуктам
             </button> : null} />
       )}
-      {inspection && (
-        <CaseDialog {...props} {...inspection} record={inspected ?? inspection.record}
-          step={inspectedStep ?? inspection.step} revision={(inspected ?? inspection.record).revision}
-          advice={inspectedStep && inspectedStep.key !== inspection.step.key ? null : inspection.advice}
+      {inspection && inspected && inspectedStep && (
+        <CaseDialog {...props} {...inspection} record={inspected}
+          step={inspectedStep} revision={inspected.revision}
+          advice={inspectedStep.key === inspection.step.key && inspected.hash === inspection.record.hash ? inspection.advice : null}
           close={() => setInspection(null)} />
       )}
     </aside>
@@ -248,8 +242,9 @@ function LiveAdvice(props: Props & Check & {
         <button type="button" className="case-analyze" onClick={event => {
           event.currentTarget.focus({preventScroll: true});
           props.inspect(advice);
-        }}>Подробнее</button>
+        }}>Подробнее <span aria-hidden="true">↗</span></button>
       </div>
+      <p className="advice-group"><Icon name={record.icon ?? "relation"} size={15} />{record.label}</p>
       {result.status === "pending" ? <Loader label="Готовим совет по заявке…" /> :
         result.status === "failed" ? <div className="advice-status">
           <span role="status">{result.message}</span>
@@ -348,7 +343,7 @@ function CaseDialog({
             Закрыть <span aria-hidden="true">×</span>
           </button>
         </div>
-        <h2 id="case-dialog-title">{record.label}</h2>
+        <h2 id="case-dialog-title">{record.icon && <Icon name={record.icon} size={24} />}{record.label}</h2>
       </header>
       <div className="case-dialog-body">
         <dl className="case-facts">

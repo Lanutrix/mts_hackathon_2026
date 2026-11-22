@@ -1,7 +1,8 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { generate, FIXED_CLOCK } from "../packages/domain/generator.ts";
-import { TEAM } from "../packages/domain/index.ts";
+import { expectedGroups, generate, FIXED_CLOCK } from "../packages/domain/generator.ts";
+import { trainingRows } from "../packages/domain/trainingShift.ts";
+import { TEAM, hash } from "../packages/domain/index.ts";
 await mkdir("data/demo", { recursive: true });
 await mkdir(".runtime/fixtures", { recursive: true });
 const manifests = [];
@@ -16,9 +17,14 @@ for (const seed of [42, 43, 44, 92831])
       JSON.stringify(manifest, null, 2),
     );
     manifests.push(manifest);
-    if (seed === 42 && count === 600)
-      await writeFile("data/demo/incidents.json", JSON.stringify(rows));
   }
+const training = trainingRows();
+await writeFile("data/demo/incidents.json", JSON.stringify(training));
+manifests.push({
+  generatorVersion: "training-shift-1", seed: 42, fixedClock: FIXED_CLOCK,
+  count: training.length, sha256: hash(training), expected: expectedGroups(training),
+  scenarios: ["curriculum-104-cases", "regional-observations", "specialist-routing"],
+});
 await writeFile("data/demo/manifests.json", JSON.stringify(manifests, null, 2));
 const raw = generate(1).rows[0];
 const cases = [

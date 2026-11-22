@@ -1084,7 +1084,7 @@
       ],
       "get": {
         "summary": "Страница заявок выбранного кейса и версии",
-        "description": "Повторите ns, groupBy, signal, q, service и up из запроса очереди.",
+        "description": "Повторите ns, groupBy и действующие фильтры из запроса очереди. Сервер проверяет версию и хэш состава группы.",
         "parameters": [
           {"in":"query","name":"offset","schema":{"type":"integer","minimum":0,"default":0}},
           {"in":"query","name":"limit","schema":{"type":"integer","minimum":1,"maximum":100,"default":30}},
@@ -1316,7 +1316,11 @@
           }
         },
         "parameters": [
-          { "in":"query", "name":"groupBy", "schema":{"enum":["response","symptom","symptomProduct","priority","product","team"],"default":"symptom"} },
+          { "in":"query", "name":"groupBy", "description":"Для реестра register=1 по умолчанию применяется semantic. Для прежнего представления очереди — symptom.", "schema":{"enum":["semantic","response","symptom","symptomProduct","priority","product","team"]} },
+          { "in":"query", "name":"priority", "schema":{"enum":["1","2","3","4"]} },
+          { "in":"query", "name":"product", "schema":{"type":"string"} },
+          { "in":"query", "name":"team", "schema":{"type":"string"} },
+          { "in":"query", "name":"symptom", "schema":{"type":"string"} },
           { "in":"query", "name":"band", "description":"Сохранить подборку по причине при смене группировки", "schema":{"enum":["criticalDeadline","critical","overdue","soon","followUp","handoff","research","monitor","verify"]} },
           { "in":"query", "name":"case", "description":"ID группы в текущем срезе", "schema":{"type":"string"} },
           { "in":"query", "name":"register", "description":"Вернуть одну общую страницу register вместо записей в каждой сигнальной очереди", "schema":{"enum":["1"]} },

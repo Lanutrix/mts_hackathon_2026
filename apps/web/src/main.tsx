@@ -22,7 +22,7 @@ import {
   disconnectDeviceBrowser,
   DeviceNotifications,
 } from "./DeviceNotifications";
-import { isTrainingPath, screenLink, screenPath } from "./routes";
+import { isTrainingPath, liveReturnHref, screenLink, screenPath } from "./routes";
 import Loader from "./Loader";
 import { IncidentNotice, type IncidentSignal } from "./IncidentNotice";
 import { mergeSignals } from "./signalQueue";
@@ -279,7 +279,13 @@ function App({ initialRoute }: { initialRoute: URL }) {
       screenPath(new URL(path, location.origin).pathname).startsWith(
         "/incident/",
       );
-    history.pushState(fromCanvas ? { fromCanvas: true } : null, "", path);
+    const target = screenPath(new URL(path, location.origin).pathname);
+    const fromLive = screenPath(previous) === "/live" && target.startsWith("/incident/");
+    const restoredPage = target === "/live" && path === history.state?.liveOrigin
+      ? history.state?.livePage : undefined;
+    history.pushState(fromLive
+      ? { liveOrigin: location.pathname + location.search, livePage: history.state?.livePage }
+      : fromCanvas ? { fromCanvas: true } : restoredPage ? { livePage: restoredPage } : null, "", path);
     const next = readRoute();
     setRoute(next);
     if (next.pathname !== previous) window.scrollTo(0, 0);
@@ -378,7 +384,7 @@ function Dashboard({
         q.set("register", "1");
         q.delete("offset");
         q.delete("limit");
-        if (!q.has("groupBy") && !q.has("case")) q.set("groupBy", "response");
+        if (!q.has("groupBy")) q.set("groupBy", q.has("case") ? "symptom" : "semantic");
       }
       const dashboard = await read("/dashboard?" + q);
       if (gen !== generation.current) return;
@@ -504,6 +510,11 @@ function Dashboard({
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (path !== "/live" || data?.namespace !== ns || data?.filterQuery !== query || !data?.triage?.refining) return;
+    const timer = setTimeout(() => { if (!pending.current) void latestLoad.current(); }, 1400);
+    return () => clearTimeout(timer);
+  }, [data, ns, path, query]);
   useEffect(() => {
     const boundary = data?.triage?.nextChangeAt;
     if (path !== "/live" || data?.namespace !== ns || data.filterQuery !== query ||
@@ -638,7 +649,7 @@ function Dashboard({
     }
     if (key === "case" && data?.triage) p.set("groupBy", data.triage.groupBy);
     value ? p.set(key, value) : p.delete(key);
-    if (["signal", "groupBy", "q", "service", "up"].includes(key))
+    if (["signal", "groupBy", "q", "service", "up", "priority", "team", "product", "symptom", "band"].includes(key))
       p.delete("case");
     for (const g of groups) if (g !== key) p.delete(g);
     go(link(p.size ? path + "?" + p : path));
@@ -652,8 +663,10 @@ function Dashboard({
       setError((e as Error).message);
     }
   };
-  const wave = path === "/live" && data?.filterQuery === query && signals.length >= 4 &&
-    data.triage?.groupBy === "response" ? data.triage.cases[0] : undefined;
+  const wave = path === "/live" && data?.filterQuery === query && signals.length >= 4
+    ? data.triage?.groupBy === "response" ? data.triage.cases[0]
+      : data.triage?.cases.find((item: {id: string; count: number}) => item.count > 1 && item.id === data.triage.liveFocus?.caseId)
+    : undefined;
   const sourceProblem =
     error ||
     data?.status.state === "error" ||
@@ -886,6 +899,7 @@ function Dashboard({
             <React.Suspense fallback={<Loader stage label="Открываем эфир…" />}>
               <LiveBoard
                 data={data}
+                username={user.username}
                 csrf={user?.csrf}
                 canAnalyze={
                   !!write || (publicDemo && (ns === "demo" || training))
@@ -932,6 +946,7 @@ function Dashboard({
             extra.incident.id === decodeURIComponent(path.split("/")[2]) && (
               <Detail
                 key={extra.incident.key}
+                liveBack={liveReturnHref(ns)}
                 canvasBack={
                   history.state?.fromCanvas === true
                     ? link("/workspace")
@@ -949,6 +964,7 @@ function Dashboard({
                       (user?.username ?? "")
                     }
                     incident={extra.incident}
+                    username={user.username}
                     ns={ns}
                     sourceRevision={data.revision}
                     csrf={user?.csrf}
@@ -1211,6 +1227,7 @@ function fieldCaption(field: string) {
 }
 function Detail({
   canvasBack,
+  liveBack,
   item,
   dispatch,
   zone,
@@ -1223,6 +1240,7 @@ function Detail({
 }: {
   item: any;
   canvasBack?: string;
+  liveBack: string;
   dispatch: React.ReactNode;
   zone: string;
   now: number;
@@ -1253,6 +1271,13 @@ function Detail({
     <section className={"content detail" + (mock ? "" : " detail-with-actions")}>
       <div className="ticket-columns">
         <div className="ticket-story" role="region" aria-label="Карточка инцидента" tabIndex={0}>
+          {!canvasBack && !mock && (
+            <a className="canvas-back" href={liveBack} onClick={event => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate(liveBack);
+            }}><span aria-hidden="true">←</span> Вернуться в эфир</a>
+          )}
           {canvasBack && (
             <a
               className="canvas-back"

@@ -47,6 +47,28 @@
 .shift-metrics .metric-overdue-count strong {
   color: var(--wm-pink, var(--critical));
 }
+.shift-counter { position: relative; white-space: nowrap; }
+.shift-counter-reels { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .shift-counter[data-rolling] .shift-counter-value { opacity: 0; }
+  .shift-counter[data-rolling] .shift-counter-reels {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    user-select: none;
+  }
+  .shift-counter-reels > span { overflow: clip; }
+  .shift-counter-reels [data-glyph] { display: block; position: relative; white-space: pre; }
+  .shift-counter-reels [data-glyph]::before { content: attr(data-glyph); }
+  .shift-counter-reels [data-prior]::after {
+    content: attr(data-prior);
+    position: absolute;
+    inset-inline-start: 0;
+    bottom: 100%;
+  }
+  .shift-counter[data-rolling="down"] [data-prior]::after { bottom: auto; top: 100%; }
+}
 .shift-metrics dd > span {
   display: block;
   color: var(--wm-muted, var(--muted));

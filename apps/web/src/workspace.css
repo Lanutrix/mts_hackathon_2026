@@ -241,3 +241,8 @@
 .ar-symbol-list dd {margin:3px 0 0 36px;font-size:.86rem;line-height:1.35;color:var(--cx-muted)}
 .ar-symbol-foot {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px}
 .ar-symbol-foot .ar-help-links {margin:0}
+.cx-stage ::highlight(canvas-untyped) {
+  color: transparent;
+  text-decoration-color: transparent;
+  text-shadow: none;
+}

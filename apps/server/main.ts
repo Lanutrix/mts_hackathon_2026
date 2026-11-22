@@ -7,7 +7,7 @@ import { Auth } from "./auth.ts";
 import { createApp } from "./api.ts";
 import { AnalysisService } from "./analysis.ts";
 import { loadVseLlm } from "./vsellm.ts";
-import { generate } from "../../packages/domain/generator.ts";
+import { trainingRows } from "../../packages/domain/trainingShift.ts";
 const root = resolve(process.env.DATA_DIR ?? ".runtime");
 await mkdir(root, { recursive: true });
 const db = await openDB(resolve(root, "db"), process.env.DATABASE_URL),
@@ -28,7 +28,7 @@ for (const [namespace, path] of Object.entries(paths)) {
       path,
       JSON.stringify(
         namespace === "demo"
-          ? generate(600, 42, new Date().toISOString()).rows
+          ? trainingRows(new Date().toISOString())
           : [],
       ),
     );

@@ -18,3 +18,14 @@ export function screenLink(target: string, source: string) {
   }
   return url.pathname + url.search + url.hash;
 }
+
+export function liveReturnHref(source: string) {
+  const previous = history.state?.liveOrigin;
+  if (typeof previous === "string" && previous.startsWith("/") && !previous.startsWith("//")) {
+    const url = new URL(previous, location.origin);
+    const namespace = isTrainingPath(url.pathname) ? "simulation" : url.searchParams.get("ns") ?? "demo";
+    if (url.origin === location.origin && screenPath(url.pathname) === "/live" && namespace === source)
+      return url.pathname + url.search;
+  }
+  return screenLink("/live", source);
+}

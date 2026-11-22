@@ -442,24 +442,22 @@ test("cases rank the filtered queue, explain the source tickets and fit the view
     .click();
   await expect.poll(ids).not.toEqual(before);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
-  const dimension = page.getByRole("group", {name: "Группировка инцидентов"});
+  const filters = page.getByLabel("Фильтры и сортировка");
   const groups = page.getByRole("group", {name: "Выбрать группу"});
-  for (const [value, name] of [["team", "Команда"], ["product", "Продукт"], ["priority", "Приоритет"], ["symptom", "Симптом"]]) {
-    const load = page.waitForResponse(
-      (r) =>
-        r.url().includes("/api/dashboard?") &&
-        new URL(r.url()).searchParams.get("groupBy") === value,
-    );
-    const chip = dimension.getByRole("button", { name, exact: true });
-    await chip.click();
-    await load;
-    await expect(chip).toHaveAttribute("aria-pressed", "true");
+  await filters.click();
+  for (const [key, name] of [["team", "Команда"], ["product", "Продукт"], ["priority", "Приоритет"], ["symptom", "Симптом"]]) {
+    const select = page.getByRole("combobox", {name, exact:true});
+    const value = await select.locator("option").nth(1).getAttribute("value");
+    await select.selectOption(value!);
+    await expect.poll(() => new URL(page.url()).searchParams.get(key)).toBe(value);
+    await select.selectOption("");
   }
+  await filters.click();
   await groups.getByRole("button").nth(1).click();
   await expect(register.locator(".triage-ledger-title small")).toBeVisible();
   const caseId = new URL(page.url()).searchParams.get("case");
   const board = await (
-    await page.request.get("/api/dashboard?ns=demo&groupBy=symptom")
+    await page.request.get("/api/dashboard?ns=demo&groupBy=semantic")
   ).json();
   const c = board.triage.cases.find(
     (record: { id: string }) => record.id === caseId,
@@ -468,7 +466,7 @@ test("cases rank the filtered queue, explain the source tickets and fit the view
     await page.request.get(
       "/api/triage/" +
         encodeURIComponent(c.id) +
-        "?ns=demo&revision=" +
+        "?ns=demo&groupBy=semantic&revision=" +
         board.revision +
         "&hash=" +
         c.hash +

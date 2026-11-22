@@ -2,6 +2,7 @@ import {serviceFilterId,sourceServiceTypeId} from "../contracts/serviceType.ts";
 import { liveStep, type LiveStep } from "./liveStep.ts";
 import { knownSymptom, recurringSymptoms, type SymptomEvidence, type SymptomTheme } from "./symptoms.ts";
 import { compareResponse, responseBands, responseRank } from "./responseOrder.ts";
+import type { PlatformIcon } from "./platformIcons.ts";
 export { knownSymptom } from "./symptoms.ts";
 import {
   deadlineStatus,
@@ -13,13 +14,15 @@ import {
   type Incident,
 } from "./index.ts";
 
-export const GROUP_BY = ["response", "symptom", "symptomProduct", "priority", "product", "team"] as const;
+export const GROUP_BY = ["semantic", "response", "symptom", "symptomProduct", "priority", "product", "team"] as const;
 export type GroupBy = (typeof GROUP_BY)[number];
 export type Signal = Group | "all";
 export type CaseEvidence = SymptomEvidence;
 export interface TriageCase {
   id: string;
   label: string;
+  origin?: "model" | "local";
+  icon?: PlatformIcon;
   count: number;
   hash: string;
   revision: number;
@@ -55,6 +58,14 @@ export interface Triage {
   liveFocus?: { caseId: string; step: LiveStep } | null;
   modelGuidance?: boolean;
 }
+export type DashboardFacets = { product: string[]; team: string[]; symptom: string[] };
+export function dashboardFacets(rows: Incident[]): DashboardFacets {
+  const visible = rows.filter(r => r.groups.length);
+  const values = (field: (r: Incident) => string) =>
+    [...new Set(visible.map(field).filter(Boolean))].sort(compareText);
+  return {product: values(r => spaces(r.raw.productName)), team: values(r => spaces(r.raw.assignedGroupName)),
+    symptom: values(r => knownSymptom(r)?.label ?? "")};
+}
 export interface CaseAnalysis {
   semantic?: { sampled: number; themes: SymptomTheme[] };
   mode: "model" | "fallback";
@@ -70,7 +81,7 @@ export interface CaseAnalysis {
   sampled: number;
 }
 export function grouping(q: Record<string, string>) {
-  const groupBy = q.groupBy ?? "symptom";
+  const groupBy = q.groupBy ?? (q.register === "1" ? "semantic" : "symptom");
   const signal = q.signal ?? "all";
   if (
     !GROUP_BY.includes(groupBy as GroupBy) ||
@@ -89,6 +100,10 @@ export function filterDashboard(
   return rows.filter(
     (r) =>
       (!q.band || responseBands[responseRank(r, now)].key === q.band) &&
+      (!q.product || spaces(r.raw.productName) === q.product) &&
+      (!q.team || spaces(r.raw.assignedGroupName) === q.team) &&
+      (!q.priority || String(r.priorityId) === q.priority) &&
+      (!q.symptom || knownSymptom(r)?.label === q.symptom) &&
       (!search ||
         [r.id, r.raw.header, r.raw.productName, r.team, r.raw.assignedEmployee]
           .join(" ")
@@ -118,7 +133,7 @@ export function sortTickets(rows: Incident[], sort?: string, now = Date.now()) {
 }
 
 const norm = (s: string) => s.toLocaleLowerCase("ru").normalize("NFKC");
-type Facet = { key: string; label: string; field: string };
+export type Facet = { key: string; label: string; field: string; icon?: PlatformIcon; origin?: "model" | "local" };
 export function facet(r: Incident, groupBy: GroupBy, now = Date.now()): Facet {
   if (groupBy === "response") return responseBands[responseRank(r, now)];
   if (groupBy === "symptomProduct") {
@@ -238,16 +253,17 @@ function summarizeCase(
   cite(lead, signal.field);
   if (groupBy === "symptomProduct") cite(lead, "productName");
   cite(lead, "priorityId");
-  const target = groupBy === "response" ? lead : (overdue || soon ? earliest : undefined) ?? firstEscalation
+  const target = groupBy === "response" || groupBy === "semantic" ? lead : (overdue || soon ? earliest : undefined) ?? firstEscalation
     ?? (deadlineMissing ? rows.find((row) => !row.dates.deadline) : undefined) ?? lead;
   const step = liveStep(target, now, { count: rows.length, overdue, soon });
   cite(target, step.evidence.field);
   return {
     id,
     label: signal.label,
+    ...(signal.icon ? { icon: signal.icon, origin: signal.origin } : {}),
     ...(groupBy === "response" ? { responseRank: responseRank(lead, now) } : {}),
     count: rows.length,
-    hash: hash(rows.map((r) => [r.key, r.hash, r.sourcePresent])),
+    hash: hash([...(signal.origin ? [signal.label, signal.icon, signal.origin] : []), ...rows.map((r) => [r.key, r.hash, r.sourcePresent])]),
     revision,
     lead: {
       id: lead.id,
@@ -283,6 +299,7 @@ export function buildTriage(
   revision: number,
   now: number,
   signal: Signal = "all",
+  classify: (row: Incident) => Facet = row => facet(row, groupBy, now),
 ) {
   const seen = new Set<string>();
   const buckets = new Map<string, Incident[]>();
@@ -302,7 +319,7 @@ export function buildTriage(
       if (boundary > now && (nextChangeAt === null || boundary < nextChangeAt))
         nextChangeAt = boundary;
     }
-    const key = facet(r, groupBy, now).key;
+    const key = classify(r).key;
     const bucket = buckets.get(key);
     if (bucket) bucket.push(r);
     else buckets.set(key, [r]);
@@ -310,10 +327,10 @@ export function buildTriage(
   const members = new Map<string, Incident[]>();
   const cases: TriageCase[] = [];
   for (const [key, rows] of buckets) {
-    if (groupBy === "response") sortTickets(rows, "response", now);
+    if (groupBy === "response" || groupBy === "semantic") sortTickets(rows, "response", now);
     else rows.sort(urgent);
     const id = hash([groupBy, key]).slice(0, 24);
-    cases.push(summarizeCase(id, facet(rows[0], groupBy, now), groupBy, rows, revision, now));
+    cases.push(summarizeCase(id, classify(rows[0]), groupBy, rows, revision, now));
     members.set(id, rows);
   }
   cases.sort(

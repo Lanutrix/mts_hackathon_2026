@@ -44,6 +44,13 @@ function candidate(row: Incident) {
   }
 }
 
+export function observedPattern(row: Incident) {
+  const found = candidate(row);
+  if (!found) return;
+  const area = found.objects[0].id, effect = found.appearances[0].id;
+  return { area, effect, label: areas[area].label + " · " + effects[effect].label, ...found.evidence };
+}
+
 const version = "semantic-observations-1";
 const instruction = 'Сопоставь обезличенные наблюдения об ИТ-инцидентах по смыслу. objects содержит возможные этапы, appearances — проявления; cues передают наблюдаемые признаки. Объединяй только совместимые описания одного проявления на том же этапе. При сомнении оставь заявку отдельно. У каждого ref одна группа. Группа включает хотя бы два разных ref. area и effect должны встречаться у каждого её участника. Это сходство жалоб, причина и дубли неизвестны. Только JSON {"groups":[{"area":"код из objects","effect":"код из appearances","refs":["T1.header","T2.description"]}]}.';
 

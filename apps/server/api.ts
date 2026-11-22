@@ -26,6 +26,7 @@ import type { AnalysisService } from "./analysis.ts";
 import { analyzeCase } from "./caseAnalysis.ts";
 import { liveStep } from "../../packages/domain/liveStep.ts";
 import { refineLiveStep } from "./liveGuidance.ts";
+import { LiveClusters } from "./liveClusters.ts";
 import { analyzeSelection } from "./operationalAnalysis.ts";
 import { CanvasService } from "./canvas.ts";
 import type { CanvasResult } from "../../packages/contracts/canvas.ts";
@@ -34,6 +35,7 @@ import { registerDispatch } from "./dispatch.ts";
 import { registerPush, type PushOptions } from "./push.ts";
 import {
   buildTriage,
+  dashboardFacets,
   filterDashboard,
   grouping,
   sortTickets,
@@ -153,6 +155,17 @@ export async function createApp(o: AppOptions) {
     run: string;
   };
   const snapshots = new Map<string, TriageSnapshot[]>();
+  const clusters = new LiveClusters(o.ai?.remote);
+  function triageFor(s: TriageSnapshot, ns: string, q: Record<string, string>, now: number,
+    rows: Incident[], generate = false, local = false) {
+    const {groupBy, signal} = grouping(q);
+    const classify = groupBy === "semantic"
+      ? clusters.read(ns + "/" + s.run, s.rows, generate, local) : undefined;
+    return buildTriage(rows, groupBy, s.revision, now, signal, classify);
+  }
+  const snapshotOf = (s: ReadStore): TriageSnapshot => ({
+    revision: s.revision, rows: s.rows, run: "simulation" in s ? s.simulation.runId : "",
+  });
   // Pin at most two previous displayed snapshots per source, sharing immutable
   // row objects with the store. Discard old runs on reset or simulation restart.
   function remember(s: ReadStore) {
@@ -185,7 +198,7 @@ export async function createApp(o: AppOptions) {
     if (!s) return;
     const q = req.query as Record<string, string>;
     const id = (req.params as { id: string }).id;
-    const { groupBy, signal } = grouping(q);
+    const { groupBy } = grouping(q);
     if (!/^\d+$/.test(q.revision ?? "") || !/^[a-f0-9]{64}$/.test(q.hash ?? ""))
       return void reply
         .code(400)
@@ -195,15 +208,14 @@ export async function createApp(o: AppOptions) {
       .get(s.namespace)!
       .find((item) => item.revision === Number(q.revision));
     if (version) {
-      const triage = buildTriage(
-        filterDashboard([...version.rows.values()], q),
-        groupBy,
-        version.revision,
-        Date.now(),
-        signal,
-      );
-      const detail = triage.cases.find((c) => c.id === id && c.hash === q.hash);
-      if (detail) return { s, detail, rows: triage.members.get(id)!, nextChangeAt: triage.nextChangeAt };
+      const now = Date.now(), filtered = filterDashboard([...version.rows.values()], q, now);
+      // A locally rendered group may have been opened just before a model
+      // partition became available. Both drilldowns must refer to exact members.
+      for (const local of groupBy === "semantic" ? [false,true] : [false]) {
+        const triage = triageFor(version, s.namespace, q, now, filtered, false, local);
+        const detail = triage.cases.find((c) => c.id === id && c.hash === q.hash);
+        if (detail) return { s, detail, rows: triage.members.get(id)!, nextChangeAt: triage.nextChangeAt };
+      }
     }
     reply.code(409).send({
       message: "Подборка изменилась. Откройте её из обновлённой очереди.",
@@ -504,7 +516,7 @@ export async function createApp(o: AppOptions) {
     let status = structuredClone(s.status);
     const all = [...s.rows.values()];
     const { groupBy, signal } = grouping(q);
-    const sort = q.sort || (groupBy === "response" ? "response" : undefined);
+    const sort = q.sort || (groupBy === "response" || groupBy === "semantic" ? "response" : undefined);
     const filtered = sortTickets(filterDashboard(all, q, now), sort, now);
     remember(s);
     const groups = Object.fromEntries(
@@ -523,13 +535,9 @@ export async function createApp(o: AppOptions) {
       }),
     );
     const relevant = filtered.filter((r) => r.groups.length);
-    const { members, ...triage } = buildTriage(
-      relevant,
-      groupBy,
-      revision,
-      now,
-      signal,
-    );
+    const allowGroups = identity(req)?.role !== "viewer" ||
+      (o.publicDemo && (s.namespace === "simulation" || s.namespace === "demo"));
+    const { members, ...triage } = triageFor(snapshotOf(s), s.namespace, q, now, relevant, allowGroups);
     let register;
     if (q.register === "1") {
       const selected = q.case ? members.get(q.case) ?? [] :
@@ -570,6 +578,7 @@ export async function createApp(o: AppOptions) {
       revision,
       acceptedAt,
       register,
+      ...(register ? {facets:dashboardFacets(all)} : {}),
       status,
       serverTime: new Date(now).toISOString(),
       namespace: s.namespace,
@@ -580,6 +589,7 @@ export async function createApp(o: AppOptions) {
       groups,
       triage: {
         ...triage,
+        refining: groupBy === "semantic" && clusters.refining(s.rows),
         modelGuidance: !!o.ai?.remote,
         liveFocus: groupBy === "response" && triage.cases[0]
           ? { caseId: triage.cases[0].id, step: triage.cases[0].step }
@@ -660,16 +670,14 @@ export async function createApp(o: AppOptions) {
           if (!store || ("simulation" in store && store.simulation.runId !== runId))
             return false;
           const clock = Date.now();
-          if (store.revision === detail.revision && store.rows.get(row.key)?.hash === row.hash &&
+          const q = req.query as Record<string, string>;
+          if (q.groupBy !== "semantic" && store.revision === detail.revision && store.rows.get(row.key)?.hash === row.hash &&
             store.rows.get(row.key)?.sourcePresent === row.sourcePresent &&
             (selection.nextChangeAt === null || clock < selection.nextChangeAt)) return true;
-          const q = req.query as Record<string, string>;
-          const { groupBy, signal } = grouping(q);
-          const latest = buildTriage(filterDashboard([...store.rows.values()], q),
-            groupBy, store.revision, clock, signal);
+          const latest = triageFor(snapshotOf(store), store.namespace, q, clock, filterDashboard([...store.rows.values()], q, clock));
           const group = latest.cases.find((c) => c.id === detail.id);
           const target = latest.members.get(detail.id)?.find((r) => r.key === row.key);
-          return !!group && !!target && liveStep(target, clock, group).key === step.key;
+          return !!group && !!target && (q.groupBy !== "semantic" || group.hash === detail.hash) && liveStep(target, clock, group).key === step.key;
         };
         if (step.key !== request.decisionKey || !currentStep())
           return reply.code(409).send({ message: "Совет уже изменился." });
@@ -705,20 +713,14 @@ export async function createApp(o: AppOptions) {
       let stale = !current;
       if (
         current &&
-        (current.revision !== detail.revision ||
+        ((req.query as Record<string,string>).groupBy === "semantic" || current.revision !== detail.revision ||
           ("simulation" in s &&
             "simulation" in current &&
             s.simulation.runId !== current.simulation.runId))
       ) {
         const q = req.query as Record<string, string>;
-        const { groupBy, signal } = grouping(q);
-        const live = buildTriage(
-          filterDashboard([...current.rows.values()], q),
-          groupBy,
-          current.revision,
-          Date.now(),
-          signal,
-        );
+        const clock = Date.now();
+        const live = triageFor(snapshotOf(current), current.namespace, q, clock, filterDashboard([...current.rows.values()], q, clock));
         stale = !live.cases.some(
           (c) => c.id === detail.id && c.hash === detail.hash,
         );

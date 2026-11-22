@@ -25,7 +25,7 @@ interface Reading {
 }
 type Result = { reading: Reading } | { error: string };
 type JsonReply = { json: unknown } | { error: string };
-type RequestPriority = "interactive" | "background" | "background-review";
+type RequestPriority = "interactive" | "background" | "background-review" | "clusters";
 const failure = (message: string) => ({ error: "VseLLM: " + message });
 const isLine = (s: unknown): s is string =>
   typeof s === "string" &&
@@ -134,13 +134,13 @@ export class VseLlm {
       return failure("достигнут лимит запросов.");
     // Generation and its evidence check can each use six slots per minute.
     // Both share one in-flight slot, leaving capacity for interactive requests.
-    if (background && (this.backgroundPending >= 1 ||
+    if (background && ((priority !== "clusters" && this.backgroundPending >= 1) ||
       recent.filter((call) => call.priority === priority).length >= 6 ||
       this.started.filter((call) => call.priority === priority).length >= 180))
       return failure("достигнут лимит фоновых обновлений.");
     this.started.push({ at: now, priority });
-    if (background) this.backgroundPending++;
-    const job = this.complete(system, packet, timeout);
+    if (background && priority !== "clusters") this.backgroundPending++;
+    const job = this.complete(system, packet, timeout, priority === "clusters" ? 2200 : 450);
     this.pending.set(id, job);
     try {
       const result = await job;
@@ -153,13 +153,14 @@ export class VseLlm {
       return result;
     } finally {
       this.pending.delete(id);
-      if (background) this.backgroundPending--;
+      if (background && priority !== "clusters") this.backgroundPending--;
     }
   }
   private async complete(
     system: string,
     packet: object,
     timeout: number,
+    maxTokens: number,
   ): Promise<JsonReply> {
     try {
       const response = await this.request(
@@ -175,7 +176,7 @@ export class VseLlm {
           body: JSON.stringify({
             model: this.model,
             temperature: 0.2,
-            max_tokens: 450,
+            max_tokens: maxTokens,
             response_format: { type: "json_object" },
             messages: [
               { role: "system", content: system },
@@ -192,7 +193,7 @@ export class VseLlm {
       }
       const reply = await response.json();
       const raw = reply?.choices?.[0]?.message?.content;
-      if (typeof raw !== "string" || raw.length > 5000)
+      if (typeof raw !== "string" || raw.length > (maxTokens > 450 ? 12000 : 5000))
         return failure("не удалось проверить формат ответа.");
       return { json: JSON.parse(raw) };
     } catch {

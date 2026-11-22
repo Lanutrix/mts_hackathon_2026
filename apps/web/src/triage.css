@@ -957,47 +957,35 @@
 .scope-band { display: inline-flex; align-items: center; gap: .5rem; margin-block: .25rem; border: 1px solid var(--rule); border-radius: 1rem; background: transparent; color: var(--text); padding: .25rem .65rem; font-size: .76rem; }
 
 .case-lens { align-self: start; }
-.case-groups-heading { padding: .8rem 0 .6rem; }
-.case-dimensions, .case-group-options {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: start;
-  gap: .35rem;
-  min-width: 0;
-}
-.case-dimensions button, .case-group-options button {
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  min-width: 0;
-  min-height: 32px;
-  padding: .28rem .62rem;
-  border: 1px solid var(--wm-line);
-  border-radius: 1.3rem;
-  color: var(--text);
-  background: transparent;
-  font-size: .77rem;
-  line-height: 1.25;
-  text-align: left;
-}
-.case-dimensions svg { flex: none; color: var(--wm-violet); }
-.case-dimensions button:hover, .case-group-options button:hover { border-color: var(--wm-muted); color: var(--text); }
-.case-dimensions button[aria-pressed="true"] { color: var(--wm-on-ink); background: var(--wm-ink); border-color: var(--wm-ink); }
-.case-dimensions button[aria-pressed="true"] svg { color: inherit; }
+.case-groups-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .2rem .5rem; padding: .65rem 0 .35rem; }
+.case-groups-heading h2 { margin: 0; }
+.case-groups-heading small { color: var(--wm-muted); font-size: .7rem; }
 .case-group-options {
-  max-height: min(19vh, 12rem);
-  overflow-y: auto;
-  margin-block: .7rem .1rem;
-  padding: .55rem .2rem .35rem;
-  border-top: 1px solid var(--wm-line);
+  display: grid; align-content: start; gap: .15rem; min-width: 0;
+  max-height: clamp(9rem, 26vh, 17rem); overflow-y: auto;
+  margin-block: .2rem; padding: .12rem;
   scrollbar-width: thin;
 }
-.case-group-options button { border-color: transparent; border-radius: .4rem; padding: .22rem .4rem; }
+.case-group-options button {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .55rem;
+  min-width: 0; min-height: 30px; padding: .26rem .5rem;
+  background: transparent; border: 1px solid transparent; border-radius: .4rem;
+  color: var(--text); text-align: left; font-size: .83rem; line-height: 1.25;
+}
+.case-group-options button:hover { background: var(--surface); border-color: var(--wm-line); }
+.case-group-options svg, .advice-group svg { flex: none; color: var(--wm-violet); }
 .case-group-options button span { overflow-wrap: anywhere; }
 .case-group-options b { font-variant-numeric: tabular-nums; color: var(--wm-muted); }
 .case-group-options button[aria-pressed="true"] { color: var(--wm-green); border-color: currentColor; }
 .case-group-options button[aria-pressed="true"] b { color: inherit; }
-.case-lens :is(.case-dimensions, .case-group-options) button:focus-visible { outline-offset: -2px; }
+.case-group-options button:focus-visible { outline-offset: -2px; }
+.case-lens .more-cases { border: 0; background: transparent; color: var(--wm-green); padding: .25rem .55rem; font: 600 .76rem/1.3 "Golos Text", sans-serif; }
+.live-advice .case-analyze { display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  flex: none; background: var(--wm-green); color: var(--wm-on-ink); padding: .45rem .75rem; min-height: 34px; border-radius: .55rem; font-size: .84rem; }
+.live-advice .case-analyze:hover { filter: brightness(1.08); text-decoration: none; }
+.advice-group { display: flex; align-items: center; gap: .35rem; margin: .35rem 0 .2rem; font-size: .79rem; font-weight: 550; }
+.broadcast .filter-pop { max-height: min(65dvh, 32rem); overflow-y: auto; }
+.case-dialog-header h2 svg { margin-inline-end: .55rem; color: var(--wm-violet); }
 
 .case-dialog {
   width: min(48rem, calc(100vw - 1.5rem));
@@ -1036,11 +1024,11 @@
   .triage-layout .case-lens { display: block; width: 100%; }
   .case-groups-heading { padding-block: .2rem; }
   .case-groups-heading h2 { font-size: 1rem; }
-  .case-dimensions, .case-group-options {
-    flex-wrap: nowrap; overflow-x: auto; max-height: none;
+  .case-group-options {
+    display: flex; flex-wrap: nowrap; overflow-x: auto; max-height: none;
     scrollbar-width: thin; padding: .2rem 0;
   }
-  .case-dimensions button, .case-group-options button { flex: none; }
+  .case-group-options button { flex: none; }
   .case-group-options { margin-block: .12rem; }
   .case-group-options button { max-width: min(80vw, 22rem); }
 }

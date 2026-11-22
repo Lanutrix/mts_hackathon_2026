@@ -2,10 +2,62 @@ import { test, expect } from "@playwright/test";
 import { resolve } from "node:path";
 import { createApp } from "../../apps/server/api.ts";
 import { Auth } from "../../apps/server/auth.ts";
+import { AnalysisService } from "../../apps/server/analysis.ts";
+import { VseLlm } from "../../apps/server/vsellm.ts";
 import { openDB } from "../../apps/server/db.ts";
 import { Store } from "../../apps/worker/ingestion.ts";
 import { generate } from "../../packages/domain/generator.ts";
 import { PRIORITIES, STATES } from "../../packages/domain/index.ts";
+
+test("live displays the accepted semantic partition without reload and tracks a changed description", async ({page,context}) => {
+  const db = await openDB(":memory:");
+  const store = new Store(db, "demo"), auth = new Auth();
+  auth.sessions.set(auth.digest("clusters"), {username:"coordinator",role:"coordinator",csrf:"csrf",expires:Date.now()+60_000});
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => {release = resolve});
+  const client = new VseLlm("test","test", async (_url, init) => {
+    const packet = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    let answer: object = {};
+    if (packet.profiles) {
+      await hold;
+      answer = {groups: [
+        {basis:["login","portal"], profiles:"all", icon:"login", title:"Сбои входа в кабинет"},
+        {basis:["login"], profiles:"all", icon:"login", title:"Сбои входа"},
+      ]};
+    }
+    return Response.json({choices:[{message:{content:JSON.stringify(answer)}}]});
+  });
+  const ai = new AnalysisService(db,undefined,500,undefined,client);
+  const app = await createApp({stores:new Map([["demo",store]]),sources:new Map(),auth, ai,
+    origin:"",secure:false,publicDemo:false,staticDir:resolve("dist/web")});
+  try {
+    const input = generate(2).rows.map((row,i) => ({...row, id:String(row.id), header:"Обращение клиента", shortDescription:null,
+      description:i ? "Ошибка авторизации." : "Не удаётся войти в кабинет.", stateId:2,state:STATES[2].label,
+      stateEnum:STATES[2].enum,priorityId:3,priority:PRIORITIES[3]}));
+    await store.ingest(JSON.stringify(input));
+    const origin = await app.listen({host:"127.0.0.1",port:0});
+    await context.addCookies([{name:"wm_session",value:"clusters",url:origin}]);
+    await page.goto(origin + "/live");
+    const groups = page.getByRole("group",{name:"Выбрать группу"});
+    await expect(groups.getByRole("button",{name:/Ошибки авторизации/})).toContainText("2");
+    const table = page.getByTestId("live-register");
+    release();
+    const selected = groups.getByRole("button",{name:/Сбои входа в кабинет/});
+    await expect(selected).toBeVisible();
+    await selected.click();
+    await expect(table.locator("tbody tr")).toHaveCount(1);
+    await expect(table.locator("tbody tr")).toHaveAttribute("data-testid","card-"+input[0].id);
+    await page.getByRole("button",{name:"Подробнее"}).click();
+    await expect(page.getByRole("dialog").getByRole("heading",{name:"Сбои входа в кабинет"})).toBeVisible();
+    await page.getByRole("button",{name:"Закрыть разбор"}).click();
+    await groups.getByRole("button",{name:/Все инциденты/}).click();
+    await store.ingest(JSON.stringify(input.map((r,i)=> i ? r : {...r,description:"SMS с кодом не доставлено."})));
+    await expect(groups.getByRole("button",{name:/Не доставлено уведомление/})).toBeVisible();
+    await expect(selected).toHaveCount(0);
+  } finally {
+    release(); await page.close(); await app.close(); await ai.close(); await db.close();
+  }
+});
 
 for (const mode of ["batch", "stream"] as const) {
   for (const size of [10, 30, 800]) {
@@ -24,7 +76,8 @@ for (const mode of ["batch", "stream"] as const) {
         const origin = await app.listen({ host: "127.0.0.1", port: 0 });
         await context.addCookies([{name: "wm_session", value: "pressure", url: origin}]);
         await page.setViewportSize({width: 1366, height: 768});
-        await page.goto(origin + "/live");
+        // Exercise the response-order deep link retained for pinned queues.
+        await page.goto(origin + "/live?groupBy=response");
         const empty = page.getByTestId("empty-shift");
         await expect(empty).toContainText("Новые заявки появятся здесь автоматически");
         await expect(page.getByTestId("live-guidance")).toHaveCount(0);
@@ -102,8 +155,7 @@ for (const mode of ["batch", "stream"] as const) {
         }
         await advice.getByRole("button", {name: "По симптомам и продуктам"}).click();
         await expect(count).toHaveText("2");
-        await expect(page.getByRole("group", {name: "Группировка инцидентов"})
-          .getByRole("button", {name: "Симптом и продукт"})).toHaveAttribute("aria-pressed", "true");
+        await expect(page).toHaveURL(/groupBy=symptomProduct/);
         await expect(page.getByRole("button", {name: /Снять ограничение/})).toBeVisible();
         await expect(register.locator(".feed-pages")).toContainText("из 2");
         await expect(ledger.first()).toBeVisible();

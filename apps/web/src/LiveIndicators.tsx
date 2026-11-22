@@ -1,7 +1,58 @@
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { Triage } from "../../../packages/domain/triage";
 import ShiftSlice from "./ShiftSlice";
 import "./liveIndicators.css";
+
+const integer = new Intl.NumberFormat("ru-RU");
+
+function ShiftCount({ value, testId }: { value: number; testId: string }) {
+  const label = integer.format(value);
+  const root = useRef<HTMLElement>(null);
+  const previous = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const element = root.current!;
+    const old = previous.current;
+    previous.current = value;
+    const preference = matchMedia("(prefers-reduced-motion: reduce)");
+    if (preference.matches || !element.animate || value === old) return;
+    const prior = old === null ? [] : Array.from(integer.format(old)).reverse();
+    const direction = old !== null && value < old ? -1 : 1;
+    const reels = Array.from(element.querySelectorAll<HTMLElement>("[data-glyph]")).reverse();
+    const animations: Animation[] = [];
+    for (const [place, reel] of reels.entries()) {
+      const glyph = reel.dataset.glyph!;
+      if (!/\d/.test(glyph) || (glyph === prior[place] && reels.length === prior.length)) continue;
+      reel.dataset.prior = prior[place] ?? "";
+      animations.push(reel.animate([
+        { transform: `translateY(${direction * 100}%)` }, { transform: "translateY(0)" },
+      ], {
+        duration: 330, delay: Math.min(place, 4) * 16, easing: "cubic-bezier(.2,.76,.22,1)", fill: "backwards",
+      }));
+    }
+    if (!animations.length) return;
+    element.dataset.rolling = direction > 0 ? "up" : "down";
+    let settled = false;
+    function settle() {
+      if (settled) return;
+      settled = true;
+      delete element.dataset.rolling;
+      for (const animation of animations) animation.cancel();
+      preference.removeEventListener("change", settle);
+    }
+    preference.addEventListener("change", settle);
+    void Promise.allSettled(animations.map(animation => animation.finished)).then(settle);
+    return settle;
+  }, [value]);
+
+  return <strong ref={root} className="shift-counter" data-testid={testId}>
+    <span className="shift-counter-value">{label}</span>
+    <span className="shift-counter-reels" aria-hidden="true">
+      {Array.from(label, (glyph, i) => <span key={label.length - i}>
+        <span data-glyph={glyph} />
+      </span>)}
+    </span>
+  </strong>;
+}
 
 export function ShiftClock({ now, zone }: { now: number; zone: string }) {
   const format = useMemo(
@@ -67,9 +118,7 @@ export function ShiftMetrics({
           <dt>{m.name}</dt>
           <dd>
             <div className="metric-reading">
-              <strong data-testid={m.testId}>
-                {m.count.toLocaleString("ru-RU")}
-              </strong>
+              <ShiftCount value={m.count} testId={m.testId} />
               {m.testId === "live-count" && sliceRevision !== undefined && (
                 <ShiftSlice revision={sliceRevision} />
               )}

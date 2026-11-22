@@ -19,6 +19,7 @@ const credentials = { username: "canvas-coordinator", password: randomUUID() };
 const reader = { username: "canvas-reader", password: randomUUID() };
 let db: Awaited<ReturnType<typeof openDB>>;
 let app: Awaited<ReturnType<typeof createApp>>;
+let demoStore: Store;
 let origin: string;
 let fault: {
   path: string;
@@ -30,6 +31,7 @@ test.beforeEach(async () => {
   fault = null;
   db = await openDB(":memory:");
   const store = new Store(db, "demo");
+  demoStore = store;
   const original = new Store(db, "original");
   const varied = new Store(db, "workspace");
   const products = [
@@ -1013,6 +1015,97 @@ async function observeCanvasMotion(page: Page) {
   });
 }
 
+test("live and wall KPIs roll on entry and changed totals, and settle immediately with reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.addInitScript(() => {
+    const seen = new WeakSet<Animation>();
+    const rolls: string[] = [];
+    Object.assign(window, { rolls });
+    new MutationObserver(() => {
+      for (const animation of document.getAnimations()) {
+        const effect = animation.effect as KeyframeEffect;
+        const metric = effect.target?.closest(".shift-metrics > div");
+        if (!metric || seen.has(animation) || !effect.getKeyframes().some(frame => frame.transform)) continue;
+        seen.add(animation);
+        rolls.push(metric.querySelector("dt")!.textContent!);
+      }
+    }).observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+  });
+  const rolls = () => page.evaluate(() => (window as Window & { rolls?: string[] }).rolls!.slice());
+  expect((await page.request.post(origin + "/api/login", { data: credentials })).ok()).toBe(true);
+  for (const path of ["/wallboard", "/live"]) {
+    await page.goto(origin + path);
+    await expect(page.getByTestId("live-count")).toBeVisible();
+    expect(new Set(await rolls())).toEqual(new Set(["Под наблюдением", "Просрочены", "Устранение последствий"]));
+  }
+  const count = page.getByTestId("escalation-count");
+  const entering = (await rolls()).length;
+  await demoStore.ingest(JSON.stringify(rows.map(row => ({ ...row, isNeedUp: false }))));
+  await expect(count).toHaveText("0");
+  await expect.poll(rolls).toHaveLength(entering + 1);
+  expect((await rolls()).at(-1)).toBe("Устранение последствий");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await demoStore.ingest(JSON.stringify(rows));
+  await expect(count).not.toHaveText("0");
+  expect((await rolls()).length).toBe(entering + 1);
+});
+
+test("a new answer types intact graphemes over selectable text and keeps its source link usable", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const initial = await enter(page);
+  const id = initial.tickets[0].id;
+  const line = "Е\u0308ж и 👩🏽‍💻 проверяют " + id + ". ";
+  const prose = line.repeat(8).trim();
+  const observed = await page.evaluateHandle(() => {
+    const frames: { hidden: string; text: string; height: number }[] = [];
+    let active = true;
+    function sample() {
+      const body = document.querySelector(".cx-prose-sheet p");
+      if (body) {
+        const hidden = [...CSS.highlights.values()].flatMap(highlight => [...highlight])
+          .filter(range => body.contains(range.startContainer)).map(range => range.toString()).join("");
+        frames.push({ hidden, text: body.textContent!, height: (body as HTMLElement).offsetHeight });
+      }
+      if (active) requestAnimationFrame(sample);
+    }
+    requestAnimationFrame(sample);
+    return { frames, stop() { active = false; } };
+  });
+  fault = { path: "/api/canvas", method: "POST", respond: reply => {
+    reply.send({ ...initial, conversation: { title: "Ответ смены", text: prose, sourceIds: [id] } });
+  } };
+  await ask(page, "Подготовь ответ");
+  const body = page.locator(".cx-prose-sheet p");
+  await expect(body).toHaveText(prose);
+  await expect(body.getByRole("link", { name: id }).first()).toBeVisible();
+  await expect.poll(() => observed.evaluate(log => log.frames.at(-1)?.hidden), { timeout: 2500 }).toBe("");
+  const frames = await observed.evaluate(log => { log.stop(); return log.frames; });
+  const partial = frames.filter(frame => frame.hidden && frame.hidden.length < prose.length);
+  expect(new Set(partial.map(frame => frame.hidden)).size).toBeGreaterThan(1);
+  const offsets = new Set(Array.from(new Intl.Segmenter("ru").segment(prose), part => part.index));
+  for (const frame of partial) {
+    expect(frame.text).toBe(prose);
+    expect(prose.endsWith(frame.hidden)).toBe(true);
+    expect(offsets.has(prose.length - frame.hidden.length)).toBe(true);
+  }
+  expect([...new Set(frames.map(frame => frame.height))]).toEqual([frames.at(-1)!.height]);
+  expect(await body.evaluate(el => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const selection = getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const copied = selection.toString();
+    selection.removeAllRanges();
+    return copied;
+  })).toBe(prose);
+  await body.getByRole("link", { name: id }).first().click();
+  await expect(page).toHaveURL(new RegExp("/incident/" + id + "$"));
+  await page.goBack();
+  await expect(body).toHaveText(prose);
+  expect(await page.evaluate(() => CSS.highlights.size)).toBe(0);
+});
+
 test("new canvas answers reveal their text, chart geometry, timeline and graph in reading order", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await enter(page);
@@ -1061,11 +1154,13 @@ test("only accepted fresh responses start motion; reduced motion presents the co
   await page.emulateMedia({ reducedMotion: "reduce" });
   const running = () => page.locator("#cx-stage").evaluate(stage => stage.getAnimations({ subtree: true }).length);
   await expect.poll(running).toBe(0);
+  await expect.poll(() => page.evaluate(() => CSS.highlights.size)).toBe(0);
   const count = await recording.evaluate(log => log.events.length);
   await ask(page, q);
   await expect(page.locator(".fact-arrivals > li")).toHaveCount(3);
   expect(await recording.evaluate(log => log.events.length)).toBe(count);
   expect(await running()).toBe(0);
+  expect(await page.evaluate(() => CSS.highlights.size)).toBe(0);
   expect(await page.locator(".fact-value").evaluate(el => getComputedStyle(el).opacity)).toBe("1");
 });
 

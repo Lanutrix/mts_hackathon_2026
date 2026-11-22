@@ -1,6 +1,7 @@
 import { writeFile, rename, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { generate, FIXED_CLOCK } from "../../packages/domain/generator.ts";
+import { trainingRows } from "../../packages/domain/trainingShift.ts";
 import {
   STATES,
   TEAM,
@@ -66,7 +67,7 @@ export class Demo {
         this.stepIndex = 0;
         await atomicWrite(
           this.source.path,
-          JSON.stringify(generate(600, 42, this.clock).rows),
+          JSON.stringify(trainingRows(this.clock)),
         );
       });
       return;

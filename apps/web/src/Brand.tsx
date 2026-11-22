@@ -5,6 +5,21 @@ import "./brand.css";
 const mtsMark = new URL("./assets/mts-case-mark.png", import.meta.url).href;
 
 const paths = {
+  login: "M14 3h5v18h-5M3 12h12m-5-5 5 5-5 5",
+  payment: "M3 6h18v13H3zM3 10h18M6 15h4",
+  network: "M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0m-3 3h.01",
+  sync: "M4 10a8 8 0 0 1 14-4l2 2m0-5v5h-5m5 6a8 8 0 0 1-14 4l-2-2m0 5v-5h5",
+  file: "M5 3h9l5 5v13H5zM14 3v6h5M8 13h8m-8 4h6",
+  dns: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-18 0h18m-9-9c-4.5 5-4.5 13 0 18 4.5-5 4.5-13 0-18Z",
+  database: "M4 6c0-4 16-4 16 0s-16 4-16 0Zm0 0v12c0 4 16 4 16 0V6M4 12c0 4 16 4 16 0",
+  sim: "M6 3h8l4 4v14H6zM9 10h6v7H9zM9 13h6m-3 0v4",
+  messages: "M3 4h13v7H8l-4 3v-3H3zM10 15h7l4 3v-9h-2",
+  video: "M3 5h18v14H3zM10 9l5 3-5 3z",
+  cdn: "M9 3h6v5H9zM2 16h6v5H2zm14 0h6v5h-6zM12 8v4m-7 4v-4h14v4",
+  phone: "M6 3l3 4-2 3c2 3 4 5 7 7l3-2 4 3-2 3c-2 2-7 0-12-5S0 6 3 4z",
+  cloud: "M6 18a5 5 0 1 1 1-10 6 6 0 0 1 12-1 5.5 5.5 0 0 1 0 11H6Z",
+  mobile: "M7 2h10a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm2 3h6m-3 14h.01",
+  mail: "M3 5h18v14H3zM3 6l9 7 9-7",
   duration: "M8 3h8M12 3v3m6 2 2-2M20 14a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8 0 3-4m-8 6 1.3 1.5",
   ranking: "M3 5v15h18M6 7h13l-2 3H6Zm0 7h8l-2 3H6Z",
   relation: "M5 16 11 9m2 0 5 5M4 16c3-2 4 1 2 3-3 2-4-1-2-3Zm6-10c3-2 4 1 2 3-3 2-4-1-2-3Zm8 8c3-2 4 1 2 3-3 2-4-1-2-3Z",

@@ -1,8 +1,77 @@
+// Hide the untyped suffix on the browser's highlight layer. The entire answer
+// stays in its original text nodes for wrapping, selection, links and readers.
+function typeCanvasText(stage: HTMLElement, preference: MediaQueryList) {
+  if (typeof Highlight === "undefined" || !CSS.highlights || !Intl.Segmenter) return;
+  const segmenter = new Intl.Segmenter("ru", { granularity: "grapheme" });
+  const hidden = new Highlight();
+  const runs: { range: Range; offsets: number[] }[] = [];
+  let length = 0;
+  const prose = stage.querySelectorAll([
+    ".cx-plot-title h2:not(.sr-only)", ".fact-value", ".cx-prose-sheet p", ".cx-empty h3", ".cx-empty p",
+    ".ar-definition p", ".ar-guide-section h3", ".ar-guide-section p", ".ar-guide-section li",
+    ".ar-symbol-single p", ".ar-symbol-list dd", ".ar-brief-main p", ".ins-block h3", ".ins-citation > span", ".fact-note",
+  ].join(","));
+  for (const element of prose) {
+    if (element.closest("details:not([open])")) continue;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement?.closest("svg,[aria-hidden=true]")) continue;
+      const text = node.textContent!;
+      if (!text.trim()) continue;
+      const offsets = Array.from(segmenter.segment(text), part => part.index);
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      hidden.add(range);
+      runs.push({ range, offsets });
+      length += offsets.length;
+    }
+  }
+  if (!length) return;
+  const name = "canvas-untyped";
+  CSS.highlights.set(name, hidden);
+  const duration = Math.min(1250, Math.max(240, length * 6));
+  const start = performance.now();
+  let frame = 0, index = 0, completed = 0;
+  function finish() {
+    cancelAnimationFrame(frame);
+    if (CSS.highlights.get(name) === hidden) CSS.highlights.delete(name);
+    hidden.clear();
+    runs.length = 0;
+    preference.removeEventListener("change", finish);
+    stage.removeEventListener("pointerdown", finish, true);
+    stage.removeEventListener("focusin", finish, true);
+  }
+  function tick(now: number) {
+    const position = Math.floor(length * Math.max(0, now - start) / duration);
+    while (index < runs.length) {
+      const { range, offsets } = runs[index];
+      if (position < completed + offsets.length) {
+        // A responsive view may replace its original text while settling its layout.
+        if (range.startContainer.nodeType === Node.TEXT_NODE &&
+          offsets[position - completed] <= range.endOffset)
+          range.setStart(range.startContainer, offsets[position - completed]);
+        frame = requestAnimationFrame(tick);
+        return;
+      }
+      hidden.delete(range);
+      completed += offsets.length;
+      index++;
+    }
+    finish();
+  }
+  stage.addEventListener("pointerdown", finish, true);
+  stage.addEventListener("focusin", finish, true);
+  preference.addEventListener("change", finish);
+  frame = requestAnimationFrame(tick);
+  return finish;
+}
+
 // Run once for an accepted answer. Layout, pagination and the composer can then
 // update independently, without replaying the entrance on newly mounted marks.
 export function revealCanvas(stage: HTMLElement) {
   const preference = matchMedia("(prefers-reduced-motion: reduce)");
   if (preference.matches || !stage.animate) return;
+  const finishText = typeCanvasText(stage, preference);
   const animations: Animation[] = [];
   const easing = "cubic-bezier(.18,.78,.22,1)";
   const rise = [
@@ -43,6 +112,7 @@ export function revealCanvas(stage: HTMLElement) {
   play("node", ".fact-node, .ar-leaves > button", rise, 320, 110, 32);
 
   function stop() {
+    finishText?.();
     for (const animation of animations) animation.cancel();
     preference.removeEventListener("change", stop);
   }

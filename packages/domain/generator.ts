@@ -86,7 +86,28 @@ export function generate(count = 600, seed = 42, clock = FIXED_CLOCK) {
     });
     rows.push(r);
   }
-  // Independent enumerative oracle: never imports production membership.
+  return {
+    rows,
+    manifest: {
+      generatorVersion: GENERATOR_VERSION,
+      seed,
+      fixedClock: clock,
+      count,
+      sha256: hash(rows),
+      expected: expectedGroups(rows),
+      scenarios: [
+        "5×4×2×3",
+        "deadline-null-overdue-exact-now-1s-soon-far",
+        "boolean-true-false-null",
+        "18-digit-identity",
+        "zero-waiting-date",
+      ],
+    },
+  };
+}
+
+// Independent enumerative oracle for fixture manifests.
+export function expectedGroups(rows: Raw[]) {
   const expected = {
     critical: [] as string[],
     coordinators: [] as string[],
@@ -107,22 +128,5 @@ export function generate(count = 600, seed = 42, clock = FIXED_CLOCK) {
         if (r.assignedGroupName === TEAM) expected.coordinators.push(key);
     }
   }
-  return {
-    rows,
-    manifest: {
-      generatorVersion: GENERATOR_VERSION,
-      seed,
-      fixedClock: clock,
-      count,
-      sha256: hash(rows),
-      expected,
-      scenarios: [
-        "5×4×2×3",
-        "deadline-null-overdue-exact-now-1s-soon-far",
-        "boolean-true-false-null",
-        "18-digit-identity",
-        "zero-waiting-date",
-      ],
-    },
-  };
+  return expected;
 }
