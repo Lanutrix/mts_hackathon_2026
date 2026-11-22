@@ -1,0 +1,72 @@
+{
+  "source": "https://doi.org/10.24432/C57S4H",
+  "csvSha256": "fd184bbfd62329cfe093e99da2ea7071905f2ead91900b448eb2635870821bef",
+  "rawEvents": 141712,
+  "uniqueIncidents": 24918,
+  "trainingIncidents": 16929,
+  "testIncidents": 7508,
+  "excludedBeforeTraining": 207,
+  "afterTest": 274,
+  "trainingStart": "2016-03-01",
+  "testStart": "2016-05-01",
+  "testEndExclusive": "2016-06-01",
+  "testHours": 744,
+  "hourlyMae": {
+    "calendar": 3.9425,
+    "constantTrainMean": 11.3308,
+    "previousWeek": 4.4879
+  },
+  "predictedTestArrivals": 8487.0,
+  "trainMeanPerHour": 11.5635,
+  "trainDailyWeekdayWeekend": [
+    367.36,
+    45.0
+  ],
+  "trainPeakWeekdayHour": 9,
+  "trainPeakWeekdayRate": 46.43,
+  "empirical10to90InclusiveCoverage": 0.8266,
+  "hourlyVarianceToMeanInTest": 18.377,
+  "pearsonDispersionInTest": 4.306,
+  "outsideRegimeHourlyMae": {
+    "hours": 6240,
+    "arrivals": 272,
+    "endExclusive": "2017-02-16",
+    "calendar": 11.4406,
+    "constantTrainMean": 11.5199
+  },
+  "groupLogLossNats": {
+    "givenCategory": 1.3175,
+    "globalMix": 2.3953
+  },
+  "groupTop1Accuracy": {
+    "givenCategory": 0.6376,
+    "globalMix": 0.5324
+  },
+  "topThreeHourlyGroupLoads": {
+    "Group 70": {
+      "testArrivals": 3997,
+      "calendarCategoryMae": 2.4238,
+      "calendarGlobalMixMae": 2.4404,
+      "constantHourlyGroupMae": 5.8834
+    },
+    "Group 20": {
+      "testArrivals": 490,
+      "calendarCategoryMae": 0.5108,
+      "calendarGlobalMixMae": 0.5126,
+      "constantHourlyGroupMae": 0.8829
+    },
+    "Group 25": {
+      "testArrivals": 192,
+      "calendarCategoryMae": 0.3594,
+      "calendarGlobalMixMae": 0.3647,
+      "constantHourlyGroupMae": 0.5261
+    }
+  },
+  "knownTrainGroups": 67,
+  "trainUnknownAssignment": 845,
+  "testUnknownAssignment": 59,
+  "testUnseenGroup": 1,
+  "topTrainGroup": "Group 70",
+  "topTrainShare": 0.507,
+  "topTestShare": 0.5324
+}

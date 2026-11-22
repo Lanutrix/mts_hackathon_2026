@@ -1250,179 +1250,179 @@ function Detail({
   const zoneLabel = zone === "Europe/Moscow" ? "МСК" : zone;
   const backToTicket = location.pathname.replace("/itsm/", "/incident/") + location.search;
   return (
-    <section className="content detail">
-      {canvasBack && (
-        <a
-          className="canvas-back"
-          href={canvasBack}
-          onClick={(event) => {
-            if (
-              event.ctrlKey ||
-              event.metaKey ||
-              event.shiftKey ||
-              event.altKey
-            )
-              return;
-            event.preventDefault();
-            history.back();
-          }}
-        >
-          <span aria-hidden="true">←</span> Вернуться на холст
-        </a>
-      )}
-      <header className="ticket-hero">
-        <div className="ticket-topline">
-          <p className="ticket-key"><span className="ticket-key-mark" aria-hidden="true" />Инцидент <b>{i.id}</b></p>
-          {!mock && <ItsmLink href={itsmHref} mock={item.itsmMock} navigate={onNavigate} className="button ticket-itsm">
-            {item.itsmMock ? "Открыть в ITSM (макет)" : "Открыть в ITSM"}
-          </ItsmLink>}
-        </div>
-        <h1>{text(i.raw.header, "Без темы")}</h1>
-        <div className="ticket-meta">
-          <span><small>Продукт</small><strong>{text(i.raw.productName)}</strong></span>
-          <span><small>Регистрация</small><time dateTime={i.dates.submitDate || undefined}>{i.dates.submitDate ? formatDate(i.dates.submitDate, zone) + " " + zoneLabel : "Не указана"}</time></span>
-          <span data-priority={completed ? undefined : i.priorityId}><small>Приоритет</small><strong>{i.priorityLabel}</strong></span>
-        </div>
-      </header>
-      {mock && (
-        <div className="ticket-mock notice">
-          <strong>Макет перехода в SimpleOne</strong>
-          <p>Показан тот же инцидент {i.id}. Данные взяты из выгрузки.</p>
-          <a href={backToTicket} onClick={(event) => {
-            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault();
-            onNavigate(backToTicket);
-          }}>Вернуться к инциденту</a>
-        </div>
-      )}
-      {updated && <p role="status" className="notice">Данные инцидента обновлены</p>}
-      {!i.sourcePresent && <p role="status" className="warning">Инцидент отсутствует в последней выгрузке. Проверьте данные в ITSM.</p>}
-      <section className="ticket-current" aria-label="Текущее состояние">
-        <dl>
-          <div><dt><Icon name="live" size={16} />Статус</dt>
-            <dd className="ticket-state" data-completed={completed}>{i.stateLabel}</dd></div>
-          <div><dt><Icon name="clock" size={16} />Срок решения</dt>
-            <TicketDeadline incident={i} now={now} stamp={formatDate(i.dates.deadline, zone) + " " + zoneLabel} /></div>
-          <div><dt><Icon name="coordinators" size={16} />Команда назначения</dt><dd>{i.team || "Не указана"}</dd></div>
-          <div><dt><Icon name="profile" size={16} />Исполнитель</dt><dd>{displayPerson}</dd></div>
-        </dl>
-      </section>
-      <div className="ticket-context">
-        <div className="ticket-description">
-          <h2>Описание</h2>
-          <p className="prose">{text(i.raw.description || i.raw.shortDescription, "Описание отсутствует в выгрузке.")}</p>
-        </div>
-        {!!i.raw.solution && <section className="ticket-solution">
-          <h2>{completed || i.stateId === 20 ? "Решение" : "Запись о решении"}</h2>
-          <p className="prose">{text(i.raw.solution)}</p>
-          {(i.stateId === 0 || i.stateId === 2) && <small>В выгрузке инцидент по-прежнему активен. Запись может описывать предыдущую попытку.</small>}
-        </section>}
-        <p className="ticket-consequences"><span>Устранение последствий</span>
-          <strong>{i.raw.isNeedUp === true ? "Требуется" : i.raw.isNeedUp === false ? "Не требуется" : "Не указано"}</strong>
-        </p>
-      </div>
-      {!mock && dispatch}
-      {write && !mock && (
-        <section className="analysis detail-ai" aria-label="ИИ-сводка">
-          <button
-            type="button"
-            className="detail-ai-trigger"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              try {
-                setAnalysis(await onAnalyze());
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <svg
-              aria-hidden="true"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
+    <section className={"content detail" + (mock ? "" : " detail-with-actions")}>
+      <div className="ticket-columns">
+        <div className="ticket-story" role="region" aria-label="Карточка инцидента" tabIndex={0}>
+          {canvasBack && (
+            <a
+              className="canvas-back"
+              href={canvasBack}
+              onClick={(event) => {
+                if (
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  event.shiftKey ||
+                  event.altKey
+                )
+                  return;
+                event.preventDefault();
+                history.back();
+              }}
             >
-              <path d="m10 3 1.9 5.9L18 11l-6.1 2.1L10 19l-2-5.9L2 11l6-2.1L10 3Zm9 11 1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3Z" />
-            </svg>
-            {busy ? (
-              <Loader label="Готовим разбор…" />
-            ) : analysis ? (
-              "Обновить ИИ-разбор"
-            ) : (
-              "ИИ-разбор"
-            )}
-          </button>
-          {error && <p role="alert">{error}</p>}
-          {analysis && (
-            <div className="detail-ai-result">
-              {(analysis.stale || analysis.inputRevision !== i.revision) && (
-                <p role="status" className="warning">
-                  После разбора инцидент изменился.
-                </p>
-              )}
-              {analysis.mode === "fallback" && (
-                <p className="muted">Сводка по полям</p>
-              )}
-              <ul>
-                {analysis.summary.map((s, n) => (
-                  <li key={n}>{s}</li>
-                ))}
-              </ul>
-              {analysis.error && <p role="status">{analysis.error}</p>}
-              <details>
-                <summary>Основания и модель</summary>
-                {analysis.evidence.map((e, n) => (
-                  <p key={n}>
-                    {e.claim + 1}.{" "}
-                    {e.fields.map((field) => fieldCaption(field)).join(" · ")}
-                  </p>
-                ))}
-                {analysis.uncertainties.map((s, n) => (
-                  <p key={n}>{s}</p>
-                ))}
-                <small>
-                  {analysis.provider} · {analysis.model}
-                </small>
-              </details>
+              <span aria-hidden="true">←</span> Вернуться на холст
+            </a>
+          )}
+          <header className="ticket-hero">
+            <div className="ticket-topline">
+              <p className="ticket-key"><ProductBrand /><span>Инцидент</span><b>{i.id}</b></p>
+              {!mock && <a href="#ticket-actions" className="ticket-actions-jump">К действиям ↓</a>}
+            </div>
+            <h1>{text(i.raw.header, "Без темы")}</h1>
+            <div className="ticket-meta">
+              <span><Icon name="layers" size={16} /><small>Продукт</small><strong>{text(i.raw.productName)}</strong></span>
+              <span><Icon name="history" size={16} /><small>Регистрация</small><time dateTime={i.dates.submitDate || undefined}>{i.dates.submitDate ? formatDate(i.dates.submitDate, zone) + " " + zoneLabel : "Не указана"}</time></span>
+              <span data-priority={completed ? undefined : i.priorityId}><Icon name={i.priorityId === 4 ? "critical" : "ranking"} size={16} /><small>Приоритет</small><strong>{i.priorityLabel}</strong></span>
+            </div>
+          </header>
+          {mock && (
+            <div className="ticket-mock notice">
+              <strong>Макет перехода в SimpleOne</strong>
+              <p>Показан тот же инцидент {i.id}. Данные взяты из выгрузки.</p>
+              <a href={backToTicket} onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                onNavigate(backToTicket);
+              }}>Вернуться к инциденту</a>
             </div>
           )}
-        </section>
-      )}
-      {i.issues.length > 0 && (
-        <details className="ticket-fold">
-          <summary>Проверить данные · {i.issues.length}</summary>
-          <ul>
-            {i.issues.map((q, n) => (
-              <li key={n}>{q.message}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-      <details className="ticket-fold">
-        <summary>История · {item.history.length}</summary>
-        <ol className="history">
-          {item.history.map((e: any) => (
-            <li key={e.revision}>
-              <time dateTime={e.at}>{formatDate(e.at, zone)}</time>
-              <p>
-                {e.kind === "missing"
-                  ? "Запись исчезла из выписки. Сохранено последнее состояние."
-                  : e.kind === "created"
-                    ? "Первое наблюдение"
-                    : "Изменены поля: " + e.changed.map(fieldCaption).join(", ")}
-              </p>
-            </li>
-          ))}
-        </ol>
-      </details>
-      <TicketSource incident={i} />
+          {updated && <p role="status" className="notice">Данные инцидента обновлены</p>}
+          {!i.sourcePresent && <p role="status" className="warning">Инцидент отсутствует в последней выгрузке. Проверьте данные в ITSM.</p>}
+          <section className="ticket-current" aria-label="Текущее состояние">
+            <dl>
+              <div><dt><Icon name="live" size={16} />Статус</dt>
+                <dd className="ticket-state" data-completed={completed}>{i.stateLabel}</dd></div>
+              <div><dt><Icon name="clock" size={16} />Срок решения</dt>
+                <TicketDeadline incident={i} now={now} stamp={formatDate(i.dates.deadline, zone) + " " + zoneLabel} /></div>
+              <div><dt><Icon name="coordinators" size={16} />Команда назначения</dt><dd>{i.team || "Не указана"}</dd></div>
+              <div><dt><Icon name="profile" size={16} />Исполнитель</dt><dd>{displayPerson}</dd></div>
+            </dl>
+          </section>
+          <div className="ticket-context">
+            <div className="ticket-description">
+              <h2>Описание</h2>
+              <p className="prose">{text(i.raw.description || i.raw.shortDescription, "Описание отсутствует в выгрузке.")}</p>
+            </div>
+            {!!i.raw.solution && <section className="ticket-solution">
+              <h2>{completed || i.stateId === 20 ? "Решение" : "Запись о решении"}</h2>
+              <p className="prose">{text(i.raw.solution)}</p>
+              {(i.stateId === 0 || i.stateId === 2) && <small>В выгрузке инцидент по-прежнему активен. Запись может описывать предыдущую попытку.</small>}
+            </section>}
+            <p className="ticket-consequences"><Icon name="escalation" size={16} /><span>Устранение последствий</span>
+              <strong>{i.raw.isNeedUp === true ? "Требуется" : i.raw.isNeedUp === false ? "Не требуется" : "Не указано"}</strong>
+            </p>
+          </div>
+          {i.issues.length > 0 && (
+            <details className="ticket-fold">
+              <summary>Проверить данные · {i.issues.length}</summary>
+              <ul>
+                {i.issues.map((q, n) => (
+                  <li key={n}>{q.message}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <details className="ticket-fold">
+            <summary>История · {item.history.length}</summary>
+            <ol className="history">
+              {item.history.map((e: any) => (
+                <li key={e.revision}>
+                  <time dateTime={e.at}>{formatDate(e.at, zone)}</time>
+                  <p>
+                    {e.kind === "missing"
+                      ? "Запись исчезла из выписки. Сохранено последнее состояние."
+                      : e.kind === "created"
+                        ? "Первое наблюдение"
+                        : "Изменены поля: " + e.changed.map(fieldCaption).join(", ")}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </details>
+          <TicketSource incident={i} />
+        </div>
+        {!mock && <aside className="ticket-actions" id="ticket-actions" aria-label="Действия с заявкой" tabIndex={-1}>
+          <header className="ticket-actions-head">
+            <h2>Действия с заявкой</h2>
+            <ItsmLink href={itsmHref} mock={item.itsmMock} navigate={onNavigate} className="button ticket-itsm">
+              {item.itsmMock ? "Открыть в ITSM (макет)" : "Открыть в ITSM"}
+            </ItsmLink>
+          </header>
+          {write && (
+            <section className="analysis detail-ai" aria-label="ИИ-сводка">
+              <button
+                type="button"
+                className="detail-ai-trigger"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    setAnalysis(await onAnalyze());
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Icon name="layers" size={18} />
+                {busy ? (
+                  <Loader label="Готовим разбор…" />
+                ) : analysis ? (
+                  "Обновить ИИ-разбор"
+                ) : (
+                  "ИИ-разбор"
+                )}
+              </button>
+              {error && <p role="alert">{error}</p>}
+              {analysis && (
+                <div className="detail-ai-result">
+                  {(analysis.stale || analysis.inputRevision !== i.revision) && (
+                    <p role="status" className="warning">
+                      После разбора инцидент изменился.
+                    </p>
+                  )}
+                  {analysis.mode === "fallback" && (
+                    <p className="muted">Сводка по полям</p>
+                  )}
+                  <ul>
+                    {analysis.summary.map((s, n) => (
+                      <li key={n}>{s}</li>
+                    ))}
+                  </ul>
+                  {analysis.error && <p role="status">{analysis.error}</p>}
+                  <details>
+                    <summary>Основания и модель</summary>
+                    {analysis.evidence.map((e, n) => (
+                      <p key={n}>
+                        {e.claim + 1}.{" "}
+                        {e.fields.map((field) => fieldCaption(field)).join(" · ")}
+                      </p>
+                    ))}
+                    {analysis.uncertainties.map((s, n) => (
+                      <p key={n}>{s}</p>
+                    ))}
+                    <small>
+                      {analysis.provider} · {analysis.model}
+                    </small>
+                  </details>
+                </div>
+              )}
+            </section>
+          )}
+          {dispatch}
+        </aside>}
+      </div>
     </section>
   );
 }

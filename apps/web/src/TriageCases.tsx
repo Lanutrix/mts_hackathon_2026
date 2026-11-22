@@ -9,12 +9,12 @@ import { screenLink } from "./routes";
 import { responseBands } from "../../../packages/domain/responseOrder";
 
 const dimensions = [
-  ["response", "По порядку разбора"],
-  ["symptom", "По симптому"],
-  ["symptomProduct", "Симптом и продукт"],
-  ["priority", "По приоритету"],
-  ["product", "По продукту"],
-  ["team", "По команде"],
+  ["response", "Порядок разбора", "ranking"],
+  ["symptom", "Симптом", "symptom"],
+  ["symptomProduct", "Симптом и продукт", "relation"],
+  ["priority", "Приоритет", "high"],
+  ["product", "Продукт", "layers"],
+  ["team", "Команда", "team"],
 ] as const;
 
 type Check = { record: TriageCase; step: LiveStep };
@@ -109,22 +109,7 @@ type Props = {
 
 export default function TriageCases(props: Props) {
   const { cases, chosen, dimension, amount, setParam } = props;
-  const [offset, setOffset] = useState(0);
-  const [shortDisplay, setShortDisplay] = useState(
-    () => matchMedia("(max-height: 950px)").matches,
-  );
-  useEffect(() => {
-    const media = matchMedia("(max-height: 950px)");
-    const resize = () => setShortDisplay(media.matches);
-    media.addEventListener("change", resize);
-    return () => media.removeEventListener("change", resize);
-  }, []);
   const [inspection, setInspection] = useState<{ record: TriageCase; step: LiveStep; query: string; advice: Advice | null; dimension: string } | null>(null);
-  const perPage = shortDisplay && cases.length > 3 ? 2 : 4;
-  const start = Math.min(
-    Math.floor(offset / perPage) * perPage,
-    Math.max(0, Math.floor((cases.length - 1) / perPage) * perPage),
-  );
   const focus = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
   const step = (!chosen && props.liveFocus?.caseId === focus?.id ? props.liveFocus?.step : null) ?? focus?.step;
   const band = focus?.responseRank === undefined ? undefined : responseBands[focus.responseRank];
@@ -135,108 +120,26 @@ export default function TriageCases(props: Props) {
   };
   return (
     <aside className="case-lens" aria-label="Группировка и разбор инцидентов">
-      <div className="case-heading">
-        <h2>
-          {dimension === "response" ? "К разбору" : "Группы"} <small>{cases.length}</small>
-        </h2>
-        <select
-          aria-label="Группировка инцидентов"
-          value={dimension}
-          onChange={(e) => {
-            setOffset(0);
-            setParam("groupBy", e.target.value);
-          }}
-        >
-          {dimensions.map(([v, name]) => (
-            <option key={v} value={v}>
-              {name}
-            </option>
-          ))}
-        </select>
+      <div className="case-groups-heading">
+        <h2>Группировка</h2>
       </div>
-      <div className="case-picker">
-        <select
-          aria-label="Выбрать группу"
-          value={chosen?.id ?? ""}
-          onChange={(e) => pick(e.target.value)}
-        >
-          <option value="">Все инциденты · {amount}</option>
-          {cases.map((k) => (
-            <option key={k.id} value={k.id}>
-              {k.label} · {k.count}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="case-ranks" role="group" aria-label="Группы по срочности">
-        <button
-          className="case-all"
-          type="button"
-          aria-pressed={!chosen}
-          onClick={() => pick("")}
-        >
-          Все инциденты <b>{amount}</b>
-        </button>
-        {cases.slice(start, start + perPage).map((k) => (
-          <button
-            type="button"
-            className="case-rank"
-            aria-pressed={k.id === chosen?.id}
-            onClick={() => pick(k.id)}
-            key={k.id}
-          >
-            <span className="case-rank-name">{k.label}</span>
-            <b>{k.count}</b>
-            {(k.overdue > 0 || k.escalations > 0) && (
-              <small className="case-risk">
-                {k.overdue > 0 && (
-                  <span title={"Просрочено: " + k.overdue}>
-                    <Icon name="clock" size={15} />
-                    <span className="sr-only">Просрочено </span>
-                    {k.overdue}
-                  </span>
-                )}
-                {k.escalations > 0 && (
-                  <span title={"Устранение последствий: " + k.escalations}>
-                    <Icon name="escalation" size={15} />
-                    <span className="sr-only">Устранение последствий </span>
-                    {k.escalations}
-                  </span>
-                )}
-              </small>
-            )}
-            <span className="case-scale" aria-hidden="true">
-              <i
-                style={{
-                  width:
-                    Math.max(1, (100 * k.count) / Math.max(1, amount)) + "%",
-                }}
-              />
-            </span>
+      <div className="case-dimensions" role="group" aria-label="Группировка инцидентов">
+        {dimensions.map(([value, name, icon]) => (
+          <button key={value} type="button" aria-pressed={dimension === value}
+            onClick={() => setParam("groupBy", value)}>
+            <Icon name={icon} size={16} />{name}
           </button>
         ))}
-        {cases.length > perPage && (
-          <nav className="case-pages" aria-label="Страницы групп">
-            <button
-              disabled={!start}
-              aria-label="Предыдущие группы"
-              onClick={() => setOffset(start - perPage)}
-            >
-              ←
-            </button>
-            <span>
-              {start + 1}–{Math.min(cases.length, start + perPage)} из{" "}
-              {cases.length}
-            </span>
-            <button
-              disabled={start + perPage >= cases.length}
-              aria-label="Следующие группы"
-              onClick={() => setOffset(start + perPage)}
-            >
-              →
-            </button>
-          </nav>
-        )}
+      </div>
+      <div className="case-group-options" role="group" aria-label="Выбрать группу">
+        <button type="button" aria-pressed={!chosen} onClick={() => pick("")}>
+          Все инциденты <b>{amount}</b>
+        </button>
+        {cases.map(item => (
+          <button type="button" key={item.id} aria-pressed={item.id === chosen?.id} onClick={() => pick(item.id)}>
+            <span>{item.label}</span><b>{item.count}</b>
+          </button>
+        ))}
       </div>
       {props.ready && focus && step && (
         <LiveAdvice key={JSON.stringify([props.query, focus.id, step.key])} {...props} record={focus} step={step}
@@ -389,7 +292,8 @@ function CaseDialog({
   const [requested, setRequested] = useState(scope);
   const [reading, setReading] = useState<{ scope: string; result: CaseAnalysis } | null>(null);
   const result = reading?.scope === scope ? reading.result : null;
-  const themes = [...(result?.semantic?.themes ?? []), ...(record.themes ?? [])];
+  const themes = [...(result?.semantic?.themes ?? []), ...(record.themes ?? [])]
+    .filter((theme, index, all) => all.findIndex(other => other.label === theme.label) === index);
   const [fault, setFault] = useState("");
   const [brief, setBrief] = useState("");
   const [copied, setCopied] = useState(false);
@@ -437,16 +341,28 @@ function CaseDialog({
       aria-labelledby="case-dialog-title"
       onClose={close}
     >
-      <div className="case-dialog-top">
-        <span>Разбор группы</span>
-        <button aria-label="Закрыть разбор" onClick={() => dialog.current?.close()}>
-          ×
-        </button>
-      </div>
-      <h2 id="case-dialog-title">{record.label}</h2>
-      <p className="case-advice-origin">
-        {advice?.model ? "Совет подготовлен VseLLM · " + advice.model : "Совет по полям ITSM"}
-      </p>
+      <header className="case-dialog-header">
+        <div className="case-dialog-top">
+          <span><Mark />Разбор группы</span>
+          <button type="button" aria-label="Закрыть разбор" onClick={() => dialog.current?.close()}>
+            Закрыть <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <h2 id="case-dialog-title">{record.label}</h2>
+      </header>
+      <div className="case-dialog-body">
+        <dl className="case-facts">
+          <div><dt><Icon name="quantity" size={16} />Инциденты</dt><dd>{record.count}</dd></div>
+          <div data-alert={record.overdue > 0}><dt><Icon name="clock" size={16} />Срок прошёл</dt><dd>{record.overdue}</dd></div>
+          <div><dt><Icon name="duration" size={16} />Срок до 15 мин</dt><dd>{record.soon}</dd></div>
+          <div><dt><Icon name="escalation" size={16} />Устранение последствий</dt><dd>{record.escalations}</dd></div>
+        </dl>
+        <section className="case-next">
+          <h3><Icon name="research" size={18} />{advice ? "Совет ИИ" : "Первая проверка"}</h3>
+          <p>{advice?.text ?? step.action}</p>
+          <button type="button" className="case-source" onClick={() => { close(); open(step.ticketId); }}>{step.ticketId} ↗</button>
+          {advice && <small className="case-advice-origin">VseLLM · {advice.model}</small>}
+        </section>
       {!themes.length && <CaseExample
         record={record}
         dimension={dimension}
@@ -455,43 +371,6 @@ function CaseDialog({
           open(id);
         }}
       />}
-      <button className="case-inline handoff-brief" type="button" onClick={() => {
-        const band = record.responseRank === undefined ? undefined : responseBands[record.responseRank];
-        const text = [record.label + ". Заявок в подборке: " + record.count + ".",
-          band?.basis, "Срок прошёл у " + record.overdue + ", ближайшие 15 минут — у " + record.soon + ".",
-          ...themes.slice(0, 2).map(theme => theme.label + " — " + theme.count + " из " + record.count + "."),
-          "Первая проверка: " + step.ticketId + ". " + (advice?.action ?? step.action),
-          "Подборка: " + (() => {
-            const url = new URL(location.href);
-            url.search = query;
-            url.searchParams.set("case", record.id);
-            return url.href;
-          })()].filter(Boolean).join("\n");
-        setBrief(text);
-        setCopied(false);
-        void navigator.clipboard?.writeText(text).then(() => setCopied(true)).catch(() => {
-          briefField.current?.focus(); briefField.current?.select();
-        });
-      }}><Icon name="team" size={16} /> Сводка для передачи</button>
-      {brief && <div className="handoff-text">
-        <label>{copied ? "Сводка скопирована" : "Текст для передачи"}
-          <textarea ref={briefField} readOnly rows={4} value={brief} onFocus={e => e.target.select()} />
-        </label>
-      </div>}
-      <dl className="case-facts">
-        <div>
-          <dt>Инциденты</dt>
-          <dd>{record.count}</dd>
-        </div>
-        <div>
-          <dt>Срок прошёл</dt>
-          <dd>{record.overdue}</dd>
-        </div>
-        <div>
-          <dt>Устранение последствий</dt>
-          <dd>{record.escalations}</dd>
-        </div>
-      </dl>
       {!!themes.length && (
         <section className="case-themes">
           <h3>Повторяющиеся проявления</h3>
@@ -582,6 +461,32 @@ function CaseDialog({
           ))}
         </details>
       )}
+      </div>
+      <footer className="case-dialog-footer">
+      <button className="case-inline handoff-brief" type="button" onClick={() => {
+        const band = record.responseRank === undefined ? undefined : responseBands[record.responseRank];
+        const text = [record.label + ". Заявок в подборке: " + record.count + ".",
+          band?.basis, "Срок прошёл у " + record.overdue + ", ближайшие 15 минут — у " + record.soon + ".",
+          ...themes.slice(0, 2).map(theme => theme.label + " — " + theme.count + " из " + record.count + "."),
+          "Первая проверка: " + step.ticketId + ". " + (advice?.action ?? step.action),
+          "Подборка: " + (() => {
+            const url = new URL(location.href);
+            url.search = query;
+            url.searchParams.set("case", record.id);
+            return url.href;
+          })()].filter(Boolean).join("\n");
+        setBrief(text);
+        setCopied(false);
+        void navigator.clipboard?.writeText(text).then(() => setCopied(true)).catch(() => {
+          briefField.current?.focus(); briefField.current?.select();
+        });
+      }}><Icon name="team" size={16} /> Сводка для передачи</button>
+      {brief && <div className="handoff-text">
+        <label>{copied ? "Сводка скопирована" : "Текст для передачи"}
+          <textarea ref={briefField} readOnly rows={4} value={brief} onFocus={e => e.target.select()} />
+        </label>
+      </div>}
+      </footer>
     </dialog>
   );
 }

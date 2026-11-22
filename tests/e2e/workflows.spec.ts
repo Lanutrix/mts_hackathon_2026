@@ -408,6 +408,7 @@ test("live embeds a quiet 3D slice with the active count and opens evidence from
 test("cases rank the filtered queue, explain the source tickets and fit the viewport", async ({
   page,
 }) => {
+  await login(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.goto("/live");
@@ -441,21 +442,22 @@ test("cases rank the filtered queue, explain the source tickets and fit the view
     .click();
   await expect.poll(ids).not.toEqual(before);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
-  const dimension = page.getByLabel("Группировка инцидентов"),
-    pick = page.getByLabel("Выбрать группу");
-  for (const value of ["team", "product", "priority", "symptom"]) {
+  const dimension = page.getByRole("group", {name: "Группировка инцидентов"});
+  const groups = page.getByRole("group", {name: "Выбрать группу"});
+  for (const [value, name] of [["team", "Команда"], ["product", "Продукт"], ["priority", "Приоритет"], ["symptom", "Симптом"]]) {
     const load = page.waitForResponse(
       (r) =>
         r.url().includes("/api/dashboard?") &&
         new URL(r.url()).searchParams.get("groupBy") === value,
     );
-    await dimension.selectOption(value);
+    const chip = dimension.getByRole("button", { name, exact: true });
+    await chip.click();
     await load;
-    await expect(dimension).toHaveValue(value);
+    await expect(chip).toHaveAttribute("aria-pressed", "true");
   }
-  await pick.selectOption({ index: 1 });
+  await groups.getByRole("button").nth(1).click();
   await expect(register.locator(".triage-ledger-title small")).toBeVisible();
-  const caseId = await pick.inputValue();
+  const caseId = new URL(page.url()).searchParams.get("case");
   const board = await (
     await page.request.get("/api/dashboard?ns=demo&groupBy=symptom")
   ).json();
@@ -612,6 +614,7 @@ test("F01 F02 F03 F04 F09 F10 F12 F13 F17 F29 F36 real file → two browsers wit
 test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", async ({
   page,
 }, info) => {
+  await login(page);
   await reset(page);
   await page.goto("/live");
   await page.getByRole("searchbox").fill("DEMO-42-00019");
@@ -643,6 +646,8 @@ test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", 
       /\d{2}:\d{2}:\d{2}/,
     );
     await expect(display.getByTestId("wall-ticket").first()).toBeVisible();
+    await expect(display.getByTestId("wall-ticket").first().locator(".observe-priority")).toBeVisible();
+    await expect(display.getByTestId("wall-ticket").first().locator(".observe-team")).toBeVisible();
     await expect(
       page.locator("a,button,input,select,textarea,summary,nav,[tabindex]"),
     ).toHaveCount(0);

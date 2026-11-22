@@ -4,7 +4,7 @@ import type { Triage } from "../../../packages/domain/triage";
 import type { Dashboard } from "./liveFeed";
 import { ShiftClock, ShiftMetrics } from "./LiveIndicators";
 import { useLivePrefix } from "./useLivePrefix";
-import { Mark } from "./Brand";
+import { Icon, ProductBrand } from "./Brand";
 import "./wallboard.css";
 
 type WallData = Dashboard & {
@@ -139,8 +139,7 @@ export default function Wallboard({ data, now, zone, online }: Props) {
     <main id="main" className="observe-board" data-testid="wallboard">
       <header className="observe-header">
         <div className="observe-brand">
-          <Mark />
-          <span>Срез</span>
+          <ProductBrand />
         </div>
         <div className="observe-source">
           <span>
@@ -182,9 +181,10 @@ export default function Wallboard({ data, now, zone, online }: Props) {
           </span>
         </div>
         <div className="observe-columns" aria-hidden="true">
-          <span>Заявка</span>
-          <span>Статус</span>
-          <span>Срок</span>
+          <span><Icon name="queue" />Заявка и продукт</span>
+          <span><Icon name="ranking" />Приоритет</span>
+          <span><Icon name="team" />Команда и статус</span>
+          <span><Icon name="clock" />Срок решения</span>
         </div>
         <ul ref={list} className="observe-list" aria-label="Заявки по сроку">
           {current?.rows.map((item) => {
@@ -197,11 +197,22 @@ export default function Wallboard({ data, now, zone, online }: Props) {
                 <div className="observe-subject">
                   <small>
                     {item.id}
+                    {item.raw.productName ? " · " + String(item.raw.productName) : ""}
                     {!item.sourcePresent && " · Требуется сверка"}
                   </small>
                   <strong>{String(item.raw.header || "Без заголовка")}</strong>
                 </div>
-                <div className="observe-state">{item.stateLabel}</div>
+                <div className="observe-priority" data-level={item.priorityId}>
+                  <span>
+                    <Icon name={item.priorityId === 4 ? "critical" : item.priorityId === 3 ? "high" : "ranking"} />
+                    {item.priorityLabel}
+                  </span>
+                  {item.raw.isNeedUp === true && <small><Icon name="escalation" />Устранить последствия</small>}
+                </div>
+                <div className="observe-team">
+                  <strong>{item.team || "Команда не указана"}</strong>
+                  <small>{item.stateLabel}</small>
+                </div>
                 <div className="observe-due" data-overdue={due}>
                   {Number.isFinite(deadline) ? (
                     <>

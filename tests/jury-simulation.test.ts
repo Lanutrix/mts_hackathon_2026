@@ -63,6 +63,7 @@ test(
     const app = Fastify();
     registerJurySimulation(app, true, {
       temporaryRoot: root,
+      arrivalRandom: () => 0.5,
       stepDelays: [400, 100, 100, 100, 100],
       graceMs: 100,
     });
@@ -185,7 +186,7 @@ test(
       stores: new Map([["workspace", workspace]]),
       sources: new Map(),
       itsmUrl: "https://system.invalid/workspace",
-      jurySimulation: { stepDelays: [400, 200, 200, 200, 200], graceMs: 150 },
+      jurySimulation: { stepDelays: [400, 200, 200, 200, 200], graceMs: 150, arrivalRandom: () => 0.5 },
     });
     const base = await app.listen({ host: "127.0.0.1", port: 0 });
     const headers = {
@@ -323,7 +324,7 @@ test(
   { timeout: 10_000 },
   async () => {
     const app = Fastify();
-    registerJurySimulation(app, true, { stepDelays: [2, 2, 2, 2, 2] });
+    registerJurySimulation(app, true, { stepDelays: [2, 2, 2, 2, 2], arrivalRandom: () => 0.5 });
     const url =
       (await app.listen({ host: "127.0.0.1", port: 0 })) +
       "/api/simulation/stream";
@@ -347,3 +348,29 @@ test(
     }
   },
 );
+
+test("model arrivals enter the same export and read view as the scripted incident", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wm-arrivals-test-"));
+  const app = Fastify();
+  const jury = registerJurySimulation(app, true, {
+    temporaryRoot: root, stepDelays: [80, 500, 500, 500, 500], arrivalRandom: () => 0.0001,
+  });
+  const url = (await app.listen({ host: "127.0.0.1", port: 0 })) + "/api/simulation/stream";
+  try {
+    const reader = await view(url);
+    assert.equal((await reader.next()).arrivals.generated, 0);
+    const next = await reader.next();
+    assert.equal(next.incidents[0].id, "SIM-001");
+    assert.ok(next.arrivals.generated > 0);
+    assert.equal(jury.latest()?.simulation.arrivals.latestId, next.arrivals.latestId);
+    const directory = (await readdir(root))[0];
+    const raw = JSON.parse(await readFile(join(root, directory, "incidents.json"), "utf8"));
+    const created = raw.filter((row: { id: string }) => row.id.startsWith("SIM-FLOW-"));
+    assert.equal(created.length, next.arrivals.generated);
+    assert.equal(created.at(-1).id, next.arrivals.latestId);
+    assert.ok([...jury.latest()!.rows.values()].some(r => r.id === next.arrivals.latestId && !r.quarantined));
+  } finally {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

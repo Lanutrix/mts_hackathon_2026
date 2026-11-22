@@ -102,7 +102,8 @@ for (const mode of ["batch", "stream"] as const) {
         }
         await advice.getByRole("button", {name: "По симптомам и продуктам"}).click();
         await expect(count).toHaveText("2");
-        await expect(page.getByLabel("Группировка инцидентов")).toHaveValue("symptomProduct");
+        await expect(page.getByRole("group", {name: "Группировка инцидентов"})
+          .getByRole("button", {name: "Симптом и продукт"})).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("button", {name: /Снять ограничение/})).toBeVisible();
         await expect(register.locator(".feed-pages")).toContainText("из 2");
         await expect(ledger.first()).toBeVisible();

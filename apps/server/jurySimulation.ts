@@ -18,6 +18,7 @@ import {
   type Raw,
 } from "../../packages/domain/index.ts";
 import { atomicWrite } from "./demo.ts";
+import { IncidentArrivals } from "./incidentArrivals.ts";
 
 export interface JuryIncident {
   id: string;
@@ -47,12 +48,14 @@ export interface JurySnapshot {
   incidents: JuryIncident[];
   events: JuryEvent[];
   time: string;
+  arrivals: ReturnType<IncidentArrivals["status"]>;
 }
 
 export interface SimulationOptions {
   stepDelays?: readonly [number, number, number, number, number];
   temporaryRoot?: string;
   graceMs?: number;
+  arrivalRandom?: () => number;
 }
 
 const defaultDelays = [5_000, 9_000, 10_000, 9_000, 9_000] as const;
@@ -276,6 +279,7 @@ function accept(
   step: number,
   stepDelay: number,
   currentId: string,
+  arrivals: ReturnType<IncidentArrivals["status"]>,
 ) {
   const now = Date.now();
   const time = new Date(now).toISOString();
@@ -324,6 +328,7 @@ function accept(
     incidents: [forViewer(active)],
     events,
     time,
+    arrivals,
   };
   return {
     namespace: "simulation",
@@ -332,7 +337,7 @@ function accept(
     rows,
     versions,
     snapshot,
-    simulation: { runId, step, nextAt, currentId: active.id },
+    simulation: { runId, step, nextAt, currentId: active.id, arrivals },
     status: {
       state: "live" as const,
       checkedAt: time,
@@ -384,6 +389,9 @@ async function runSimulation(
   const file = join(directory, "incidents.json");
   const delays = options.stepDelays ?? defaultDelays;
   const runId = randomUUID();
+  const model = new IncidentArrivals(runId, options.arrivalRandom);
+  let modelRows: Raw[] = [];
+  let displayElapsed = 0;
   const records: Raw[] = [];
   const background = backgroundTickets(runId, Date.now());
   let previous: Accepted | undefined;
@@ -391,17 +399,24 @@ async function runSimulation(
     for (let revision = 1; !signal.aborted; revision++) {
       const step = (revision - 1) % delays.length;
       const cycle = Math.floor((revision - 1) / delays.length) + 1;
+      const now = Date.now();
       const raw = sourceRow(
         records.at(-1) ?? {},
         step,
         runId,
         cycle,
-        Date.now(),
+        now,
       );
       if (step === 0) records.push(raw);
       else records[records.length - 1] = raw;
       if (records.length > maxTickets) records.shift();
-      await atomicWrite(file, JSON.stringify([...records, ...background]));
+      modelRows.push(...model.advance(displayElapsed, now));
+      if (modelRows.length > 96) {
+        const pinned = new Set(previous?.snapshot.events.map(event => event.id));
+        const cutoff = modelRows.length - 96;
+        modelRows = modelRows.filter((row, index) => index >= cutoff || pinned.has(String(row.id)));
+      }
+      await atomicWrite(file, JSON.stringify([...modelRows, ...records, ...background]));
       const { rows } = parseSnapshot(
         await readFile(file, "utf8"),
         "simulation",
@@ -414,10 +429,12 @@ async function runSimulation(
         step,
         delays[step],
         String(raw.id),
+        model.status(),
       );
       previous = view;
       if (signal.aborted) break;
       publish(view);
+      displayElapsed = delays[step];
       await wait(delays[step], undefined, { signal });
     }
   } catch (error) {

@@ -73,6 +73,20 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     await page.keyboard.press("Enter");
     const source = page.getByRole("textbox", { name: "Исходный JSON инцидента" });
     expect(JSON.parse(await source.inputValue())).toEqual(rows[0]);
+    const columns = page.locator(".ticket-columns");
+    const actions = columns.locator(".ticket-actions");
+    const story = columns.locator(".ticket-story");
+    await expect(actions).toHaveCSS("position", "sticky");
+    const beforeScroll = await actions.boundingBox();
+    expect(await story.evaluate(el => {
+      el.scrollTop = el.scrollHeight;
+      return el.scrollTop;
+    })).toBeGreaterThan(0);
+    expect((await actions.boundingBox())?.y).toBe(beforeScroll?.y);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(story).toHaveCSS("overflow-y", "visible");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.getByRole("button", { name: "Скопировать JSON" }).click();
     await expect(page.getByRole("status").filter({ hasText: /JSON скопирован|JSON выделен/ })).toBeVisible();
     await raw.press("Enter");
