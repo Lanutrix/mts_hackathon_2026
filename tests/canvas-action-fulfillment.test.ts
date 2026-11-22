@@ -157,3 +157,12 @@ test("a private polite request is treated as data and a request to change ticket
   assert.doesNotMatch(JSON.stringify(change), /Все заявки закрыты/);
   assert.match(change.conversation?.text ?? "", /измен|закрыва|чтени/iu);
 });
+
+test("a completed-sounding introduction cannot cover the calculated comparison", async () => {
+  const conversation = { title: "Сравнение загрузки команд",
+    text: "Я подготовил сравнение команд по числу заявок, чтобы увидеть, кто из них загружен сильнее." };
+  const { ask } = fixture([{ conversation, groupBy: "team", layout: "comparison", showData: true }]);
+  const result = await ask("Можешь сравнить команды по числу заявок и показать, кто загружен сильнее?");
+  assert.equal(result.conversation, undefined);
+  assert.deepEqual(result.groups.map(group => [group.label, group.count]), [["Альфа", 2], ["Бета", 1]]);
+});

@@ -1518,7 +1518,7 @@ async function planData(
       };
   return {
     intent: withVisual(intent, requested),
-    ...(conversation && !delegatesOrPromises(conversation.text) ? { conversation, memoryQuestion: safeQuestion } : {}),
+    // This branch delivers data. Its first panel must contain the verified result.
     mode: "model",
     provider: "VseLLM",
     model: client.model,
