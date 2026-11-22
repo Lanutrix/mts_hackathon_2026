@@ -1094,6 +1094,11 @@
 @media (min-width: 2350px) and (min-aspect-ratio: 3/2) {
   .incident-register { --ledger-columns: 3; }
 }
+@media (min-width: 1500px) and (min-aspect-ratio: 3/1) and (max-height: 850px) {
+  .ops-shell--live .triage-layout {
+    grid-template-columns: clamp(320px, 21vw, 560px) minmax(0, 1fr);
+  }
+}
 @media (min-width: 3500px) and (min-aspect-ratio: 3/2) {
   .incident-register { --ledger-columns: 4; }
 }
