@@ -35,6 +35,7 @@ import "./ops.css";
 import "./ticket.css";
 import { analysisSource, analysisText } from "./analysisLabels";
 import type { Incident } from "../../../packages/domain/index.ts";
+import { defaultPreferences, wallboardIntervals, wallboardOrders, type AccountPreferences, type WallboardOrder } from "../../../packages/contracts/preferences.ts";
 import type { Analysis } from "../../server/analysis.ts";
 const IncidentIntake = React.lazy(() => import("./IncidentIntake").then(m => ({ default: m.IncidentIntake })));
 const Help = React.lazy(() => import("./Help"));
@@ -341,11 +342,8 @@ function Dashboard({
     [detailPage, setDetailPage] = useState<{ key: string; value: any } | null>(
       null,
     ),
-    [prefs, setPrefs] = useState({
-      sound: false,
-      notifications: false,
-      zone: "Europe/Moscow",
-    });
+    [prefs, setPrefs] = useState<AccountPreferences | null>(null),
+    [preferenceError, setPreferenceError] = useState("");
   const [tick, setTick] = useState(Date.now()),
     lastRevision = useRef(0),
     lastNotified = useRef(0),
@@ -358,11 +356,13 @@ function Dashboard({
     streamReceivedAt = useRef(0),
     eventStream = useRef<EventSource | null>(null),
     liveStatus = useRef(""),
-    prefsRef = useRef(prefs);
-  prefsRef.current = prefs;
+    prefsRef = useRef(prefs ?? defaultPreferences);
+  prefsRef.current = prefs ?? defaultPreferences;
   const extra = detailPage?.key === detailKey ? detailPage.value : null;
-  const zone = prefs.zone,
+  const zone = prefsRef.current.zone,
     wall = path === "/wallboard",
+    wallOrder = wall && (user.role === "viewer" || prefs || preferenceError)
+      ? prefsRef.current.wallboardOrder : null,
     write =
       !training && (user.role === "coordinator" || user.role === "demo-admin");
   const suffix = (url: string) =>
@@ -374,6 +374,7 @@ function Dashboard({
       body: JSON.stringify(body),
     });
   const load = useCallback(async () => {
+    if (wall && !wallOrder) return;
     const gen = ++generation.current;
     pending.current?.abort();
     const controller = new AbortController();
@@ -382,6 +383,7 @@ function Dashboard({
     try {
       const q = new URLSearchParams(path === "/wallboard" ? "" : query);
       q.set("ns", ns);
+      if (wallOrder) q.set("sort", wallOrder);
       if (path === "/live" || path === "/wallboard")
         for (const group of groups) q.delete(group);
       if (path === "/live") {
@@ -397,7 +399,7 @@ function Dashboard({
         serverClockOffset.current = serverTime - Date.now();
         setTick(serverTime);
       }
-      setData({ ...dashboard, filterQuery: query });
+      setData({ ...dashboard, filterQuery: query, wallOrder });
       lastRevision.current = dashboard.revision;
       setError("");
       const simulation = dashboard.simulation;
@@ -482,7 +484,7 @@ function Dashboard({
     } finally {
       if (pending.current === controller) pending.current = null;
     }
-  }, [query, ns, path, user?.role]);
+  }, [query, ns, path, user?.role, wall, wallOrder]);
   useLayoutEffect(() => {
     if (!data) return;
     let next = 0;
@@ -503,11 +505,37 @@ function Dashboard({
     };
   }, [data?.revision]);
   useEffect(() => {
-    if (user && user.role !== "viewer")
-      api("/preferences")
-        .then(setPrefs)
-        .catch((e) => setError(e.message));
-  }, [user?.username]);
+    if (user.role === "viewer") return;
+    const controller = new AbortController();
+    let reading = false;
+    const refresh = async () => {
+      if (reading) return;
+      reading = true;
+      try {
+        const saved = await api("/preferences", { signal: controller.signal });
+        if (!controller.signal.aborted) {
+          setPrefs(saved);
+          setPreferenceError("");
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) setPreferenceError((error as Error).message);
+      } finally {
+        reading = false;
+      }
+    };
+    void refresh();
+    // Another display may use this account on a different device.
+    const timer = wall ? window.setInterval(refresh, 5000) : undefined;
+    const changed = (event: StorageEvent) => {
+      if (event.key === "srez:preferences:" + user.username) void refresh();
+    };
+    if (wall) window.addEventListener("storage", changed);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      window.removeEventListener("storage", changed);
+    };
+  }, [user.username, user.role, wall]);
   const latestLoad = useRef(load);
   useLayoutEffect(() => {
     latestLoad.current = load;
@@ -704,7 +732,7 @@ function Dashboard({
     connection.startsWith("Нет сети") ||
     connection.startsWith("Связь прервана");
   if (wall) {
-    if (!data || data.namespace !== ns)
+    if (!data?.wallOrder || data.namespace !== ns)
       return error ? (
         <main role="alert" className="access-check">
           {error}
@@ -717,7 +745,10 @@ function Dashboard({
         fallback={<Loader stage label="Подключаем общий экран…" />}
       >
         <Wallboard
+          key={data.namespace + ":" + data.wallOrder}
           data={data}
+          order={data.wallOrder}
+          seconds={prefsRef.current.wallboardSeconds}
           now={tick}
           zone={zone}
           online={connection === "На связи" && !sourceProblem}
@@ -1214,12 +1245,16 @@ function Dashboard({
               <section className="content login appearance-settings">
                 <h1>Личные настройки</h1>
                 <ThemeControl />
-                {write && (
+                {write && preferenceError && <p role="alert">{preferenceError}</p>}
+                {write && prefs && (
                   <Preferences
                     prefs={prefs}
                     onSave={async (p) => {
-                      await post("/preferences", p);
-                      setPrefs(p);
+                      const saved = await post("/preferences", p);
+                      setPrefs(saved);
+                      setPreferenceError("");
+                      try { localStorage.setItem("srez:preferences:" + user.username, String(Date.now())); }
+                      catch { /* The display also checks account settings on its own. */ }
                     }}
                   />
                 )}
@@ -1595,8 +1630,8 @@ function Preferences({
   prefs,
   onSave,
 }: {
-  prefs: { sound: boolean; notifications: boolean; zone: string };
-  onSave: (p: any) => Promise<void>;
+  prefs: AccountPreferences;
+  onSave: (p: AccountPreferences) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
   const [p, setP] = useState(prefs),
@@ -1638,6 +1673,27 @@ function Preferences({
         />
         Звук важных событий
       </label>
+      <fieldset className="wallboard-preferences">
+        <legend>Общий экран</legend>
+        <label>
+          Порядок активных заявок
+          <Select aria-label="Порядок активных заявок" value={p.wallboardOrder}
+            onChange={(e) => setP({ ...p, wallboardOrder: e.target.value as WallboardOrder })}>
+            {wallboardOrders.map(order => <option key={order} value={order}>{{
+              priority: "Сначала высокий приоритет",
+              deadline: "Сначала ближайший срок",
+              registered: "Сначала новые заявки",
+            }[order]}</option>)}
+          </Select>
+        </label>
+        <label>
+          Смена страниц
+          <Select aria-label="Смена страниц" value={p.wallboardSeconds}
+            onChange={(e) => setP({ ...p, wallboardSeconds: Number(e.target.value) })}>
+            {wallboardIntervals.map(seconds => <option key={seconds} value={seconds}>{seconds} секунд</option>)}
+          </Select>
+        </label>
+      </fieldset>
       <button tabIndex={0} disabled={saving}>
         {saving ? (
           <Loader label="Сохранение настроек…" />

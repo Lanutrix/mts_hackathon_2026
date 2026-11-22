@@ -2,6 +2,7 @@ import {serviceFilterId,sourceServiceTypeId} from "../contracts/serviceType.ts";
 import { liveStep, type LiveStep } from "./liveStep.ts";
 import { knownSymptom, recurringSymptoms, type SymptomEvidence, type SymptomTheme } from "./symptoms.ts";
 import { compareResponse, responseBands, responseRank } from "./responseOrder.ts";
+import { compareTickets } from "./ticketOrder.ts";
 import type { PlatformIcon } from "./platformIcons.ts";
 export { knownSymptom } from "./symptoms.ts";
 import {
@@ -117,19 +118,7 @@ export function filterDashboard(
 
 export function sortTickets(rows: Incident[], sort?: string, now = Date.now()) {
   if (sort === "response") return rows.sort((a, b) => compareResponse(a, b, now));
-  return rows.sort((a, b) => {
-    if (sort === "id") return a.id.localeCompare(b.id);
-    if (sort === "registered")
-      return (
-        String(b.dates.submitDate).localeCompare(String(a.dates.submitDate)) ||
-        a.id.localeCompare(b.id)
-      );
-    return (
-      (Date.parse(a.dates.deadline ?? "") || Infinity) -
-        (Date.parse(b.dates.deadline ?? "") || Infinity) ||
-      a.id.localeCompare(b.id)
-    );
-  });
+  return rows.sort((a, b) => compareTickets(a, b, sort));
 }
 
 const norm = (s: string) => s.toLocaleLowerCase("ru").normalize("NFKC");

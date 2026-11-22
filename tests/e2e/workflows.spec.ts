@@ -698,6 +698,43 @@ test("F15 F16 F21 F22 keyboard search navigation mock wallboard and viewports", 
     ),
   ).toBe(true);
 });
+test("account wallboard settings update an open display and persist on reload", async ({ page, browser }) => {
+  await login(page);
+  const remote = await browser.newContext({ storageState: await page.context().storageState() });
+  try {
+    const wall = await remote.newPage();
+    await wall.goto(new URL("/wallboard", page.url()).href);
+    const display = wall.getByTestId("wallboard");
+    const ticket = display.getByTestId("wall-ticket").first();
+    const firstId = async (sort: string) => {
+      const response = await page.request.get("/api/dashboard?register=1&groupBy=symptom&limit=1&sort=" + sort);
+      return (await response.json()).register.items[0].id as string;
+    };
+    await expect(ticket).toContainText(await firstId("priority"));
+    await page.goto("/preferences");
+    const order = page.getByLabel("Порядок активных заявок", { exact: true });
+    const interval = page.getByLabel("Смена страниц", { exact: true });
+    await expect(order).toHaveValue("priority");
+    await order.selectOption("registered");
+    await interval.selectOption("10");
+    await page.getByRole("button", { name: "Сохранить настройки" }).click();
+    await expect(page.getByText("Настройки сохранены", { exact: true })).toBeVisible();
+    await expect(display.getByText("Смена каждые 10 с")).toBeVisible({ timeout: 16_000 });
+    await expect(ticket).toContainText(await firstId("registered"));
+    await page.reload();
+    await expect(order).toHaveValue("registered");
+    await expect(interval).toHaveValue("10");
+    await wall.reload();
+    await expect(ticket).toContainText(await firstId("registered"));
+    const first = await ticket.innerText();
+    await expect(ticket).not.toHaveText(first, { timeout: 14_000, useInnerText: true });
+    await wall.setViewportSize({ width: 390, height: 844 });
+    await expect(ticket).toBeVisible();
+    await expect(wall.locator("a,button,input,select,textarea,summary,nav,[tabindex]")).toHaveCount(0);
+    expect(await wall.evaluate(() => document.documentElement.scrollWidth <= innerWidth &&
+      document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+  } finally { await remote.close(); }
+});
 test("an unenrolled device opens settings without querying the native push service", async ({
   page,
 }) => {

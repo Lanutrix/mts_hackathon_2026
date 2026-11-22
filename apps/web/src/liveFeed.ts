@@ -1,4 +1,5 @@
 import type { Group, Incident } from "../../../packages/domain/index.ts";
+import { compareTickets } from "../../../packages/domain/ticketOrder.ts";
 
 export const groups: Group[] = ["critical", "coordinators", "high", "research"];
 export type Signal = Group | "all";
@@ -16,19 +17,6 @@ export type Dashboard = {
   unique: number;
   groups: Record<Group, GroupPage>;
 };
-
-function compare(a: Incident, b: Incident, sort: string) {
-  if (sort === "registered")
-    return (
-      String(b.dates.submitDate).localeCompare(String(a.dates.submitDate)) ||
-      a.id.localeCompare(b.id)
-    );
-  if (sort === "id") return a.id.localeCompare(b.id);
-  const date = (value: string | null) => (value ? Date.parse(value) : Infinity);
-  return (
-    date(a.dates.deadline) - date(b.dates.deadline) || a.id.localeCompare(b.id)
-  );
-}
 
 // Each API group is a sorted stream. Stop at the first unknown head so arriving
 // pages can only extend the prefix already shown, even when many rows overlap.
@@ -52,7 +40,7 @@ export function mergeStreams(
     let next: (typeof streams)[number] | undefined;
     for (const stream of streams) {
       const row = stream.rows[stream.cursor];
-      if (row && (!next || compare(row, next.rows[next.cursor], sort) < 0))
+      if (row && (!next || compareTickets(row, next.rows[next.cursor], sort) < 0))
         next = stream;
     }
     if (!next) break;

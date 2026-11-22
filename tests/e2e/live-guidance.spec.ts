@@ -58,15 +58,23 @@ test("live assistant presents generated prose with a Russian ticket link and rec
     await context.setOffline(false);
     await expect(card.getByTestId("guidance-action")).toHaveText(observation + " " + action);
     await expect(card.getByRole("group", {name: "Подсказки смены"})).toHaveCount(0);
-    await card.getByRole("button", {name: "Подробнее"}).click();
+    const details = card.getByRole("button", {name: "Подробнее"});
+    await details.click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(card.getByRole("button", {name: "Подробнее"})).toBeFocused();
+    await expect(details).toBeFocused();
+    await page.mouse.move(0, 0);
     for (const [theme, width, height] of [["dark", 390, 844], ["light", 1366, 768]] as const) {
       await page.setViewportSize({width, height});
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await expect(card).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(details).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(details).toHaveCSS("color", theme === "dark" ? "rgb(243, 238, 246)" : "rgb(33, 29, 44)");
+      const bounds = await details.boundingBox();
+      const section = await card.boundingBox();
+      expect(bounds!.height).toBeGreaterThanOrEqual(44);
+      expect(Math.abs((bounds!.x + bounds!.width / 2) - (section!.x + section!.width / 2))).toBeLessThan(2);
       await expect(page.getByTestId("live-register").locator("tbody tr").first()).toBeInViewport();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       await page.screenshot({path: info.outputPath("live-prose-" + theme + ".png")});

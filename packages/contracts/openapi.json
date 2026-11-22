@@ -25,6 +25,17 @@
       }
     },
     "schemas": {
+      "AccountPreferences": {
+        "type": "object",
+        "required": ["zone", "sound", "notifications"],
+        "properties": {
+          "zone": { "enum": ["Europe/Moscow", "UTC"] },
+          "sound": { "type": "boolean" },
+          "notifications": { "type": "boolean" },
+          "wallboardOrder": { "enum": ["priority", "deadline", "registered"], "default": "priority", "description": "Порядок всей очереди до разбиения на страницы. При одинаковом приоритете первым идёт ближайший срок." },
+          "wallboardSeconds": { "enum": [10, 18, 30], "default": 18, "description": "Время показа страницы общего экрана в секундах." }
+        }
+      },
       "IntakeRecord": {
         "type": "object",
         "required": ["id", "stateId", "stateEnum", "priorityId"],
@@ -1732,7 +1743,8 @@
         "summary": "Личные настройки coordinator/demo-admin",
         "responses": {
           "200": {
-            "description": "Успешный результат"
+            "description": "Сохранённые параметры аккаунта с текущими значениями по умолчанию",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountPreferences" } } }
           },
           "400": {
             "description": "Некорректный ввод"
@@ -1750,10 +1762,12 @@
         "parameters": []
       },
       "post": {
-        "summary": "zone UTC/Europe/Moscow, sound и notifications boolean",
+        "summary": "Сохранить личные настройки, включая порядок и интервал общего экрана",
+        "description": "При отсутствии полей wallboardOrder и wallboardSeconds сохраняются их предыдущие значения.",
         "responses": {
           "200": {
-            "description": "Успешный результат"
+            "description": "Сохранённые настройки",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountPreferences" } } }
           },
           "400": {
             "description": "Некорректный ввод"
@@ -1780,7 +1794,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/AccountPreferences"
               }
             }
           }

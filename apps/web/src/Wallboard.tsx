@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Incident } from "../../../packages/domain/index";
 import type { Triage } from "../../../packages/domain/triage";
+import type { WallboardOrder } from "../../../packages/contracts/preferences";
 import type { Dashboard } from "./liveFeed";
 import { ShiftClock, ShiftMetrics } from "./LiveIndicators";
 import { useLivePrefix } from "./useLivePrefix";
@@ -12,7 +13,7 @@ type WallData = Dashboard & {
   acceptedAt?: string;
   status?: { state: string };
 };
-type Props = { data: WallData; now: number; zone: string; online: boolean };
+type Props = { data: WallData; now: number; zone: string; online: boolean; order: WallboardOrder; seconds: number };
 type Batch = {
   namespace: string;
   revision: number;
@@ -21,9 +22,9 @@ type Batch = {
   total: number;
   rows: Incident[];
 };
-const dwell = 18_000;
+const orderLabels = { priority: "По приоритету", deadline: "По сроку", registered: "По регистрации" };
 
-export default function Wallboard({ data, now, zone, online }: Props) {
+export default function Wallboard({ data, now, zone, online, order, seconds }: Props) {
   const list = useRef<HTMLUListElement>(null);
   const [size, setSize] = useState(1);
   useLayoutEffect(() => {
@@ -48,8 +49,8 @@ export default function Wallboard({ data, now, zone, online }: Props) {
   const prefix = useLivePrefix(
     data,
     "all",
-    "deadline",
-    "",
+    order,
+    "sort=" + order,
     Math.min(end + size, total),
   );
   const [batch, setBatch] = useState<Batch | null>(null);
@@ -103,10 +104,10 @@ export default function Wallboard({ data, now, zone, online }: Props) {
           (current) =>
             (Math.min(current, pageCount.current - 1) + 1) % pageCount.current,
         ),
-      dwell,
+      seconds * 1000,
     );
     return () => window.clearTimeout(timer);
-  }, [rotates, batch, start, size, data.namespace]);
+  }, [rotates, batch, start, size, data.namespace, seconds]);
   const retry = useRef(prefix.retry);
   retry.current = prefix.retry;
   useEffect(() => {
@@ -170,12 +171,12 @@ export default function Wallboard({ data, now, zone, online }: Props) {
                 (current.start + current.rows.length) +
                 " из " +
                 current.total
-              : "По сроку"}
+              : orderLabels[order]}
             <small>
               {prefix.error
                 ? "Обновление задерживается"
                 : pages > 1
-                  ? "Смена каждые 18 с"
+                  ? "Смена каждые " + seconds + " с"
                   : "Все заявки на экране"}
             </small>
           </span>
@@ -186,7 +187,7 @@ export default function Wallboard({ data, now, zone, online }: Props) {
           <span><Icon name="team" />Команда и статус</span>
           <span><Icon name="clock" />Срок решения</span>
         </div>
-        <ul ref={list} className="observe-list" aria-label="Заявки по сроку">
+        <ul ref={list} className="observe-list" aria-label={"Заявки " + orderLabels[order].toLowerCase()}>
           {current?.rows.map((item) => {
             const deadline = item.dates.deadline
               ? Date.parse(item.dates.deadline)

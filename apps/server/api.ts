@@ -19,6 +19,7 @@ import { Store, FileSource } from "../worker/ingestion.ts";
 import { Demo, atomicWrite } from "./demo.ts";
 import { appendIncidents, IntakeError } from "./intake.ts";
 import { intakeByteLimit } from "../../packages/contracts/intake.ts";
+import { defaultPreferences, wallboardIntervals, wallboardOrders } from "../../packages/contracts/preferences.ts";
 import {
   registerJurySimulation,
   type SimulationOptions,
@@ -817,18 +818,8 @@ export async function createApp(o: AppOptions) {
   app.get("/api/preferences", async (req, reply) => {
     const u = requireRole(req, reply, ["coordinator", "demo-admin"]);
     if (!u) return;
-    const db = [...o.stores.values()][0].db;
-    return (
-      (
-        await db.query("SELECT doc FROM preferences WHERE username=$1", [
-          u.username,
-        ])
-      ).rows[0]?.doc ?? {
-        sound: false,
-        notifications: false,
-        zone: "Europe/Moscow",
-      }
-    );
+    const result = await db.query("SELECT doc FROM preferences WHERE username=$1", [u.username]);
+    return { ...defaultPreferences, ...result.rows[0]?.doc };
   });
   app.post("/api/preferences", async (req, reply) => {
     const u = requireRole(req, reply, ["coordinator", "demo-admin"]);
@@ -837,24 +828,24 @@ export async function createApp(o: AppOptions) {
     if (
       !["Europe/Moscow", "UTC"].includes(b?.zone) ||
       typeof b.sound !== "boolean" ||
-      typeof b.notifications !== "boolean"
+      typeof b.notifications !== "boolean" ||
+      (b.wallboardOrder !== undefined && !wallboardOrders.includes(b.wallboardOrder)) ||
+      (b.wallboardSeconds !== undefined && !wallboardIntervals.includes(b.wallboardSeconds))
     )
       return reply.code(400).send({ message: "Некорректные настройки" });
     const doc = {
       zone: b.zone,
       sound: b.sound,
       notifications: b.notifications,
+      ...(b.wallboardOrder !== undefined && { wallboardOrder: b.wallboardOrder }),
+      ...(b.wallboardSeconds !== undefined && { wallboardSeconds: b.wallboardSeconds }),
     };
-    await audit(u.username, "preferences", "account", {
-      zone: doc.zone,
-      sound: doc.sound,
-      notifications: doc.notifications,
-    });
-    await [...o.stores.values()][0].db.query(
-      "INSERT INTO preferences(username,doc) VALUES($1,$2) ON CONFLICT(username) DO UPDATE SET doc=excluded.doc",
+    await audit(u.username, "preferences", "account", doc);
+    const result = await db.query(
+      "INSERT INTO preferences(username,doc) VALUES($1,$2) ON CONFLICT(username) DO UPDATE SET doc=preferences.doc || excluded.doc RETURNING doc",
       [u.username, JSON.stringify(doc)],
     );
-    return doc;
+    return { ...defaultPreferences, ...result.rows[0].doc };
   });
   app.post("/api/intake", { bodyLimit: intakeByteLimit }, async (req, reply) => {
     const user = requireRole(req, reply, ["demo-admin"]);

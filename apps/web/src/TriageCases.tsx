@@ -256,10 +256,10 @@ function LiveAdvice(props: Props & Check & {
           }}>Открыть заявку</a>
       </div>
       {props.groupAction}
-      <button type="button" className="case-analyze" aria-haspopup="dialog" onClick={event => {
+      <button type="button" className="case-analyze" aria-haspopup="dialog" data-hint="Открыть разбор группы" onClick={event => {
         event.currentTarget.focus({preventScroll: true});
         props.inspect(advice);
-      }}>Подробнее <span aria-hidden="true">↗</span></button>
+      }}><Icon name="research" size={17} />Подробнее</button>
     </section>
   );
 }
