@@ -1023,8 +1023,11 @@ async function planData(
   const safeQuestion = training
     ? trainingQuestion(source.shaped, rows)
     : [privateGenre, safeShape].filter(Boolean).join(". ");
+  const changesSelection = local.clear.size > 0 ||
+    (Object.keys(local.filters).length > 0 &&
+      /(?:только|оставь|отбери|отфильтруй|исключи|ограничь|убери)/u.test(source.shaped));
   const explicitData =
-    local.explicitView ||
+    changesSelection || local.explicitView ||
     !!visual.presentation ||
     detectedInsights.length > 0 ||
     !!local.weightBy;
@@ -1113,7 +1116,7 @@ async function planData(
         source.shaped,
       );
     const proseOnly = keys(p, ["conversation", "supported", "showData"]);
-    if ((asksForCount || asksForView) && (proseOnly || p.showData === false)) {
+    if ((asksForCount || asksForView || changesSelection) && (proseOnly || p.showData === false)) {
       if (asksForCount || /\d/u.test(conversation.text + conversation.title))
         return { intent: localIntent, mode: "fallback", provider: "Поля ITSM" };
       return {

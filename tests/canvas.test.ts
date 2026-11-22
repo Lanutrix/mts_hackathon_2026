@@ -1301,3 +1301,18 @@ test("every source metric can be requested by its name, including completed and 
     await app.close();
   }
 });
+
+test("a conversational introduction cannot discard a requested deadline filter", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    respond({ conversation: { title: "Просроченные заявки", text: "Вот просроченные заявки по командам." },
+      filters: { deadline: "overdue" } });
+    const result = (await ask("А теперь только просроченные",
+      { groupBy: "team", layout: "groups", filters: {}, blocks: [{ groupBy: "deadline", layout: "groups" }] }, "demo")).json<CanvasResult>();
+    assert.equal(result.mode, "model");
+    assert.equal(result.intent.filters.deadline, "overdue");
+    assert.equal(result.intent.groupBy, "team");
+    assert.ok(result.selection);
+    assert.equal(result.total, result.metrics.find((m) => m.key === "overdue")?.value);
+  } finally { await app.close(); }
+});
