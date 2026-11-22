@@ -1,0 +1,230 @@
+.fact-board {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: clamp(10px, 2vh, 24px) 5px 12px 1px;
+  scrollbar-width: thin;
+}
+.fact-heading {
+  border-top: 2px solid var(--wm-violet);
+  padding-top: clamp(8px, 1.4vh, 18px);
+  margin-bottom: clamp(12px, 2vh, 26px);
+}
+.fact-value {
+  font-size: clamp(1.22rem, 2.3vw, 2.6rem);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.14;
+  overflow-wrap: anywhere;
+}
+.cx .fact-method,
+.cx .fact-note {
+  color: var(--cx-muted);
+  max-width: 110ch;
+  font-size: clamp(0.78rem, 1vw, 1rem);
+  line-height: 1.48;
+  margin-top: 8px;
+}
+.fact-distribution {
+  max-width: 960px;
+  display: grid;
+  gap: 8px;
+}
+.fact-directory {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 8px 18px;
+}
+.cx .fact-directory button {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  border-left: 3px solid var(--wm-green);
+  background: color-mix(in srgb, var(--wm-green) 7%, var(--cx-surface));
+  border-radius: 2px;
+}
+.fact-directory button:hover strong {
+  text-decoration: underline;
+}
+.fact-directory strong {
+  font-size: clamp(0.92rem, 1.4vw, 1.3rem);
+}
+.fact-directory span {
+  color: var(--cx-muted);
+  font: 500 0.75rem/1.3 var(--cx-mono);
+}
+.cx .fact-bar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  position: relative;
+  gap: 3px 12px;
+  cursor: pointer;
+  padding: 4px 0 6px;
+}
+.fact-bar i {
+  height: 5px;
+  grid-column: 1/-1;
+  background: linear-gradient(
+    to right,
+    var(--wm-violet) calc(100% * var(--fraction)),
+    var(--cx-line) 0
+  );
+  border-radius: 1px;
+}
+.fact-bar span,
+.fact-bar b {
+  font-size: clamp(0.85rem, 1.2vw, 1.16rem);
+}
+.fact-bar b,
+.fact-rank td {
+  font-variant-numeric: tabular-nums;
+}
+.fact-bar:hover span,
+.fact-drill:hover {
+  text-decoration: underline;
+}
+.fact-rank {
+  width: 100%;
+  border-collapse: collapse;
+  line-height: 1.28;
+  font-size: clamp(0.75rem, 1.15vw, 1.08rem);
+}
+.fact-rank caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 8px;
+}
+.fact-rank th,
+.fact-rank td {
+  text-align: left;
+  border-bottom: 1px solid var(--cx-line);
+  padding: 8px 8px 8px 0;
+}
+.fact-rank th {
+  font-size: 0.76em;
+  color: var(--cx-muted);
+}
+.fact-rank a,
+.fact-node a {
+  color: var(--cx-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.cx .fact-drill {
+  font: 550 0.85rem/1.4 var(--cx-mono);
+  margin-top: 12px;
+  padding: 7px 0;
+  color: var(--cx-ink);
+}
+.fact-graph {
+  max-width: 1000px;
+}
+.fact-graph-scroll {
+  overflow-x: auto;
+}
+.fact-network {
+  height: clamp(130px, 23vh, 220px);
+  position: relative;
+  background: radial-gradient(var(--cx-line) 0.7px, transparent 0.8px) 0 0/15px
+    15px;
+  border-block: 1px solid var(--cx-line);
+}
+.fact-network svg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  overflow: visible;
+}
+.fact-network path {
+  fill: none;
+  stroke: var(--wm-violet);
+  stroke-width: 2.5px;
+  vector-effect: non-scaling-stroke;
+}
+.fact-network path[data-kind="similarity"] {
+  stroke: var(--cx-teal);
+  stroke-dasharray: 5 5;
+}
+.fact-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 31%;
+  text-align: center;
+  overflow-wrap: anywhere;
+  padding: 7px 10px;
+  background: var(--cx-surface);
+  border: 1px solid var(--wm-violet);
+  border-radius: 5px;
+  font: 600 clamp(0.67rem, 1.1vw, 1rem)/1.25 var(--cx-mono);
+}
+.fact-node[data-found="false"] {
+  border-style: dashed;
+  color: var(--cx-muted);
+}
+.fact-node small {
+  display: block;
+  font: 400 0.7rem/1.3 sans-serif;
+}
+.fact-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 8px 0 14px;
+  font-size: 0.78rem;
+  color: var(--cx-muted);
+}
+.fact-legend span:before {
+  content: "";
+  width: 22px;
+  display: inline-block;
+  vertical-align: middle;
+  border-top: 2px solid var(--wm-violet);
+  margin-right: 5px;
+}
+.fact-legend [data-kind="similarity"]:before {
+  border-color: var(--cx-teal);
+  border-top-style: dashed;
+}
+.fact-edge {
+  border-top: 1px solid var(--cx-line);
+  padding: 7px 0;
+  font-size: clamp(0.8rem, 1vw, 1rem);
+}
+.fact-edge summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.fact-edge summary strong {
+  font-size: 0.85em;
+  margin-left: 10px;
+}
+.fact-edge ul {
+  padding-left: 1.4em;
+  margin: 0.5em 0;
+}
+.fact-edge li {
+  margin: 0.2em 0;
+}
+@media (max-width: 560px) {
+  .fact-rank {
+    font-size: 0.72rem;
+  }
+  .fact-rank th,
+  .fact-rank td {
+    padding: 6px 4px 6px 0;
+  }
+  .fact-node {
+    padding: 5px;
+  }
+  .fact-method {
+    overflow-wrap: anywhere;
+  }
+}

@@ -21,6 +21,7 @@ import {
 import { facet, urgent } from "../../packages/domain/triage.ts";
 import { initialIntent, planCanvas } from "./canvasPlan.ts";
 import { buildAnswerInsights } from "./answerInsights.ts";
+import { describeFact, prepareFact } from "./canvasFacts.ts";
 import { makeAnswer } from "./canvasGuide.ts";
 import {
   asksForScopeExplanation,
@@ -70,19 +71,26 @@ const escalation = (row: Incident) =>
       : "unknown";
 const openStates = [0, 2, 20];
 
-function selected(row: Incident, f: CanvasFilters, now: number) {
+function includesLabel(values: string[] | undefined, label: string, canonical: boolean) {
+  if (!values || values.includes(label)) return true;
+  if (!canonical) return false;
+  const folded = label.normalize("NFKC").toLocaleLowerCase("ru");
+  return values.some(v => v.normalize("NFKC").toLocaleLowerCase("ru") === folded);
+}
+
+function selected(row: Incident, f: CanvasFilters, now: number, allStates = false) {
   // Explicit IDs can also resolve a closed source ticket. Generic reads
   // start with the open queue including research, irrespective of priority.
   if (
     f.states
       ? !f.states.includes(row.stateId!)
-      : !f.ids && !openStates.includes(row.stateId!)
+      : !allStates && !f.ids && !openStates.includes(row.stateId!)
   )
     return false;
   return (
     (!f.ids || f.ids.includes(row.id)) &&
-    (!f.teams || f.teams.includes(row.team)) &&
-    (!f.products || f.products.includes(spaces(row.raw.productName))) &&
+    includesLabel(f.teams, row.team, allStates) &&
+    includesLabel(f.products, spaces(row.raw.productName), allStates) &&
     (!f.priorities || f.priorities.includes(row.priorityId!)) &&
     (!f.deadline || deadlineStatus(row.dates.deadline, now) === f.deadline) &&
     (!f.escalation || escalation(row) === f.escalation) &&
@@ -317,10 +325,9 @@ export class CanvasService {
       delete active.related;
       delete active.focus;
       delete active.guideOnly;
-      const explanation = await explainScope(
-        await this.read(source, actor, undefined, active),
-        this.client,
-      );
+      const snapshot = await this.read(source, actor, undefined, active);
+      if (snapshot.fact) return snapshot;
+      const explanation = await explainScope(snapshot, this.client);
       return {
         ...explanation,
         turnToken: this.remember(source, actor, history, {
@@ -414,9 +421,9 @@ export class CanvasService {
         selection: "",
         total: 0,
       };
-    const matches = rows
-      .filter((r) => selected(r, intent.filters, now))
-      .sort(urgent);
+    const scoped = rows.filter(r => selected(r, intent.filters, now, !!intent.fact));
+    const prepared = intent.fact ? prepareFact(intent, scoped, now) : undefined;
+    const matches = prepared?.rows ?? scoped.sort(urgent);
     const tickets = matches.map((r) => ticket(r, now));
     const primary = this.block(
       namespace,
@@ -432,6 +439,16 @@ export class CanvasService {
       tickets,
       now,
     );
+    if (intent.fact && prepared) {
+      if (intent.fact.ascending && intent.fact.operation === "frequency")
+        primary.groups.sort((a,b) => a.count - b.count || collator.compare(a.label,b.label));
+      const answer = describeFact(intent, prepared, primary.groups, describe(intent.filters));
+      return { ...base, ...answer, total: tickets.length, metrics: [], groups: primary.groups,
+        tickets: primary.tickets, selection: primary.selection, blocks: [],
+        ...(question ? { turnToken: this.remember(source, actor, history, {
+          question: "Расчёт по полям ITSM", answer: "Результат доступен в предыдущем срезе."
+        }) } : {}) };
+    }
     const insights = intent.insightIds?.length
       ? buildAnswerInsights("", matches, now, intent.insightIds)
       : [];

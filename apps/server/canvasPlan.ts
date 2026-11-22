@@ -43,6 +43,8 @@ import {
   type DialogueTurn,
 } from "./canvasDialogue.ts";
 
+import { mightAskFact, periodIn, periodQuestion, readFact, validFact, validFactView } from "./canvasFactPlan.ts";
+
 export const initialIntent: CanvasIntent = {
   groupBy: "symptom",
   layout: "groups",
@@ -206,6 +208,7 @@ export function validContext(v: unknown): v is CanvasIntent {
       "focus",
       "guideOnly",
       "related",
+      "fact",
       "automaticStates",
       "insightIds",
     ]) &&
@@ -213,6 +216,7 @@ export function validContext(v: unknown): v is CanvasIntent {
       (v.automaticStates === true &&
         validInsightIds(v.insightIds) &&
         v.insightIds.length > 0)) &&
+    (v.fact === undefined || validFact(v.fact)) &&
     (v.insightIds === undefined || validInsightIds(v.insightIds)) &&
     validVisual(v) &&
     (v.topic === undefined || isGuideTopic(v.topic)) &&
@@ -230,6 +234,7 @@ export function validContext(v: unknown): v is CanvasIntent {
     member(v.groupBy, canvasDimensions) &&
     member(v.layout, layouts) &&
     validFilters(v.filters) &&
+    (v.fact === undefined || validFactView(v.fact, v.groupBy, v.filters)) &&
     (v.blocks === undefined || validBlocks(v.blocks))
   );
 }
@@ -377,6 +382,17 @@ const planTerms: [RegExp, string][] = [
   [/^объясн|^поясн|^расскаж|^разъясн/u, "объясни"],
   [/^нагруз/u, "нагрузка"],
   [/^канал/u, "каналы"],
+  [/^стади/u, "статус"],
+  [/^разброс|^распредел/u, "распределение"],
+  [/^сегодня/u, "сегодня"],
+  [/^вчера/u, "вчера"],
+  [/^последн/u, "последний"],
+  [/^недел/u, "неделя"],
+  [/^месяц/u, "месяц"],
+  [/^год/u, "год"],
+  [/^длительн/u, "длительность"],
+  [/^решени/u, "решение"],
+  [/^уникальн|^различн/u, "различный"],
   [/^возраст/u, "возраст"],
   [/^поступ/u, "поступление"],
   [/^медиан/u, "медиана"],
@@ -615,6 +631,7 @@ const instructions = [
   'Для запроса про фактические инциденты дай структурный план ниже; числа и имена считает только приложение. При нестандартной просьбе, например «я капитан, покажи на радаре, где горят сроки», соедини conversation с планом, например {"conversation":{"title":"Сигналы на радаре","text":"Капитан, посмотрите на метки срока: они показывают, где потребуется проверка."},"groupBy":"deadline","layout":"groups","presentation":"deadline"}. В таком тексте поясни идею или как читать холст и не придумывай статистику. Если просят стих или условную историю про сбой, достаточно беседы. Метки E1, T1 и скрытые слова не выводи.',
   'Если запрос не поддерживается, верни только {"supported":false}. В каждом положительном ответе укажи supported:true и поля плана, которые нужны для текущего вопроса. Ответ {"supported":true,"presentation":"flow"} меняет только форму на схему. Контекст сохраняется. reset:true начинает независимый срез. clear:[имена фильтров] снимает отдельные фильтры.',
   "groupBy: symptom (сходство проявлений), team, product, priority, deadline, status, escalation, ticket. layout: groups (группы), list (заявки), comparison (сопоставление).",
+  'Для аналитического вопроса можно вернуть план {"supported":true,"fact":{"operation":"frequency","period":"today"},"groupBy":"status","filters":{}}. Выбирай операции по смыслу вопроса: frequency — наиболее частое значение поля; distinct — число и перечень разных значений; count — число заявок; duration — порядок по фактической длительности решения; relations — схема заданных заявок. Для трёх последних groupBy=ticket; для relations нужны минимум два явных entities.ids и period=snapshot. Периоды snapshot, today, yesterday, week, month, year. Для минимума у frequency/duration добавь ascending:true. Верни только plan с нужными фильтрами и без текста, чисел ответов, имён, ссылок и выводов. Результат и даты вычисляет сервер.',
   "В группировках площадь квадратов задаёт weightBy: count (число заявок, по умолчанию), overdue (число просроченных), escalated (требуется устранить последствия после решения). Вес определяет геометрию, не фильтрует набор заявок. Дополнительные представления тоже могут указать свой вес.",
   'Для составного запроса выбери основное представление и добавь blocks (до двух дополнительных представлений с общими фильтрами). Например «по командам и рядом покажи сроки»: {"supported":true,"groupBy":"team","layout":"groups","blocks":[{"groupBy":"deadline","layout":"groups"}]}. Для одного представления не дублируй его в blocks.',
   'При уточнении фильтра в существующей выборке ответь только изменением, например {"supported":true,"filters":{"deadline":"overdue"}}. Этот фильтр уже применяется ко всем блокам. filters разрешён только на верхнем уровне, каждый дополнительный блок содержит только groupBy, layout и необязательные presentation, exhibits, weightBy.',
@@ -634,7 +651,7 @@ const instructions = [
     ". median-load и mean-load — размер групп. median-overdue — число просрочек на группу. Статистика берётся из всего среза; интерес к доле или числу просрочек сам по себе не отбирает только просроченные заявки.",
   "В беседе верни только conversation, без groupBy, layout, supported и без повторения previous/localHints. Для свободного разговора не нужен холст с данными. При сознательном совмещении пояснения с аналитическим представлением добавь showData:true. Заполняй followUp только короткой готовой просьбой пользователя, например «Напиши ещё одно хокку» или «Покажи просроченные заявки». Не пиши «Хочешь…?» и не называй несуществующих элементов интерфейса.",
 ].join("\n");
-const planVersion = "canvas-plan-7";
+const planVersion = "canvas-plan-8";
 const unsupportedText =
   "Для этого вопроса данных текущего среза недостаточно. Можно сопоставить заявки по симптомам, срокам, приоритетам, командам и продуктам.";
 type Decision = Pick<
@@ -662,9 +679,29 @@ export async function planCanvas(
 ): Promise<Decision> {
   if (fullQueueCommand.test(question.trim()))
     return { intent: { ...initialIntent, filters: {} }, mode: "snapshot", provider: "Поля ITSM" };
+  if (mightAskFact(question, previous)) {
+    const source = sourceMentions(question, rows, previous);
+    const plan = readFact(question, source.shaped, source.mentioned, previous);
+    if (plan && "problem" in plan)
+      return { ...unsupported(initialIntent, plan.problem), conversation: { title: "Уточните вопрос", text: plan.problem }, textOnly: true };
+    if (plan) {
+      const inherit = plan.continuation || /среди них|из них|по ним|таких|этих/iu.test(question);
+      const local = localReading(source.shaped, source.mentioned, inherit ? previous : undefined);
+      const filters: CanvasFilters = { ...(inherit ? previous?.filters : {}), ...local.filters };
+      for (const key of local.clear) delete filters[key];
+      if (plan.ids) filters.ids = plan.ids;
+      if (!validFilters(filters))
+        return unsupported(initialIntent, "Укажите до десяти значений одного поля.");
+      if (!validFactView(plan.fact, plan.dimension, filters))
+        return unsupported(initialIntent, "Уточните период, поле или номера заявок для этой операции.");
+      return { mode: "snapshot", provider: "Поля ITSM", intent: { groupBy: plan.dimension,
+        layout: plan.dimension === "ticket" ? "list" : "comparison", filters, fact: plan.fact } };
+    }
+  }
   const reading = readGuide(question, previous);
   const priorData = previous && { ...previous };
   if (priorData) {
+    delete priorData.fact;
     delete priorData.topic;
     delete priorData.related;
     delete priorData.focus;
@@ -733,7 +770,7 @@ export async function planCanvas(
     },
     textOnly: true,
   };
-  if (!training || !client || result.notice?.startsWith("VseLLM:"))
+  if (!training || !client || periodQuestion(normalize(question)) || result.notice?.startsWith("VseLLM:"))
     return fallback;
   const source = sourceMentions(
     scrubRehearsalQuestion(question),
@@ -912,7 +949,7 @@ async function planData(
     /первопричин|прогноз|погод[ауы]|сколько (?:клиент|пользовател)|географ|регион|геолокац/u.test(
       source.shaped,
     ) ||
-    (!detectedInsights.length &&
+    (!detectedInsights.length && !(client && periodQuestion(source.shaped)) &&
       /вчера|недел|месяц|динамик|по дням|средн\p{L}* врем|mttr|процентиль/u.test(
         source.shaped,
       ))
@@ -969,7 +1006,9 @@ async function planData(
     .join(" ")
     .replace(/(?:…\s*){2,}/gu, "… ")
     .trim();
+  const needsPeriod = !detectedInsights.length && periodQuestion(source.shaped);
   const fallback = (notice: string): Decision =>
+    needsPeriod ? unsupported(local.base, "Для выбранного периода требуется уточнить показатель и поле группировки.") :
     local.recognized || visual.presentation || detectedInsights.length
       ? {
           intent: localIntent,
@@ -1085,6 +1124,7 @@ async function planData(
     !record(p) ||
     !keys(p, [
       "supported",
+      "fact",
       "conversation",
       "showData",
       "guide",
@@ -1106,6 +1146,10 @@ async function planData(
     (p.insightIds !== undefined && !validInsightIds(p.insightIds))
   )
     return malformed();
+  if (p.fact !== undefined && (!validFact(p.fact) || !keys(p, ["supported","fact","groupBy","filters"]) ||
+      (periodIn(source.shaped) && p.fact.period !== periodIn(source.shaped)) || p.supported === false))
+    return malformed();
+  if (needsPeriod && !p.fact) return fallback("Требуется план расчёта.");
   const conversation = readConversation(p.conversation);
   if (p.conversation !== undefined && !conversation) return malformed();
   if (conversation) {
@@ -1190,6 +1234,7 @@ async function planData(
     };
   if (
     ![
+      "fact",
       "groupBy",
       "layout",
       "reset",
@@ -1256,6 +1301,11 @@ async function planData(
         : local.layout,
     filters,
   };
+  if (validFact(p.fact)) {
+    if (!member(p.groupBy, canvasDimensions) || !validFactView(p.fact, p.groupBy, filters)) return malformed();
+    return { mode: "model", provider: "VseLLM", model: client.model,
+      intent: { groupBy: p.groupBy, layout: p.groupBy === "ticket" ? "list" : "comparison", filters, fact: p.fact } };
+  }
   const insightIds =
     chosenInsights ??
     (validInsightIds(p.insightIds) ? p.insightIds : undefined);

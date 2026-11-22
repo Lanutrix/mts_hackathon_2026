@@ -40,6 +40,7 @@ export interface CanvasView {
   weightBy?: CanvasWeight;
 }
 export interface CanvasIntent extends CanvasView {
+  fact?: import("./canvasFacts.ts").FactPlan;
   insightIds?: AnswerInsightId[];
   automaticStates?: true;
   topic?: GuideTopic;
@@ -80,6 +81,7 @@ export interface CanvasConversation {
   followUp?: string;
 }
 export interface CanvasResult {
+  fact?: import("./canvasFacts.ts").CanvasFact;
   conversation?: CanvasConversation;
   turnToken?: string;
   insights?: AnswerInsight[];

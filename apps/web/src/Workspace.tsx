@@ -10,6 +10,7 @@ import type {
   CanvasGroup,
   CanvasResult,
 } from "../../../packages/contracts/canvas";
+import FactBoard from "./FactBoard";
 import AnswerInsightBoard from "./AnswerInsightBoard";
 import ConversationAnswer from "./ConversationAnswer";
 import { GuideAnswer } from "./GuideAnswer";
@@ -575,7 +576,9 @@ function WorkspaceScreen({
                 />
               )}
             </div>
-            {view.conversation ? (
+            {view.fact ? (
+              <FactBoard result={view} choose={(g) => choose(view,g)} {...{ ns, open }} />
+            ) : view.conversation ? (
               <ConversationAnswer key={view.conversation.text} answer={view.conversation}
                 canAsk={canAsk && busy === null} ask={(question) => void send(question)} />
             ) : view.answer ? (

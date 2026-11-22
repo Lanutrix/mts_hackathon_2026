@@ -145,6 +145,24 @@ async function capture(page: Page, name: string) {
   });
 }
 
+test("source answers choose a team directory, ranked durations and an inspectable incident graph", async ({ page }) => {
+  await enter(page);
+  const teams = await ask(page, "Сколько сейчас команд и как они называются?");
+  const register = page.getByRole("list", { name: "Перечень значений" });
+  await expect(register.getByRole("button")).toHaveCount(teams.groups.length);
+  await register.getByRole("button").first().click();
+  await expect(page.getByRole("dialog").getByRole("link").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await ask(page, "назови за последний год самую долгорешаемую проблему");
+  await expect(page.getByRole("table").getByRole("link").first()).toBeVisible();
+  await ask(page, "Построй диаграмму связей между DEMO-42-00001 и DEMO-42-00004");
+  const graph = page.locator(".fact-graph");
+  await expect(graph.getByRole("link", { name: "DEMO-42-00001" })).toBeVisible();
+  await expect(graph.getByText(/assignedGroupName|productName|Симптом|service/i).first()).toBeVisible();
+  await graph.getByRole("link", { name: "DEMO-42-00004" }).click();
+  await expect(page).toHaveURL(/\/incident\/DEMO-42-00004/);
+});
+
 test("square map to compound views to incident and back preserves the conversation and each exact selection", async ({
   page,
 }) => {
