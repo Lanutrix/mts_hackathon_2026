@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { openDB } from "../apps/server/db.ts";
 import { Store } from "../apps/worker/ingestion.ts";
-import { Auth, passwordHash } from "../apps/server/auth.ts";
+import { Auth, loadQrLoginConfig, passwordHash } from "../apps/server/auth.ts";
 import { createApp } from "../apps/server/api.ts";
 
 test("a QR link signs in separate browsers as the configured account until the link expires", async (t) => {
@@ -89,4 +92,38 @@ test("a QR link signs in separate browsers as the configured account until the l
   assert.equal(operatorMe.json().user.role, "viewer");
   assert.equal(auth.loginWithQr(token, { ...qrLogin, expires: Date.now() - 1 }), null);
   assert.equal(auth.loginWithQr(token, { ...qrLogin, username: "unknown" }), null);
+});
+
+test("a seven-day QR link does not extend an individual session past eight hours", () => {
+  const auth = new Auth();
+  const token = randomBytes(32).toString("base64url");
+  auth.users.push({ username: "test-coordinator", role: "coordinator", salt: "", hash: "" });
+  const result = auth.loginWithQr(token, {
+    username: "test-coordinator",
+    tokenHash: auth.digest(token),
+    expires: Date.now() + 7 * 24 * 3600_000,
+  });
+  assert.ok(result);
+  assert.ok(result.session.expires - Date.now() <= 8 * 3600_000);
+});
+
+test("an active release renews a stale entry for the same account and preserves a different active account", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "wm-release-qr-"));
+  const localPath = join(dir, "local.json");
+  const releasePath = join(dir, "release.json");
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const now = Date.now();
+  const release = { username: "test-coordinator", tokenHash: "a".repeat(64), expires: now + 604_800_000 };
+  const stale = { ...release, expires: now - 1 };
+  await writeFile(releasePath, JSON.stringify(release));
+  assert.deepEqual(await loadQrLoginConfig(localPath, releasePath), release);
+  await writeFile(localPath, JSON.stringify(stale));
+  assert.deepEqual(await loadQrLoginConfig(localPath, releasePath), release);
+  assert.deepEqual(await loadQrLoginConfig(localPath), stale);
+
+  const other = { username: "other", tokenHash: "b".repeat(64), expires: now + 60_000 };
+  await writeFile(localPath, JSON.stringify(other));
+  assert.deepEqual(await loadQrLoginConfig(localPath, releasePath), other);
+  await writeFile(releasePath, JSON.stringify(stale));
+  assert.deepEqual(await loadQrLoginConfig(localPath, releasePath), other);
 });

@@ -38,6 +38,22 @@ export async function loadQrLogin(path: string): Promise<QrLogin | undefined> {
   return config;
 }
 
+export async function loadQrLoginConfig(path: string, releasePath?: string) {
+  const local = await loadQrLogin(path);
+  if (!releasePath) return local;
+
+  const release = await loadQrLogin(releasePath);
+  const now = Date.now();
+  if (!release || release.expires <= now) return local;
+  if (local && local.expires > now && local.username !== release.username)
+    return local;
+  if (local?.tokenHash === release.tokenHash && local.expires > release.expires)
+    return local;
+  return release;
+}
+
+const sessionMaxAgeMs = 8 * 3600_000;
+
 export class Auth {
   users: User[] = [];
   sessions = new Map<
@@ -74,15 +90,16 @@ export class Auth {
     return this.startSession(user);
   }
   loginWithQr(code: string, config: QrLogin) {
-    if (!/^[a-zA-Z0-9_-]{43}$/.test(code) || config.expires <= Date.now())
+    const now = Date.now();
+    if (!/^[a-zA-Z0-9_-]{43}$/.test(code) || config.expires <= now)
       return null;
     if (!timingSafeEqual(Buffer.from(this.digest(code), "hex"), Buffer.from(config.tokenHash, "hex")))
       return null;
 
     const user = this.users.find((u) => u.username === config.username);
-    return user ? this.startSession(user, config.expires) : null;
+    return user ? this.startSession(user, Math.min(config.expires, now + sessionMaxAgeMs)) : null;
   }
-  private startSession(user: User, expires = Date.now() + 8 * 3600_000) {
+  private startSession(user: User, expires = Date.now() + sessionMaxAgeMs) {
     const token = randomBytes(32).toString("hex"),
       session = {
         username: user.username,

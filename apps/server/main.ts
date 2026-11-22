@@ -3,14 +3,21 @@ import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { openDB } from "./db.ts";
 import { Store, FileSource } from "../worker/ingestion.ts";
-import { Auth, loadQrLogin, qrLoginFile } from "./auth.ts";
+import { Auth, loadQrLoginConfig, qrLoginFile } from "./auth.ts";
 import { createApp } from "./api.ts";
 import { AnalysisService } from "./analysis.ts";
 import { loadVseLlm } from "./vsellm.ts";
 import { trainingRows } from "../../packages/domain/trainingShift.ts";
 const root = resolve(process.env.DATA_DIR ?? ".runtime");
+const secure = process.env.NODE_ENV === "production";
+const origin = process.env.ORIGIN ?? "http://127.0.0.1:3000";
+const releaseQrLogin =
+  secure && origin.replace(/\/$/, "") === "https://mts-watermelon.ru" &&
+  process.env.QR_LOGIN_RELEASE !== "false"
+    ? resolve(import.meta.dirname, "../../data/production-qr-login.json")
+    : undefined;
 await mkdir(root, { recursive: true });
-const qrLogin = await loadQrLogin(resolve(root, qrLoginFile));
+const qrLogin = await loadQrLoginConfig(resolve(root, qrLoginFile), releaseQrLogin);
 const db = await openDB(resolve(root, "db"), process.env.DATABASE_URL),
   stores = new Map<string, Store>(),
   sources = new Map<string, FileSource>();
@@ -38,8 +45,7 @@ for (const [namespace, path] of Object.entries(paths)) {
   stores.set(namespace, store);
   sources.set(namespace, await new FileSource(store, path).start());
 }
-const auth = await new Auth().load(process.env.USERS_FILE),
-  secure = process.env.NODE_ENV === "production";
+const auth = await new Auth().load(process.env.USERS_FILE);
 const ai = new AnalysisService(
   db,
   resolve(root, "models"),
@@ -47,7 +53,6 @@ const ai = new AnalysisService(
   undefined,
   await loadVseLlm(root),
 );
-const origin = process.env.ORIGIN ?? "http://127.0.0.1:3000";
 const app = await createApp({
   stores,
   sources,
