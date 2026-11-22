@@ -1,0 +1,437 @@
+{
+  "pages": [
+    {
+      "id": "0:1",
+      "name": "Foundations",
+      "frames": 1,
+      "instances": 0,
+      "images": 0
+    },
+    {
+      "id": "6:2",
+      "name": "Components",
+      "frames": 8,
+      "instances": 6,
+      "images": 0
+    },
+    {
+      "id": "7:2",
+      "name": "Desktop",
+      "frames": 4,
+      "instances": 21,
+      "images": 0
+    },
+    {
+      "id": "8:97",
+      "name": "States",
+      "frames": 12,
+      "instances": 30,
+      "images": 0
+    },
+    {
+      "id": "8:195",
+      "name": "Responsive",
+      "frames": 3,
+      "instances": 42,
+      "images": 0
+    },
+    {
+      "id": "9:2",
+      "name": "Wallboard",
+      "frames": 1,
+      "instances": 10,
+      "images": 0
+    },
+    {
+      "id": "11:2",
+      "name": "User flows",
+      "frames": 6,
+      "instances": 0,
+      "images": 0
+    },
+    {
+      "id": "11:27",
+      "name": "Handoff",
+      "frames": 1,
+      "instances": 0,
+      "images": 0
+    }
+  ],
+  "variables": [
+    {
+      "id": "VariableID:4:3",
+      "name": "palette/background",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-background)"
+      }
+    },
+    {
+      "id": "VariableID:4:4",
+      "name": "palette/surface",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-surface)"
+      }
+    },
+    {
+      "id": "VariableID:4:5",
+      "name": "palette/text",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-text)"
+      }
+    },
+    {
+      "id": "VariableID:4:6",
+      "name": "palette/muted",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-muted)"
+      }
+    },
+    {
+      "id": "VariableID:4:7",
+      "name": "palette/border",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-border)"
+      }
+    },
+    {
+      "id": "VariableID:4:8",
+      "name": "palette/critical",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-critical)"
+      }
+    },
+    {
+      "id": "VariableID:4:9",
+      "name": "palette/warning",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-warning)"
+      }
+    },
+    {
+      "id": "VariableID:4:10",
+      "name": "palette/resolved",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-resolved)"
+      }
+    },
+    {
+      "id": "VariableID:4:11",
+      "name": "palette/accent",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--primitive-accent)"
+      }
+    },
+    {
+      "id": "VariableID:4:13",
+      "name": "color/background",
+      "scopes": [
+        "FRAME_FILL",
+        "SHAPE_FILL",
+        "TEXT_FILL"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--background)"
+      }
+    },
+    {
+      "id": "VariableID:4:14",
+      "name": "color/surface",
+      "scopes": [
+        "FRAME_FILL",
+        "SHAPE_FILL",
+        "TEXT_FILL"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--surface)"
+      }
+    },
+    {
+      "id": "VariableID:4:15",
+      "name": "color/text",
+      "scopes": [
+        "FRAME_FILL",
+        "SHAPE_FILL",
+        "TEXT_FILL"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--text)"
+      }
+    },
+    {
+      "id": "VariableID:4:16",
+      "name": "color/muted",
+      "scopes": [
+        "FRAME_FILL",
+        "SHAPE_FILL",
+        "TEXT_FILL"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--muted)"
+      }
+    },
+    {
+      "id": "VariableID:4:17",
+      "name": "color/border",
+      "scopes": [
+        "STROKE_COLOR"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--border)"
+      }
+    },
+    {
+      "id": "VariableID:4:18",
+      "name": "color/critical",
+      "scopes": [
+        "FRAME_FILL",
+        "SHAPE_FILL",
+        "TEXT_FILL"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--critical)"
+      }
+    },
+    {
+      "id": "VariableID:4:19",
+      "name": "color/warning",
+      "scopes": [
+        "FRAME_FILL",
+        "SHAPE_FILL",
+        "TEXT_FILL"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--warning)"
+      }
+    },
+    {
+      "id": "VariableID:4:20",
+      "name": "color/resolved",
+      "scopes": [
+        "FRAME_FILL",
+        "SHAPE_FILL",
+        "TEXT_FILL"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--resolved)"
+      }
+    },
+    {
+      "id": "VariableID:4:21",
+      "name": "color/accent",
+      "scopes": [
+        "FRAME_FILL",
+        "SHAPE_FILL",
+        "TEXT_FILL"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--accent)"
+      }
+    },
+    {
+      "id": "VariableID:4:22",
+      "name": "spacing/4",
+      "scopes": [
+        "GAP"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--space-4)"
+      }
+    },
+    {
+      "id": "VariableID:4:23",
+      "name": "spacing/8",
+      "scopes": [
+        "GAP"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--space-8)"
+      }
+    },
+    {
+      "id": "VariableID:4:24",
+      "name": "spacing/12",
+      "scopes": [
+        "GAP"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--space-12)"
+      }
+    },
+    {
+      "id": "VariableID:4:25",
+      "name": "spacing/16",
+      "scopes": [
+        "GAP"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--space-16)"
+      }
+    },
+    {
+      "id": "VariableID:4:26",
+      "name": "spacing/24",
+      "scopes": [
+        "GAP"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--space-24)"
+      }
+    },
+    {
+      "id": "VariableID:4:27",
+      "name": "spacing/32",
+      "scopes": [
+        "GAP"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--space-32)"
+      }
+    },
+    {
+      "id": "VariableID:4:28",
+      "name": "radius/8",
+      "scopes": [
+        "CORNER_RADIUS"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--radius-8)"
+      }
+    },
+    {
+      "id": "VariableID:4:29",
+      "name": "radius/12",
+      "scopes": [
+        "CORNER_RADIUS"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--radius-12)"
+      }
+    },
+    {
+      "id": "VariableID:4:30",
+      "name": "motion/brief",
+      "scopes": [],
+      "codeSyntax": {
+        "WEB": "var(--motion-brief)"
+      }
+    },
+    {
+      "id": "VariableID:18:3",
+      "name": "border/default",
+      "scopes": [
+        "STROKE_FLOAT"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--border-width)"
+      }
+    },
+    {
+      "id": "VariableID:18:4",
+      "name": "border/focus",
+      "scopes": [
+        "STROKE_FLOAT"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--focus-width)"
+      }
+    },
+    {
+      "id": "VariableID:18:5",
+      "name": "elevation/flat",
+      "scopes": [
+        "ALL_SCOPES"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--elevation-flat)"
+      }
+    },
+    {
+      "id": "VariableID:22:3",
+      "name": "color/control-border",
+      "scopes": [
+        "STROKE_COLOR"
+      ],
+      "codeSyntax": {
+        "WEB": "var(--control-border)"
+      }
+    }
+  ],
+  "textStyles": [
+    {
+      "name": "Watermelon/Body",
+      "font": {
+        "family": "Golos Text",
+        "style": "Regular",
+        "variationSettings": {
+          "wght": 400
+        }
+      },
+      "size": 16
+    },
+    {
+      "name": "Watermelon/Heading",
+      "font": {
+        "family": "Golos Text",
+        "style": "SemiBold",
+        "variationSettings": {
+          "wght": 600
+        }
+      },
+      "size": 24
+    },
+    {
+      "name": "Watermelon/Meta",
+      "font": {
+        "family": "Golos Text",
+        "style": "Regular",
+        "variationSettings": {
+          "wght": 400
+        }
+      },
+      "size": 14
+    },
+    {
+      "name": "Watermelon/Wallboard Body",
+      "font": {
+        "family": "Golos Text",
+        "style": "Regular",
+        "variationSettings": {
+          "wght": 400
+        }
+      },
+      "size": 22
+    },
+    {
+      "name": "Watermelon/Wallboard Meta",
+      "font": {
+        "family": "Golos Text",
+        "style": "Regular",
+        "variationSettings": {
+          "wght": 400
+        }
+      },
+      "size": 20
+    },
+    {
+      "name": "Watermelon/Wallboard Heading",
+      "font": {
+        "family": "Golos Text",
+        "style": "SemiBold",
+        "variationSettings": {
+          "wght": 600
+        }
+      },
+      "size": 28
+    }
+  ],
+  "prototypeEdges": 14
+}

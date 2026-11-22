@@ -1,0 +1,65 @@
+{
+  "domain": "https://mts-watermelon.ru",
+  "release": "166d7695caf9772cb191ec46408cbf0643556c1c",
+  "checkedAt": "2026-11-21T08:28:20.055Z",
+  "checks": [
+    "HTTPS ready and initial dataset 600 records / 4 groups",
+    "Anonymous denied, coordinator signed in over HTTPS. Secure/HttpOnly/SameSite=Strict verified",
+    "Remote file edit observed in two browser contexts, no navigation, actual SSE revision event",
+    "Original field restored, disconnected viewer resynchronized",
+    "Authenticated analysis result: model",
+    "ITSM same incident ID and zero page errors",
+    "Temporary user removed; production readiness verified after restart"
+  ],
+  "ai": {
+    "http": 200,
+    "mode": "model",
+    "claims": 5,
+    "evidence": 5,
+    "dimensions": 384,
+    "stale": false,
+    "ms": 6635
+  },
+  "finishedAt": "2026-11-21T08:31:26+00:00",
+  "redirectHttp": 308,
+  "tls": {
+    "version": "TLSv1.3",
+    "issuer": "Let's Encrypt YE2",
+    "san": "mts-watermelon.ru",
+    "validToUtc": "2027-02-19T07:28:23Z",
+    "clientVerified": true
+  },
+  "serviceAutostart": [
+    "postgresql.service",
+    "mts-watermelon.service",
+    "watermelon-caddy.service"
+  ],
+  "databaseRestore": {
+    "engine": "PostgreSQL 18.6",
+    "destination": "independent staging cluster, dedicated new database",
+    "allTablesMatched": 11,
+    "incidents": 600,
+    "demoRevision": 3,
+    "aiCacheRows": 1,
+    "dumpPermissions": "0600",
+    "dumpBytes": 170846
+  },
+  "ports": {
+    "publicWeb": [
+      80,
+      443
+    ],
+    "loopbackOnly": [
+      2019,
+      3000,
+      5432
+    ],
+    "externalAdminHttpResponse": false,
+    "externalPostgresSession": false
+  },
+  "temporaryUserRemoved": true,
+  "originalHeaderRestored": true,
+  "productionRollback": "first public release; previous-release rollback exercised on VDS staging",
+  "operatorCredentials": "no permanent account provisioned",
+  "providerRecoveryAndPasswordRotation": "unconfirmed; separate from publication"
+}

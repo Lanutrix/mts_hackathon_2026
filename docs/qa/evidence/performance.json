@@ -1,0 +1,429 @@
+{
+  "environment": {
+    "os": "win32",
+    "node": "v24.18.0",
+    "browser": "159.0.8154.6"
+  },
+  "runs": [
+    {
+      "count": 2000,
+      "seed": 92831,
+      "samples": [
+        {
+          "endToEndMs": 219,
+          "watcherDelayMs": 1,
+          "readMs": 101.04280000000017,
+          "validationMs": 72.24569999999949,
+          "commitMs": 6.41570000000047,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 36.699951171875,
+          "revision": 2
+        },
+        {
+          "endToEndMs": 219,
+          "watcherDelayMs": 1,
+          "readMs": 106.33829999999944,
+          "validationMs": 78.28459999999995,
+          "commitMs": 3.953400000000329,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 28.60009765625,
+          "revision": 3
+        },
+        {
+          "endToEndMs": 225,
+          "watcherDelayMs": 2,
+          "readMs": 116.67929999999978,
+          "validationMs": 78.58830000000034,
+          "commitMs": 3.7278000000005704,
+          "streamDeliveryMs": 0,
+          "apiAndRenderMs": 24.39990234375,
+          "revision": 4
+        },
+        {
+          "endToEndMs": 215,
+          "watcherDelayMs": 2,
+          "readMs": 103.83280000000013,
+          "validationMs": 68.29969999999958,
+          "commitMs": 4.30829999999969,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 35.60009765625,
+          "revision": 5
+        },
+        {
+          "endToEndMs": 217,
+          "watcherDelayMs": 1,
+          "readMs": 112.86270000000059,
+          "validationMs": 61.55709999999999,
+          "commitMs": 3.57549999999992,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 36.60009765625,
+          "revision": 6
+        },
+        {
+          "endToEndMs": 213,
+          "watcherDelayMs": 0,
+          "readMs": 114.1909999999998,
+          "validationMs": 64.53659999999945,
+          "commitMs": 3.378600000000006,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 29.89990234375,
+          "revision": 7
+        },
+        {
+          "endToEndMs": 200,
+          "watcherDelayMs": 1,
+          "readMs": 99.58759999999984,
+          "validationMs": 65.23129999999946,
+          "commitMs": 4.020300000000134,
+          "streamDeliveryMs": 0,
+          "apiAndRenderMs": 29.60009765625,
+          "revision": 8
+        },
+        {
+          "endToEndMs": 189,
+          "watcherDelayMs": 0,
+          "readMs": 97.28449999999975,
+          "validationMs": 55.709499999999935,
+          "commitMs": 4.0864999999994325,
+          "streamDeliveryMs": 0,
+          "apiAndRenderMs": 31.300048828125,
+          "revision": 9
+        },
+        {
+          "endToEndMs": 225,
+          "watcherDelayMs": 1,
+          "readMs": 109.59200000000055,
+          "validationMs": 74.32990000000063,
+          "commitMs": 4.273000000001048,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 34.699951171875,
+          "revision": 10
+        },
+        {
+          "endToEndMs": 217,
+          "watcherDelayMs": 2,
+          "readMs": 116.40780000000086,
+          "validationMs": 63.78850000000057,
+          "commitMs": 3.871900000000096,
+          "streamDeliveryMs": 0,
+          "apiAndRenderMs": 30.89990234375,
+          "revision": 11
+        },
+        {
+          "endToEndMs": 189,
+          "watcherDelayMs": 2,
+          "readMs": 99.8792999999987,
+          "validationMs": 59.294200000000274,
+          "commitMs": 3.6589999999996508,
+          "streamDeliveryMs": 0,
+          "apiAndRenderMs": 24.199951171875,
+          "revision": 12
+        },
+        {
+          "endToEndMs": 201,
+          "watcherDelayMs": 1,
+          "readMs": 97.73999999999978,
+          "validationMs": 65.20620000000054,
+          "commitMs": 3.473200000000361,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 33.199951171875,
+          "revision": 13
+        },
+        {
+          "endToEndMs": 208,
+          "watcherDelayMs": 0,
+          "readMs": 109.56219999999848,
+          "validationMs": 54.23019999999997,
+          "commitMs": 3.5429000000003725,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 38.800048828125,
+          "revision": 14
+        },
+        {
+          "endToEndMs": 224,
+          "watcherDelayMs": 2,
+          "readMs": 110.01039999999921,
+          "validationMs": 61.53129999999874,
+          "commitMs": 4.695400000000518,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 44.699951171875,
+          "revision": 15
+        },
+        {
+          "endToEndMs": 238,
+          "watcherDelayMs": 1,
+          "readMs": 109.54239999999845,
+          "validationMs": 83.34259999999995,
+          "commitMs": 3.273300000000745,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 40,
+          "revision": 16
+        },
+        {
+          "endToEndMs": 200,
+          "watcherDelayMs": 1,
+          "readMs": 102.64580000000024,
+          "validationMs": 54.52169999999933,
+          "commitMs": 3.3156999999991967,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 38.199951171875,
+          "revision": 17
+        },
+        {
+          "endToEndMs": 204,
+          "watcherDelayMs": 1,
+          "readMs": 116.58780000000115,
+          "validationMs": 60.25009999999929,
+          "commitMs": 3.229699999999866,
+          "streamDeliveryMs": 0,
+          "apiAndRenderMs": 23.39990234375,
+          "revision": 18
+        },
+        {
+          "endToEndMs": 249,
+          "watcherDelayMs": 2,
+          "readMs": 107.14309999999932,
+          "validationMs": 104.5028000000002,
+          "commitMs": 3.7659999999996217,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 30.5,
+          "revision": 19
+        },
+        {
+          "endToEndMs": 266,
+          "watcherDelayMs": 1,
+          "readMs": 124.318299999999,
+          "validationMs": 75.90849999999955,
+          "commitMs": 11.421599999999671,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 52.800048828125,
+          "revision": 20
+        },
+        {
+          "endToEndMs": 216,
+          "watcherDelayMs": 0,
+          "readMs": 100.89080000000104,
+          "validationMs": 83.14019999999982,
+          "commitMs": 4.810299999999188,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 26,
+          "revision": 21
+        }
+      ],
+      "p50": 216,
+      "p95": 249,
+      "max": 266,
+      "domCards": 120
+    },
+    {
+      "count": 10000,
+      "seed": 92831,
+      "samples": [
+        {
+          "endToEndMs": 651,
+          "watcherDelayMs": 0,
+          "readMs": 260.41690000000017,
+          "validationMs": 335.6869999999999,
+          "commitMs": 18.81540000000041,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 34.900146484375,
+          "revision": 2
+        },
+        {
+          "endToEndMs": 609,
+          "watcherDelayMs": 0,
+          "readMs": 226.0048000000006,
+          "validationMs": 332.90409999999974,
+          "commitMs": 18.192000000000917,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 31.400146484375,
+          "revision": 3
+        },
+        {
+          "endToEndMs": 617,
+          "watcherDelayMs": 1,
+          "readMs": 236.85170000000107,
+          "validationMs": 333.7660999999989,
+          "commitMs": 16.763200000001234,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 26.7001953125,
+          "revision": 4
+        },
+        {
+          "endToEndMs": 612,
+          "watcherDelayMs": 1,
+          "readMs": 239.6351999999988,
+          "validationMs": 322.71360000000095,
+          "commitMs": 16.41649999999936,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 30.5,
+          "revision": 5
+        },
+        {
+          "endToEndMs": 628,
+          "watcherDelayMs": 0,
+          "readMs": 247.95529999999962,
+          "validationMs": 319.02369999999974,
+          "commitMs": 16.938099999999395,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 42.800048828125,
+          "revision": 6
+        },
+        {
+          "endToEndMs": 610,
+          "watcherDelayMs": 1,
+          "readMs": 224.96930000000066,
+          "validationMs": 320.03509999999915,
+          "commitMs": 16.82250000000022,
+          "streamDeliveryMs": 2,
+          "apiAndRenderMs": 45.5,
+          "revision": 7
+        },
+        {
+          "endToEndMs": 676,
+          "watcherDelayMs": 2,
+          "readMs": 254.5636999999988,
+          "validationMs": 376.36069999999927,
+          "commitMs": 13.78820000000087,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 27.800048828125,
+          "revision": 8
+        },
+        {
+          "endToEndMs": 738,
+          "watcherDelayMs": 0,
+          "readMs": 256.9868999999999,
+          "validationMs": 423.58640000000196,
+          "commitMs": 26.26390000000174,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 30.300048828125,
+          "revision": 9
+        },
+        {
+          "endToEndMs": 575,
+          "watcherDelayMs": 1,
+          "readMs": 209.85309999999663,
+          "validationMs": 304.15400000000227,
+          "commitMs": 18.723699999998644,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 40,
+          "revision": 10
+        },
+        {
+          "endToEndMs": 693,
+          "watcherDelayMs": 0,
+          "readMs": 283.9701000000023,
+          "validationMs": 356.1316000000006,
+          "commitMs": 20.342100000001665,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 30.900146484375,
+          "revision": 11
+        },
+        {
+          "endToEndMs": 594,
+          "watcherDelayMs": -1,
+          "readMs": 217.99109999999928,
+          "validationMs": 327.47249999999985,
+          "commitMs": 19.566900000001624,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 27.5,
+          "revision": 12
+        },
+        {
+          "endToEndMs": 595,
+          "watcherDelayMs": 0,
+          "readMs": 218.27530000000115,
+          "validationMs": 325.4894999999997,
+          "commitMs": 15.105400000000373,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 34.800048828125,
+          "revision": 13
+        },
+        {
+          "endToEndMs": 651,
+          "watcherDelayMs": 1,
+          "readMs": 226.61969999999928,
+          "validationMs": 370.83350000000064,
+          "commitMs": 15.303500000001804,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 36.300048828125,
+          "revision": 14
+        },
+        {
+          "endToEndMs": 588,
+          "watcherDelayMs": 0,
+          "readMs": 215.71210000000065,
+          "validationMs": 325.41719999999987,
+          "commitMs": 15.951799999998912,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 29.800048828125,
+          "revision": 15
+        },
+        {
+          "endToEndMs": 599,
+          "watcherDelayMs": 0,
+          "readMs": 214.10440000000017,
+          "validationMs": 330.1625000000022,
+          "commitMs": 14.631299999997282,
+          "streamDeliveryMs": 2,
+          "apiAndRenderMs": 38,
+          "revision": 16
+        },
+        {
+          "endToEndMs": 581,
+          "watcherDelayMs": 0,
+          "readMs": 202.97819999999774,
+          "validationMs": 323.8188000000009,
+          "commitMs": 15.860199999999168,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 36.60009765625,
+          "revision": 17
+        },
+        {
+          "endToEndMs": 609,
+          "watcherDelayMs": 2,
+          "readMs": 227.51690000000235,
+          "validationMs": 323.26910000000134,
+          "commitMs": 15.939500000000407,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 39.2001953125,
+          "revision": 18
+        },
+        {
+          "endToEndMs": 633,
+          "watcherDelayMs": 0,
+          "readMs": 245.5655000000006,
+          "validationMs": 331.8899999999994,
+          "commitMs": 15.47899999999936,
+          "streamDeliveryMs": 1,
+          "apiAndRenderMs": 38.7001953125,
+          "revision": 19
+        },
+        {
+          "endToEndMs": 586,
+          "watcherDelayMs": 0,
+          "readMs": 218.3099000000002,
+          "validationMs": 315.35139999999956,
+          "commitMs": 17.872599999998783,
+          "streamDeliveryMs": 2,
+          "apiAndRenderMs": 33.10009765625,
+          "revision": 20
+        },
+        {
+          "endToEndMs": 646,
+          "watcherDelayMs": 0,
+          "readMs": 246.23409999999785,
+          "validationMs": 341.1785999999993,
+          "commitMs": 16.863799999999173,
+          "streamDeliveryMs": 2,
+          "apiAndRenderMs": 40,
+          "revision": 21
+        }
+      ],
+      "p50": 610,
+      "p95": 693,
+      "max": 738,
+      "domCards": 120
+    }
+  ]
+}

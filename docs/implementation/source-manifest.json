@@ -1,0 +1,38 @@
+{
+  "checkedAtUtc": "2026-11-20T22:58:38.161865+00:00",
+  "main": "cf4ad3f",
+  "researchHead": "54ae86300da8b204d8a8fb5f9b02efecf0eaaa0a",
+  "researchPr": 2,
+  "researchMerged": false,
+  "sources": [
+    {
+      "name": "МТС.pdf",
+      "sha256": "3ab8c7871f99c7783e1ab4de860af58045f9b54374f4a2afcf9225e68752a1b8",
+      "bytes": 1719465,
+      "readOnly": true,
+      "repositoryCopy": false
+    },
+    {
+      "name": "incidents_attributes.json",
+      "sha256": "5490b6e90acb2a41a5ce53d9e2f592ba3144daa427b7ae784a69aedd646e9144",
+      "bytes": 5700,
+      "readOnly": true,
+      "repositoryCopy": false
+    },
+    {
+      "name": "character_problems.json",
+      "sha256": "b8e45682102df09698407e0e95c31ce438e255f040316dc6074b039710d21373",
+      "bytes": 92838,
+      "readOnly": true,
+      "repositoryCopy": false
+    }
+  ],
+  "recordCount": 44,
+  "fieldCount": 46,
+  "originalGroups": [
+    0,
+    2,
+    1,
+    5
+  ]
+}

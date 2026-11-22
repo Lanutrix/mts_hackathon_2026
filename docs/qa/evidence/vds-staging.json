@@ -1,0 +1,96 @@
+{
+  "checkedAtUtc": "2026-11-21T00:22:25+00:00",
+  "host": "ams-1-vm-5409",
+  "releaseTested": "a5b35d4938f257d178d913174113ac12cc4830b6",
+  "stage": "loopback + SSH tunnel; transient user services running as deploy",
+  "database": "PostgreSQL 18.6 on private Unix socket",
+  "browser": {
+    "client": "Chromium",
+    "syntheticRecords": 600,
+    "groups": 4,
+    "contexts": 2,
+    "criticalCoordinatorResolvedNoReload": true,
+    "reconnectResearch": true,
+    "anonymousAnalysisHttp": 401,
+    "coordinatorLogin": true,
+    "restoredBrowserItsmId": "DEMO-42-00001"
+  },
+  "restore": {
+    "tablesContentMatched": 11,
+    "incidents": 600,
+    "events": 604,
+    "notifications": 4,
+    "revisionBefore": 5,
+    "revisionAfterAppStart": 5,
+    "dashboardGroups": 4
+  },
+  "rollback": {
+    "environment": "staging copy of scripts with systemctl --user, private paths, port and database",
+    "forward": [
+      "64c9105",
+      "a5b35d4"
+    ],
+    "backTo": "64c9105",
+    "processWorkingDirectoryChecked": true,
+    "readyDashboardRecords": 600,
+    "revision": 5,
+    "production": "not_run"
+  },
+  "ai": {
+    "standaloneWarm": {
+      "mode": "model",
+      "dimensions": 384,
+      "evidence": 5,
+      "ms": 5381
+    },
+    "apiWarmBeforeGuard": {
+      "capMiB": 466,
+      "http": 200,
+      "mode": "model",
+      "ms": 5277,
+      "dimensions": 384,
+      "stale": false,
+      "evidence": 5,
+      "laterUnitResult": "oom-kill"
+    },
+    "apiColdBeforeGuard": {
+      "capMiB": 430,
+      "unitResult": "oom-kill"
+    },
+    "apiAfterGuard": {
+      "capMiB": 430,
+      "freshUncached": "fallback",
+      "reason": "Недостаточно свободной памяти для запуска модели",
+      "http": 200,
+      "readyAfter": 200,
+      "elapsedMs": 1264,
+      "cached": "model",
+      "cachedDimensions": 384
+    },
+    "productionWithSwap": "not_run"
+  },
+  "dns": {
+    "authorities": [
+      "ns1.timeweb.ru",
+      "ns2.timeweb.ru",
+      "ns3.timeweb.org",
+      "ns4.timeweb.org"
+    ],
+    "A": "89.19.215.254",
+    "AAAA": "ENODATA",
+    "CAA": "ENODATA",
+    "recursiveResolvers": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "changedByAssistant": false
+  },
+  "production": {
+    "rootBootstrap": "not_run",
+    "publicActivation": "not_run",
+    "tls": "not_run",
+    "rootRotationAndRecovery": "unconfirmed",
+    "domainConfig": "Caddy 2.11.9 validate passed",
+    "preActivationExternalSmoke": "HTTPS handshake failed; HTTP gave empty reply. VDS ss had no public 80/443, 5432 or 2019 listeners."
+  }
+}

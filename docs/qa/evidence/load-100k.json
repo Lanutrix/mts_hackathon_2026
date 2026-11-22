@@ -1,0 +1,126 @@
+{
+  "measuredAt": "2026-11-22T04:58:26.221Z",
+  "platform": "win32",
+  "node": "v24.18.0",
+  "cpu": "12th Gen Intel(R) Core(TM) i5-12450H",
+  "transport": "HTTP/1.1 over loopback TCP; client and server share one local Node process",
+  "database": "PGlite in memory",
+  "excludes": [
+    "TLS and reverse proxy",
+    "external LLM",
+    "write load"
+  ],
+  "seed": 8142,
+  "datasetRows": 240,
+  "syntheticClients": 500,
+  "inFlight": 16,
+  "requests": 100000,
+  "valid": 100000,
+  "byStatus": {
+    "200": 100000
+  },
+  "rejected": {},
+  "durationSeconds": 144.72,
+  "requestsPerSecond": 691,
+  "latency": {
+    "count": 100000,
+    "p50Ms": 20.61,
+    "p95Ms": 38.41,
+    "p99Ms": 53.1
+  },
+  "routes": {
+    "dashboard": {
+      "count": 10000,
+      "p50Ms": 20.78,
+      "p95Ms": 38.75,
+      "p99Ms": 53.28
+    },
+    "incidents": {
+      "count": 30000,
+      "p50Ms": 20.67,
+      "p95Ms": 38.58,
+      "p99Ms": 53.31
+    },
+    "incident": {
+      "count": 40000,
+      "p50Ms": 20.56,
+      "p95Ms": 38.28,
+      "p99Ms": 52.91
+    },
+    "notifications": {
+      "count": 20000,
+      "p50Ms": 20.52,
+      "p95Ms": 38.16,
+      "p99Ms": 52.9
+    }
+  },
+  "checkpoints": [
+    {
+      "requests": 10000,
+      "elapsedSeconds": 16.56,
+      "heapMiB": 62.74,
+      "rssMiB": 577.87
+    },
+    {
+      "requests": 20000,
+      "elapsedSeconds": 37.3,
+      "heapMiB": 93.76,
+      "rssMiB": 589.26
+    },
+    {
+      "requests": 30000,
+      "elapsedSeconds": 54.06,
+      "heapMiB": 65.94,
+      "rssMiB": 595.17
+    },
+    {
+      "requests": 40000,
+      "elapsedSeconds": 66.88,
+      "heapMiB": 101.53,
+      "rssMiB": 597.09
+    },
+    {
+      "requests": 50000,
+      "elapsedSeconds": 80.23,
+      "heapMiB": 77.93,
+      "rssMiB": 598.89
+    },
+    {
+      "requests": 60000,
+      "elapsedSeconds": 93.04,
+      "heapMiB": 86.78,
+      "rssMiB": 599.7
+    },
+    {
+      "requests": 70000,
+      "elapsedSeconds": 106.19,
+      "heapMiB": 87.99,
+      "rssMiB": 594.33
+    },
+    {
+      "requests": 80000,
+      "elapsedSeconds": 120.31,
+      "heapMiB": 68.1,
+      "rssMiB": 600.36
+    },
+    {
+      "requests": 90000,
+      "elapsedSeconds": 132.18,
+      "heapMiB": 83.07,
+      "rssMiB": 600.71
+    },
+    {
+      "requests": 100000,
+      "elapsedSeconds": 144.72,
+      "heapMiB": 90.5,
+      "rssMiB": 600.44
+    }
+  ],
+  "triage": {
+    "input": 100000,
+    "eligible": 50008,
+    "grouped": 50008,
+    "groups": 8,
+    "durationMs": 594.49
+  }
+}

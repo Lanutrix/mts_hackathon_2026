@@ -1,0 +1,38 @@
+
+> mts-watermelon@0.1.0 test
+> node --import tsx --test --test-concurrency=1 tests/*.test.ts
+
+✔ F31 F32 schema evidence cache stale and injected text cannot change incident (1476.4308ms)
+✔ F23 F24 F33 F34 import preview/commit/raw roundtrip and server role/CSRF enforcement (2093.876ms)
+✔ F17 every one of 46 raw fields produces persisted revision with exact value (1289.6333ms)
+✔ F01 independent original oracle 0/2/1/5 when ORIGINAL_PATH provided (17.7014ms)
+✔ F01 F12 F13 independent oracle 120 combinations seed 42 (9.9095ms)
+✔ F01 F12 F13 independent oracle 120 combinations seed 43 (9.5572ms)
+✔ F01 F12 F13 independent oracle 120 combinations seed 44 (8.59ms)
+✔ F01 F12 F13 independent oracle 120 combinations seed 92831 (8.2934ms)
+✔ F28 F33 all 46 fields and future field roundtrip, precise IDs, date offsets (0.5291ms)
+✔ F28 active solution does not resolve; unknown status, conflict and bad dates quarantine (0.5097ms)
+✔ F02 F03 F04 F09 F10 transition reasons merged, state7 reopens; closed conflicts (0.9015ms)
+✔ F05 F06 F07 F08 deadlines untouched on priority changes and exact clock boundaries (0.6067ms)
+✔ F14 flags retain true false null; no invented links (0.4903ms)
+✔ F24 rejected root, invalid JSON, duplicate identity, numeric ID; fallback diagnostic (0.7693ms)
+✔ F15 safe ITSM link uses same id, rejects executable and credential URL (0.1882ms)
+✔ F19 F26 F27 F30 transaction/restart/dedup/A→B→A/disappearance (1356.5009ms)
+✔ F18 F36 per-user read survives new Store and does not change source (936.3878ms)
+✔ F25 file partial write, atomic rename, missing file recovers last good revision (1309.7975ms)
+✔ F23 F25 Windows transient rename lock retries; failure leaves accepted file and removes temp (80.6235ms)
+✔ F30 offline backup restored into separate directory retains projection, history and read state (4319.3216ms)
+✔ F01 F28 integration original control and quarantined fields never invent closure (1057.337ms)
+✔ F29 F30 F36 dashboard is one revision across concurrent commit and database failure is explicit (1221.64ms)
+✔ F30 actual backend process restart retains committed revision and notifications (5202.0722ms)
+✔ F05 F06 F07 F08 F09 F12 F13 F14 observed field transitions preserve deadlines, groups and facts (1326.6236ms)
+✔ F11 F35 demo terminal Closed rejects edit, repeat uses new ID; reset uses own namespace (3204.0745ms)
+✔ F19 storm of 600 criticals persisted once; repeat does not duplicate (1354.9437ms)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 29139.1463

@@ -1,0 +1,202 @@
+.ins-board {
+  --signal: var(--wm-violet);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+.ins-layout {
+  display: grid;
+  gap: clamp(18px, 3vw, 48px);
+  min-height: 0;
+  align-items: start;
+}
+.ins-block {
+  min-width: 0;
+  padding: clamp(7px, 1.1vw, 18px) 0 0;
+  border-top: 2px solid var(--signal);
+  display: grid;
+  gap: clamp(7px, 1.2vh, 15px);
+  align-content: start;
+}
+.ins-block[data-chart="ratio"],
+.ins-block[data-chart="relation"] {
+  --signal: var(--wm-green);
+}
+.ins-block[data-chart="subset"],
+.ins-block[data-chart="bands"],
+.ins-block[data-chart="max"] {
+  --signal: var(--wm-pink);
+}
+.ins-block h3 {
+  margin: 0;
+  max-width: 38ch;
+  color: var(--wm-ink);
+  font-size: clamp(1.08rem, 1.85vw, 2.1rem);
+  font-weight: 520;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.ins-number {
+  font-size: clamp(1.8rem, 4.25vw, 5.25rem);
+  line-height: 1;
+  letter-spacing: -0.07em;
+  font-weight: 470;
+  font-variant-numeric: tabular-nums;
+}
+.ins-citation {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+  color: var(--wm-muted);
+  font-size: clamp(10px, 0.81vw, 13px);
+  line-height: 1.35;
+}
+.ins-board a {
+  color: inherit;
+  text-decoration: none;
+}
+.ins-citation a,
+.ins-board a:hover {
+  color: var(--wm-violet);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ins-bins,
+.ins-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ins-bins {
+  display: flex;
+  gap: clamp(3px, 1vw, 14px);
+  align-items: stretch;
+  max-width: 750px;
+}
+.ins-bins li {
+  flex: 1;
+  min-width: 0;
+}
+.ins-bins li > a,
+.ins-bins li > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font:
+    500 0.74rem/1.15 "Golos Text",
+    sans-serif;
+}
+.ins-well {
+  height: clamp(30px, 8vh, 100px);
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--wm-control);
+}
+.ins-well > i {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  background: var(--signal);
+  border-radius: 3px 3px 0 0;
+  transform-origin: bottom;
+}
+.ins-bin-caption {
+  color: var(--wm-muted);
+  font-size: clamp(9px, 0.76vw, 12px);
+  overflow-wrap: anywhere;
+}
+.ins-calendar .ins-well > i {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--signal) 58%, var(--wm-bg)),
+    var(--signal)
+  );
+}
+.ins-list li > a,
+.ins-list li > span {
+  display: grid;
+  grid-template-columns: 1.3em minmax(0, 1fr) minmax(22px, 13%) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--wm-line);
+  font-size: clamp(11px, 0.95vw, 16px);
+}
+.ins-position {
+  font-size: 0.85em;
+  color: var(--wm-muted);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.ins-point-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ins-mini-bar {
+  height: 4px;
+  background: var(--wm-line);
+}
+.ins-mini-bar i {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+}
+.ins-paths .ins-mini-bar {
+  height: 2px;
+}
+.ins-proportion {
+  max-width: 600px;
+}
+.ins-proportion svg {
+  width: 100%;
+  height: clamp(25px, 5vh, 55px);
+}
+.ins-track {
+  fill: var(--wm-line);
+}
+.ins-fill {
+  fill: var(--signal);
+}
+.ins-pin {
+  stroke: var(--wm-ink);
+  stroke-width: 1.2;
+}
+.ins-proportion > div {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--wm-muted);
+  font-size: 0.77rem;
+}
+.ins-proportion b {
+  color: var(--wm-ink);
+}
+.ins-board[data-compact="true"] .ins-block {
+  gap: 3px;
+  padding-top: 3px;
+}
+.ins-board[data-compact="true"] h3 {
+  font-size: 1rem;
+}
+.ins-board[data-compact="true"] .ins-number {
+  font-size: 1.45rem;
+}
+.ins-board[data-compact="true"] .ins-well {
+  height: 20px;
+}
+.ins-board[data-compact="true"] .ins-list li > a,
+.ins-board[data-compact="true"] .ins-list li > span {
+  padding: 1px 0;
+  font-size: 10px;
+}
+.ins-board .cx-pager {
+  margin-top: 5px;
+}

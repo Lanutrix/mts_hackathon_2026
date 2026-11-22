@@ -1,0 +1,24 @@
+.dispatch-return-link {
+  display: inline-flex; align-items: center; gap: .45rem; margin-block: .6rem;
+  color: var(--text); font-weight: 600; text-decoration: underline; text-underline-offset: .22em;
+}
+.handoff-receipt {
+  position: fixed; right: max(1rem, env(safe-area-inset-right)); bottom: max(1rem, env(safe-area-inset-bottom));
+  width: min(22rem, calc(100vw - 2rem)); z-index: 8; pointer-events: none;
+}
+.handoff-receipt-message, .handoff-flight {
+  display: flex; align-items: center; gap: .75rem; padding: .75rem 1rem;
+  border: 1px solid var(--wm-green); border-radius: .85rem; background: var(--wm-surface);
+  color: var(--text); font-size: .85rem; overflow-wrap: anywhere;
+}
+.handoff-receipt svg { flex: none; color: var(--wm-green); }
+.handoff-receipt small { display: block; color: var(--wm-muted); font-size: .75rem; }
+.handoff-receipt strong { font-variant-numeric: tabular-nums; }
+.handoff-flight {
+  position: absolute; inset: 0 auto 0 0; visibility: hidden; transform-origin: left center; box-sizing: border-box;
+  border-left: 4px solid var(--wm-green); box-shadow: 0 .25rem 1rem #19152620;
+}
+.handoff-flight strong { display: block; }
+.handoff-flight > span { min-width: 0; }
+.handoff-subject { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .handoff-flight { display: none; } }

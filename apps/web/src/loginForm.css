@@ -1,0 +1,52 @@
+.access-dialog:has(.srez-login) {
+  width: min(414px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
+  overflow-y: auto;
+  padding: clamp(23px, 4vw, 36px);
+  border: 1px solid var(--wm-line);
+  border-radius: 22px;
+  color: var(--wm-ink);
+  background: var(--wm-surface);
+  box-shadow: 0 20px 80px #17102030;
+}
+.access-dialog:has(.srez-login)::backdrop { background: #18121e66; backdrop-filter: blur(8px); }
+.access-dialog:has(.srez-login) .access-close {
+  display: grid; place-items: center; color: var(--wm-muted); background: transparent;
+  top: 10px; right: 10px; padding: 0; line-height: 1;
+}
+.access-dialog:has(.srez-login) .access-close:hover { background: var(--wm-tint); }
+.srez-login { display: grid; gap: 18px; }
+.srez-login-heading { display: flex; align-items: center; gap: 13px; margin: 9px 12px 9px 0; }
+.srez-login-heading h1 { color: var(--wm-ink); margin: 0; font-size: clamp(25px, 4.8vw, 32px); line-height: 1.06; letter-spacing: -.062em; }
+.srez-login-emblem {
+  display: grid; place-items: center; flex: none; width: 47px; height: 47px;
+  border-radius: 13px; background: #e6dded; border: 1px solid #ccc0d8;
+}
+.srez-login-emblem .product-mark { width: 34px; height: 34px; }
+.srez-login-emblem .product-mark__seed { fill: #292332; }
+.srez-login-field { display: grid; gap: 7px; }
+.srez-login-field label { color: var(--wm-ink); font-size: 13px; font-weight: 600; }
+.srez-login-input {
+  position: relative; display: flex; align-items: center;
+  min-height: 48px; padding-left: 13px; color: var(--wm-muted);
+  background: var(--wm-bg); border: 1px solid var(--wm-line); border-radius: 11px;
+}
+.srez-login-input:focus-within { border-color: var(--wm-violet); box-shadow: 0 0 0 2px color-mix(in srgb, var(--wm-violet) 26%, transparent); }
+.srez-login-input > svg { flex: none; width: 18px; }
+.srez-login-input input {
+  align-self: stretch; width: 100%; min-width: 0; min-height: 44px; padding: 9px 11px;
+  border: 0; border-radius: inherit; outline: 0; box-shadow: none; color: var(--wm-ink); background: transparent; font: inherit;
+}
+.srez-login-input .srez-login-eye {
+  display: grid; place-items: center; height: 44px; min-width: 44px; padding: 0;
+  border: 0; border-radius: 8px; color: var(--wm-muted); background: transparent;
+}
+.srez-login-input .srez-login-eye:hover { color: var(--wm-violet); background: var(--wm-tint); }
+.srez-login-eye:focus-visible { outline: 2px solid var(--wm-violet); outline-offset: -4px; }
+.srez-login p[role="alert"] { margin: 0; color: var(--wm-pink); line-height: 1.4; font-size: 13px; }
+.srez-login .srez-login-submit {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 11px 16px;
+  border: 0; border-radius: 12px; background: var(--wm-ink); color: var(--wm-on-ink); font: inherit; font-weight: 600;
+}
+.srez-login .srez-login-submit:hover { background: var(--wm-solid-hover); }
+.srez-login-submit:focus-visible { outline: 3px solid var(--wm-violet); outline-offset: 3px; }

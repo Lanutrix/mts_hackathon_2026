@@ -1,0 +1,2182 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Срез API",
+    "version": "0.1.0",
+    "description": "Рабочие данные, учебный эфир и потоки событий требуют действующей сессии. Изменяющие запросы после входа используют CSRF-токен."
+  },
+  "security": [{ "session": [] }],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "wm_session"
+      },
+      "csrf": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token"
+      }
+    },
+    "schemas": {
+      "AccountPreferences": {
+        "type": "object",
+        "required": ["zone", "sound", "notifications"],
+        "properties": {
+          "zone": { "enum": ["Europe/Moscow", "UTC"] },
+          "sound": { "type": "boolean" },
+          "notifications": { "type": "boolean" },
+          "wallboardOrder": { "enum": ["priority", "deadline", "registered"], "default": "priority", "description": "Порядок всей очереди до разбиения на страницы. При одинаковом приоритете первым идёт ближайший срок." },
+          "wallboardSeconds": { "enum": [10, 18, 30], "default": 18, "description": "Время показа страницы общего экрана в секундах." }
+        }
+      },
+      "IntakeRecord": {
+        "type": "object",
+        "required": ["id", "stateId", "stateEnum", "priorityId"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "sysId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+          "stateId": { "enum": [0, 2, 7, 10, 20] },
+          "stateEnum": { "enum": ["Assigned", "WorkInProgress", "Resolved", "Closed", "Research"] },
+          "priorityId": { "enum": [1, 2, 3, 4] }
+        },
+        "additionalProperties": true,
+        "description": "Запись исходного формата. Статус и stateEnum должны совпадать. Все переданные поля сохраняются."
+      },
+      "AnswerPresentation": {
+        "enum": [
+          "squares",
+          "bars",
+          "orbit",
+          "flow",
+          "matrix",
+          "cards",
+          "register",
+          "deadline",
+          "compare",
+          "brief",
+          "spotlight"
+        ]
+      },
+      "AnswerExhibit": {
+        "enum": [
+          "first-group",
+          "mean-load",
+          "median-load",
+          "load-range",
+          "overdue-metric",
+          "soon-metric",
+          "escalation-metric",
+          "concentration",
+          "top-two",
+          "pareto",
+          "median-overdue",
+          "leader-gap",
+          "tied-leaders",
+          "singletons",
+          "clean-groups",
+          "groups-overdue",
+          "groups-escalated",
+          "highest-late-rate",
+          "late-leader",
+          "escalation-leader",
+          "on-time",
+          "overdue-rate",
+          "escalation-rate",
+          "soon-rate",
+          "scope-share",
+          "group-count"
+        ]
+      },
+      "GuideTopic": {
+        "enum": [
+          "incident",
+          "ticket",
+          "massIncident",
+          "problem",
+          "serviceRequest",
+          "triage",
+          "lifecycle",
+          "sla",
+          "priority",
+          "deadline",
+          "escalation",
+          "symptom",
+          "assignment",
+          "recommendation",
+          "status",
+          "signals",
+          "assistant",
+          "shift",
+          "monitor",
+          "devices",
+          "icons"
+        ]
+      },
+      "GuideFocus": {
+        "enum": [
+          "overview",
+          "example",
+          "steps",
+          "distinction"
+        ]
+      },
+      "AnswerInsightId": {
+        "enum": [
+          "age-median",
+          "age-tail",
+          "age-oldest",
+          "age-bands",
+          "delay-max",
+          "delay-median",
+          "delay-sum",
+          "delay-bands",
+          "remaining-min",
+          "remaining-median",
+          "remaining-bands",
+          "assignment-median",
+          "assignment-tail",
+          "team-age-max",
+          "team-age-bands",
+          "resolve-median",
+          "resolve-mean",
+          "resolve-tail",
+          "resolve-bands",
+          "budget-median",
+          "missed-max",
+          "reserve-median",
+          "waiting-min",
+          "by-channel",
+          "by-impact",
+          "by-urgency",
+          "by-type",
+          "by-service",
+          "by-service-class",
+          "by-scenario",
+          "by-state-reason",
+          "by-fix",
+          "by-owner",
+          "by-team-overdue",
+          "by-product-raised",
+          "by-owner-critical",
+          "channel-team",
+          "product-team",
+          "service-product",
+          "priority-impact",
+          "urgency-impact",
+          "team-state",
+          "intake-priority",
+          "product-scenario",
+          "unowned",
+          "unteamed",
+          "no-deadline",
+          "no-description",
+          "no-product",
+          "no-service",
+          "no-priority",
+          "no-channel",
+          "no-impact",
+          "no-urgency",
+          "no-completion",
+          "no-solution",
+          "quality-issues",
+          "invalid-order",
+          "duplicates",
+          "masters",
+          "roots",
+          "effects",
+          "causes",
+          "unknown-escalation",
+          "late-escalated",
+          "critical-unowned",
+          "late-unowned",
+          "research-late",
+          "pending-assign",
+          "reused-solution",
+          "finished-on-time",
+          "has-owner",
+          "has-deadline",
+          "escalation-known",
+          "intake-hours",
+          "intake-days",
+          "done-days",
+          "due-days",
+          "weekday-intake",
+          "workday-intake",
+          "unassigned-critical-path"
+        ]
+      },
+      "AnswerInsight": {
+        "type": "object",
+        "required": [
+          "id",
+          "value",
+          "note",
+          "points"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/AnswerInsightId"
+          },
+          "value": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "label",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "number"
+                },
+                "ticket": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "CanvasAnswer": {
+        "type": "object",
+        "required": [
+          "kind",
+          "topic",
+          "title",
+          "lead",
+          "sections",
+          "links"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "knowledge",
+              "mixed"
+            ]
+          },
+          "topic": {
+            "$ref": "#/components/schemas/GuideTopic"
+          },
+          "title": {
+            "type": "string"
+          },
+          "lead": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "role",
+                "heading"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "enum": [
+                    "detail",
+                    "example",
+                    "steps",
+                    "distinction"
+                  ]
+                },
+                "heading": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "label",
+                "anchor"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "anchor": {
+                  "enum": [
+                    "incident",
+                    "shift",
+                    "assistant",
+                    "ticket",
+                    "signals",
+                    "monitor",
+                    "devices",
+                    "icons"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "CanvasView": {
+        "type": "object",
+        "properties": {
+          "presentation": {"$ref":"#/components/schemas/AnswerPresentation"},
+          "exhibits": {"type":"array","maxItems":3,"uniqueItems":true,"items":{"$ref":"#/components/schemas/AnswerExhibit"}},
+          "weightBy": { "enum": ["count", "overdue", "escalated"] },
+          "groupBy": {
+            "enum": [
+              "symptom",
+              "team",
+              "product",
+              "priority",
+              "deadline",
+              "status",
+              "escalation",
+              "ticket"
+            ]
+          },
+          "layout": {
+            "enum": [
+              "groups",
+              "list",
+              "comparison"
+            ]
+          }
+        },
+        "required": [
+          "groupBy",
+          "layout"
+        ],
+        "additionalProperties": false
+      },
+      "DurationEvidence": {"type":"object","properties":{"id":{"type":"string"},"header":{"type":["string","null"]},"start":{"type":"string","format":"date-time"},"end":{"type":"string","format":"date-time"},"ms":{"type":"integer","minimum":0}},"required":["id","header","start","end","ms"],"additionalProperties":false},
+      "CanvasFactPlan": {"type":"object","properties":{"sourceSelection":{"type":"string","format":"uuid"},"durationCohort":{"enum":[true]},"durationMeasure":{"enum":["individual","median","mean"]},"limit":{"type":"integer","minimum":1,"maximum":999999},"operation":{"enum":["frequency","distinct","count","duration","recent","statusInterval","relations"]},"period":{"enum":["snapshot","today","yesterday","week","month","year"]},"display":{"enum":["ring","table","bars","list","cards","diagram"]},"dateField":{"enum":["completionDate"]},"ascending":{"enum":[true]}},"required":["operation","period"],"additionalProperties":false},
+      "CanvasFact": {"type":"object","properties":{"headline":{"type":"string"},"method":{"type":"string"},"notes":{"type":"array","items":{"type":"string"}},"statusCounts":{"type":"array","items":{"type":"object","required":["label","count","state"],"properties":{"label":{"type":"string"},"count":{"type":"integer","minimum":1},"state":{"type":["integer","null"]}}}},
+          "statusIntervals":{"type":"object","required":["meanMs","intervalCount","ticketCount","scopeCount"],"properties":{"meanMs":{"type":["number","null"],"minimum":0},"intervalCount":{"type":"integer","minimum":0},"ticketCount":{"type":"integer","minimum":0},"scopeCount":{"type":"integer","minimum":0}},"additionalProperties":false},
+          "maxDurationMs":{"type":"integer","minimum":0},"durations":{"type":"array","items":{"$ref":"#/components/schemas/DurationEvidence"}},"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"found":{"type":"boolean"},"label":{"type":"string"}},"required":["id","found"],"additionalProperties":false},"maxItems":10},"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"kind":{"enum":["reference","similarity"]},"evidence":{"type":"array","items":{"type":"string"}}},"required":["from","to","kind","evidence"],"additionalProperties":false}}},"required":["headline","method","notes"],"additionalProperties":false},
+      "CanvasIntent": {
+        "type": "object",
+        "properties": {
+          "rankFocus":{"type":"object","properties":{"place":{"oneOf":[{"type":"integer","minimum":1,"maximum":999999},{"enum":["last","shown"]}]},"output":{"enum":["position","count","share","tickets"]}},"required":["place","output"],"additionalProperties":false},
+          "fact":{"$ref":"#/components/schemas/CanvasFactPlan"},
+          "topic":{"$ref":"#/components/schemas/GuideTopic"},
+          "focus":{"$ref":"#/components/schemas/GuideFocus"},
+          "guideOnly":{"type":"boolean"},
+          "automaticStates":{"enum":[true]},
+          "shiftAdvice":{"enum":[true]},
+          "commentDraft":{"enum":["deadline","progress","impact"]},
+          "brief":{"enum":[true]},
+          "briefRank":{"$ref":"#/components/schemas/CanvasIntent"},
+          "related":{"type":"array","maxItems":2,"uniqueItems":true,"items":{"$ref":"#/components/schemas/GuideTopic"}},
+          "insightIds":{"type":"array","maxItems":3,"uniqueItems":true,"items":{"$ref":"#/components/schemas/AnswerInsightId"}},
+          "presentation": {"$ref":"#/components/schemas/AnswerPresentation"},
+          "exhibits": {"type":"array","maxItems":3,"uniqueItems":true,"items":{"$ref":"#/components/schemas/AnswerExhibit"}},
+          "weightBy": { "enum": ["count", "overdue", "escalated"] },
+          "groupBy": {
+            "enum": [
+              "symptom",
+              "team",
+              "product",
+              "priority",
+              "deadline",
+              "status",
+              "escalation",
+              "ticket"
+            ]
+          },
+          "layout": {
+            "enum": [
+              "groups",
+              "list",
+              "comparison"
+            ]
+          },
+          "filters": {
+            "type": "object",
+            "properties": {
+              "excludedTeams":{"type":"array","items":{"type":"string","minLength":1,"maxLength":500},"minItems":1,"maxItems":10},
+              "teams": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "products": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "symptoms": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "priorities": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "enum": [
+                    1,
+                    2,
+                    3,
+                    4
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "states": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "enum": [
+                    0,
+                    2,
+                    7,
+                    10,
+                    20
+                  ]
+                },
+                "minItems": 0,
+                "maxItems": 10
+              },
+              "deadline": {
+                "enum": [
+                  "overdue",
+                  "soon",
+                  "normal",
+                  "unset"
+                ]
+              },
+              "escalation": {
+                "enum": [
+                  "yes",
+                  "no",
+                  "unknown"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasView"
+            },
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "groupBy",
+          "layout",
+          "filters"
+        ],
+        "additionalProperties": false
+      },
+      "CanvasTicket": {
+        "type": "object",
+        "properties": {
+          "submittedAt": {"type":"string","format":"date-time"},
+          "statusIntervals":{"type":"object","required":["meanMs","intervalCount"],"properties":{"meanMs":{"type":"number","minimum":0},"intervalCount":{"type":"integer","minimum":1}},"additionalProperties":false},
+          "duration": { "$ref": "#/components/schemas/DurationEvidence" },
+          "id": {
+            "type": "string"
+          },
+          "header": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "deadline": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overdue": {
+            "type": "boolean"
+          },
+          "escalated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "header",
+          "team",
+          "product",
+          "priority",
+          "state",
+          "deadline",
+          "overdue",
+          "escalated"
+        ]
+      },
+      "CanvasGroup": {
+        "type": "object",
+        "properties": {
+          "durationMs": { "type": "number", "minimum": 0 },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overdue": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "escalated": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count",
+          "overdue",
+          "escalated"
+        ]
+      },
+      "CanvasBlock": {
+        "type": "object",
+        "properties": {
+          "insights":{"type":"array","maxItems":3,"items":{"$ref":"#/components/schemas/AnswerInsight"}},
+          "presentation": {"$ref":"#/components/schemas/AnswerPresentation"},
+          "exhibits": {"type":"array","maxItems":3,"uniqueItems":true,"items":{"$ref":"#/components/schemas/AnswerExhibit"}},
+          "weightBy": { "enum": ["count", "overdue", "escalated"] },
+          "groupBy": {
+            "enum": [
+              "symptom",
+              "team",
+              "product",
+              "priority",
+              "deadline",
+              "status",
+              "escalation",
+              "ticket"
+            ]
+          },
+          "layout": {
+            "enum": [
+              "groups",
+              "list",
+              "comparison"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasGroup"
+            }
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasTicket"
+            }
+          },
+          "selection": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "groupBy",
+          "layout",
+          "title",
+          "groups",
+          "tickets",
+          "selection"
+        ]
+      },
+      "CanvasResult": {
+        "type": "object",
+        "properties": {
+          "fact":{"$ref":"#/components/schemas/CanvasFact"},
+          "turnToken": {"type":"string","format":"uuid"},
+          "conversation": {
+            "type":"object","additionalProperties":false,"required":["title","text"],
+            "properties":{
+              "title":{"type":"string","maxLength":100},
+              "text":{"type":"string","maxLength":1200},
+              "followUp":{"type":"string","maxLength":200},
+              "sourceIds":{"type":"array","items":{"type":"string"},"uniqueItems":true}
+            }
+          },
+          "insights":{"type":"array","maxItems":3,"items":{"$ref":"#/components/schemas/AnswerInsight"}},
+          "answer":{"$ref":"#/components/schemas/CanvasAnswer"},
+          "title": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasGroup"
+            }
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasTicket"
+            }
+          },
+          "selection": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mode": {
+            "enum": [
+              "knowledge",
+              "snapshot",
+              "model",
+              "fallback",
+              "unsupported"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "notice": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "intent": {
+            "$ref": "#/components/schemas/CanvasIntent"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "value"
+              ]
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasBlock"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sourceTotal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "title",
+          "groups",
+          "tickets",
+          "selection",
+          "namespace",
+          "revision",
+          "asOf",
+          "mode",
+          "provider",
+          "summary",
+          "intent",
+          "metrics",
+          "blocks",
+          "total",
+          "sourceTotal",
+          "suggestions"
+        ]
+      },
+      "CanvasPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanvasTicket"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nextOffset": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "nextOffset"
+        ]
+      },
+      "RawIncident": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sysId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stateId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "priorityId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "Revision": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "Incident": {
+        "type": "object",
+        "required": [
+          "key",
+          "id",
+          "raw",
+          "revision",
+          "groups",
+          "sourcePresent"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "raw": {
+            "$ref": "#/components/schemas/RawIncident"
+          },
+          "sourcePresent": {
+            "type": "boolean"
+          },
+          "quarantined": {
+            "type": "boolean"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "critical",
+                "coordinators",
+                "high",
+                "research"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/canvas": {
+      "parameters": [
+        {
+          "in": "query",
+          "name": "ns",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "summary": "Стартовый холст смены без обращения к модели",
+        "responses": {
+          "200": {
+            "description": "Представление данных источника",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Требуется вход"
+          }
+        }
+      },
+      "post": {
+        "summary": "Построить представление по вопросу и предыдущему плану",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string"
+                      },
+                      "turnToken": {"type":"string","format":"uuid"},
+                      "context": {
+                        "$ref": "#/components/schemas/CanvasIntent"
+                      }
+                    },
+                    "required": [
+                      "question"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "refresh": {
+                        "const": true
+                      },
+                      "context": {
+                        "$ref": "#/components/schemas/CanvasIntent"
+                      }
+                    },
+                    "required": [
+                      "refresh",
+                      "context"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Представление данных источника",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный вопрос или контекст"
+          },
+          "403": {
+            "description": "Недостаточно прав или требуется CSRF"
+          }
+        }
+      }
+    },
+    "/api/canvas/tickets": {
+      "parameters": [
+        {
+          "in": "query",
+          "name": "ns",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "selection",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "group",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "offset",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "get": {
+        "summary": "Открыть тикеты выбранного блока по версии снимка",
+        "responses": {
+          "200": {
+            "description": "Представление данных источника",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasPage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Выборка устарела или недоступна для этого источника"
+          }
+        }
+      }
+    },
+    "/api/push/device/test": {
+      "post": {
+        "summary": "Проверить доставку на текущее подключённое устройство",
+        "security": [{ "session": [], "csrf": [] }],
+        "responses": { "200": { "description": "Проверка отправлена" }, "429": { "description": "Повторите позже" } }
+      }
+    },
+    "/api/push/device": {
+      "get": {
+        "summary": "Настройки push этого устройства и публичный ключ VAPID",
+        "responses": { "200": { "description": "Источники и состояние устройства" }, "401": { "description": "Требуется вход" } }
+      },
+      "post": {
+        "summary": "Подключить устройство к уведомлениям выбранного источника",
+        "security": [{ "session": [], "csrf": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["namespace", "subscription"], "properties": { "namespace": {"type": "string"}, "subscription": {"type":"object"}, "previousHash": {"type":"string"} } } } } },
+        "responses": { "200": { "description": "Подписка сохранена" }, "409": { "description": "Подписка изменилась" } }
+      },
+      "delete": {
+        "summary": "Отключить уведомления этого устройства",
+        "security": [{ "session": [], "csrf": [] }],
+        "responses": { "200": { "description": "Подписка отозвана" } }
+      }
+    },
+    "/api/triage/{id}": {
+      "parameters": [
+        { "in":"path", "name":"id", "required":true, "schema":{"type":"string"} },
+        { "in":"query", "name":"revision", "required":true, "schema":{"type":"integer"} },
+        { "in":"query", "name":"hash", "required":true, "schema":{"type":"string"} }
+      ],
+      "get": {
+        "summary": "Страница заявок выбранного кейса и версии",
+        "description": "Повторите ns, groupBy и действующие фильтры из запроса очереди. Сервер проверяет версию и хэш состава группы.",
+        "parameters": [
+          {"in":"query","name":"offset","schema":{"type":"integer","minimum":0,"default":0}},
+          {"in":"query","name":"limit","schema":{"type":"integer","minimum":1,"maximum":100,"default":30}},
+          {"in":"query","name":"sort","schema":{"enum":["id","registered","deadline","response"]}}
+        ],
+        "responses": {
+          "200":{"description":"revision, hash, total, offset, items и nextOffset"},
+          "400":{"description":"Некорректные параметры запроса"},
+          "401":{"description":"Для закрытого источника требуется вход"},
+          "409":{"description":"Версия недоступна или хэш выборки не совпал"}
+        }
+      }
+    },
+    "/api/triage/{id}/analysis": {
+      "parameters": [
+        { "in":"path", "name":"id", "required":true, "schema":{"type":"string"} },
+        { "in":"query", "name":"revision", "required":true, "schema":{"type":"integer"} },
+        { "in":"query", "name":"hash", "required":true, "schema":{"type":"string"} }
+      ],
+      "post": {
+        "summary": "Разбор кейса с привязкой к снимку и полям заявок",
+        "requestBody": {"content":{"application/json":{"schema":{"oneOf":[
+          {"type":"object","additionalProperties":false,"properties":{"question":{"type":"string","maxLength":500}}},
+          {"type":"object","additionalProperties":false,"required":["purpose","decisionKey","ticketId","runId"],"properties":{"purpose":{"const":"liveStep"},"decisionKey":{"type":"string"},"ticketId":{"type":"string"},"runId":{"type":"string","description":"Идентификатор учебного запуска, пустая строка для других источников"}}}
+        ]}}}},
+        "description": "Фильтры и источник совпадают с запросом очереди. В учебных источниках разбор доступен вошедшим наблюдателям при включённой демонстрации. Для рабочих источников нужна роль coordinator или demo-admin. Запрос требует CSRF.",
+        "responses": {
+          "200":{
+            "description":"Разбор группы или совет по текущему состоянию заявки. Для purpose=liveStep поле text содержит проверенное наблюдение и предложенное моделью действие. При недоступности совета клиент использует reason для сообщения о состоянии.",
+            "content":{"application/json":{"schema":{"oneOf":[
+              {"type":"object","required":["summary","evidence","inputRevision","inputHash"],"properties":{"summary":{"type":"array","items":{"type":"string"}},"evidence":{"type":"array","items":{"type":"object"}},"inputRevision":{"type":"integer"},"inputHash":{"type":"string"}}},
+              {"type":"object","required":["key","mode","model","text","action"],"properties":{"key":{"type":"string"},"mode":{"const":"model"},"model":{"type":"string"},"text":{"type":"string"},"action":{"type":"string"}}},
+              {"type":"object","required":["key","mode","reason","action"],"properties":{"key":{"type":"string"},"mode":{"const":"local"},"reason":{"enum":["unconfigured","unavailable","unverified"]},"action":{"type":"string","description":"Проверка по локальному правилу"},"retryAfterMs":{"type":"integer","minimum":0}}}
+            ]}}}
+          },
+          "401":{"description":"Требуется вход"},
+          "403":{"description":"Недостаточно прав или неверный источник запроса"},
+          "409":{"description":"Версия недоступна или хэш выборки не совпал"},
+          "429":{"description":"Достигнут лимит разборов"}
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "security": [],
+        "summary": "Liveness; не проверяет БД",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "security": [],
+        "summary": "Readiness БД и всех источников; 503 degraded",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Совместимый summary источников",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/me": {
+      "get": {
+        "security": [],
+        "summary": "Текущий пользователь и разрешённые источники",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/login": {
+      "post": {
+        "summary": "Вход; 10 попыток/мин; HttpOnly SameSite Strict; Secure production",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "summary": "Завершить сессию",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "summary": "Четыре исходные выборки, их объединение и triage по полной отфильтрованной очереди",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          { "in":"query", "name":"groupBy", "description":"Для реестра register=1 по умолчанию применяется semantic. Для прежнего представления очереди — symptom.", "schema":{"enum":["semantic","response","symptom","symptomProduct","priority","product","team"]} },
+          { "in":"query", "name":"priority", "schema":{"enum":["1","2","3","4"]} },
+          { "in":"query", "name":"product", "schema":{"type":"string"} },
+          { "in":"query", "name":"team", "schema":{"type":"string"} },
+          { "in":"query", "name":"symptom", "schema":{"type":"string"} },
+          { "in":"query", "name":"band", "description":"Сохранить подборку по причине при смене группировки", "schema":{"enum":["criticalDeadline","critical","overdue","soon","followUp","handoff","research","monitor","verify"]} },
+          { "in":"query", "name":"case", "description":"ID группы в текущем срезе", "schema":{"type":"string"} },
+          { "in":"query", "name":"register", "description":"Вернуть одну общую страницу register вместо записей в каждой сигнальной очереди", "schema":{"enum":["1"]} },
+          { "in":"query", "name":"offset", "schema":{"type":"integer","minimum":0} },
+          { "in":"query", "name":"limit", "schema":{"type":"integer","minimum":1,"maximum":100,"default":30} },
+          { "in":"query", "name":"signal", "schema":{"enum":["all","critical","coordinators","high","research"],"default":"all"} },
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original",
+                "simulation"
+              ],
+              "default": "demo"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "service",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "up",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "critical",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "coordinators",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "high",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "research",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/incidents": {
+      "get": {
+        "summary": "Список по 50: quality/history и offset",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/incident/{id}/itsm": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": { "type": "string" }
+        },
+        { "in": "query", "name": "ns", "schema": { "type": "string" } }
+      ],
+      "get": {
+        "summary": "Открыть ту же запись в ITSM или её подписанном макете",
+        "responses": {
+          "302": { "description": "Адрес карточки этого инцидента" },
+          "401": { "description": "Требуется вход" },
+          "404": { "description": "Источник или инцидент не найден" }
+        }
+      }
+    },
+    "/api/incident/{id}/dispatch/suggestions": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": { "type": "string" }
+        },
+        {
+          "in": "query",
+          "name": "ns",
+          "schema": { "enum": ["demo", "workspace"] }
+        }
+      ],
+      "post": {
+        "summary": "Предложить команды решения и черновики комментариев",
+        "security": [{ "session": [], "csrf": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["snapshot"],
+                "properties": {
+                  "snapshot": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "team": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Рекомендации без записи назначения",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["mode", "snapshot", "teams", "comments"],
+                  "properties": {
+                    "mode": { "enum": ["model", "local"] },
+                    "model": { "type": "string" },
+                    "snapshot": { "type": "string" },
+                    "teams": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["name", "reason"],
+                        "properties": {
+                          "name": { "type": "string" },
+                          "reason": { "type": "string" }
+                        }
+                      }
+                    },
+                    "comments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["label", "text"],
+                        "properties": {
+                          "label": { "type": "string" },
+                          "text": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Неверный снимок или команда" },
+          "401": { "description": "Требуется вход" },
+          "403": { "description": "Недоступная роль или источник" },
+          "404": { "description": "Инцидент отсутствует" },
+          "409": {
+            "description": "Снимок изменился или инцидент недоступен для назначения"
+          }
+        }
+      }
+    },
+    "/api/incident/{id}/dispatch": {
+      "parameters": [
+        { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } },
+        { "in": "query", "name": "ns", "schema": { "enum": ["demo", "workspace", "original", "simulation"], "default": "demo" } }
+      ],
+      "get": {
+        "summary": "Команды из выгрузки и основания маршрутизации",
+        "description": "Счётчики product, symptom и both отражают другие присутствующие обращения без критических ошибок в том же источнике. Каталог исполнителей и последние 20 локальных решений доступны координатору и demo-admin только в demo и workspace.",
+        "responses": {
+          "200": { "description": "snapshot, sourceRevision, incidentRevision, recommended (команда или null), product, symptom, teams, history, canSave, readOnlyReason. Элементы teams[].members содержат id, name, login, label, open и similar. open — число других открытых обращений этого сотрудника в команде (состояния 0, 2, 20). similar — число других обращений с теми же продуктом и симптомом независимо от состояния. Для предпросмотра сохраните snapshot и последнюю history[0].version или 0." },
+          "401": { "description": "Для закрытого источника требуется вход" },
+          "404": { "description": "Обращение или источник отсутствует" },
+          "503": { "description": "Не удалось прочитать журнал" }
+        }
+      },
+      "post": {
+        "summary": "Записать решение координатора в журнал обращения",
+        "description": "Роли coordinator и demo-admin, источники demo и workspace. Сохранение локальное. Повтор того же запроса с тем же requestId возвращает исходную запись.",
+        "security": [{ "session": [], "csrf": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["requestId", "snapshot", "expectedVersion", "team", "member", "note"],
+          "properties": {
+            "requestId": { "type": "string", "format": "uuid" }, "snapshot": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "expectedVersion": { "type": "integer", "minimum": 0 }, "team": { "type": "string" },
+            "member": { "type": ["string", "null"], "description": "id исполнителя из выбранной команды или null для назначения на группу" },
+            "note": { "type": "string", "maxLength": 500 }
+          }
+        } } } },
+        "responses": {
+          "200": { "description": "decision с version, actor, at, team, member, note, incidentRevision, sourceRevision" },
+          "400": { "description": "Поля запроса или получатель недопустимы" },
+          "401": { "description": "Требуется вход" },
+          "403": { "description": "Роль, источник или проверка CSRF запрещает запись" },
+          "404": { "description": "Обращение отсутствует" },
+          "409": { "description": "Снимок или решение изменились, обращение недоступно для назначения либо requestId повторно использован с иными данными" },
+          "503": { "description": "Журнал временно недоступен" }
+        }
+      }
+    },
+    "/api/incident/{id}": {
+      "get": {
+        "summary": "Детали с полным raw и 50 последними immutable changes",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ]
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "summary": "До 200 событий, offset/nextOffset; personal read",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/notifications/read": {
+      "post": {
+        "summary": "Coordinator/demo-admin: локальная отметка; не ACK",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/preferences": {
+      "get": {
+        "summary": "Личные настройки coordinator/demo-admin",
+        "responses": {
+          "200": {
+            "description": "Сохранённые параметры аккаунта с текущими значениями по умолчанию",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountPreferences" } } }
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      },
+      "post": {
+        "summary": "Сохранить личные настройки, включая порядок и интервал общего экрана",
+        "description": "При отсутствии полей wallboardOrder и wallboardSeconds сохраняются их предыдущие значения.",
+        "responses": {
+          "200": {
+            "description": "Сохранённые настройки",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountPreferences" } } }
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountPreferences"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/intake": {
+      "post": {
+        "summary": "Добавить один или несколько новых инцидентов в рабочую копию",
+        "description": "Доступно demo-admin. Существующие записи и их история сохраняются. Точные повторы учитываются один раз. Пакет с конфликтом id или sysId либо ошибкой записи отклоняется целиком. Для публичного demo нужен ID с префиксом DEMO-.",
+        "security": [{ "session": [], "csrf": [] }],
+        "parameters": [
+          { "name": "ns", "in": "query", "schema": { "type": "string", "enum": ["demo", "workspace"], "default": "demo" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "oneOf": [
+            { "$ref": "#/components/schemas/IntakeRecord" },
+            { "type": "array", "minItems": 1, "maxItems": 20000, "items": { "$ref": "#/components/schemas/IntakeRecord" } }
+          ] } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Номер принятого снимка и ID по результату отправки",
+            "content": { "application/json": { "schema": {
+              "type": "object", "required": ["namespace", "revision", "added", "existing"],
+              "properties": {
+                "namespace": { "enum": ["demo", "workspace"] },
+                "revision": { "type": "integer" },
+                "added": { "type": "array", "items": { "type": "string" } },
+                "existing": { "type": "array", "items": { "type": "string" } }
+              }
+            } } }
+          },
+          "400": { "description": "Некорректные записи или превышен предел в 20 000 записей" },
+          "401": { "description": "Требуется вход" },
+          "403": { "description": "Недостаточно прав, ошибка CSRF или источник доступен только для чтения" },
+          "404": { "description": "Источник не найден" },
+          "409": { "description": "Конфликт ID или рабочий файл изменился во время отправки" },
+          "413": { "description": "Размер запроса или итогового файла превышает 20 МиБ" },
+          "503": { "description": "Не удалось подтвердить приём" }
+        }
+      }
+    },
+    "/api/import/preview": {
+      "post": {
+        "summary": "Demo-admin: text содержит исходный JSON-массив ≤20 МиБ, token живёт 5 минут",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/commit": {
+      "post": {
+        "summary": "Demo-admin: token preview; atomic working file → ingestion; original read-only",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/export": {
+      "get": {
+        "summary": "Исходный array; mode=normalized явно изменяет представление дат/priority",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ]
+      }
+    },
+    "/api/demo": {
+      "get": {
+        "summary": "Состояние DEMO scenario; demo-admin",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": []
+      },
+      "post": {
+        "summary": "play/pause/step/reset/edit; demo-admin",
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analysis/selection": {
+      "post": {
+        "summary": "Один ответ по 1–6 выбранным заявкам",
+        "description": "Координатор или demo-admin с CSRF. Быстрый запрос о сроках или ответственных читается по полям ITSM. Разбор другим способом помечается model или fallback.",
+        "parameters": [{"in":"query","name":"ns","schema":{"type":"string","enum":["demo","workspace","original"]}}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["ids","question"],"properties":{"ids":{"type":"array","items":{"type":"string","maxLength":200},"minItems":1,"maxItems":6},"question":{"type":"string","minLength":1,"maxLength":500},"zone":{"type":"string","enum":["UTC","Europe/Moscow"]}}}}}},
+        "responses":{
+          "200":{"description":"overview содержит ответ и источники, items — индивидуальные поля и ревизии. mode равен fields, model или fallback. provider, model и stale указывают метод и актуальность."},
+          "400":{"description":"Некорректный вопрос или список заявок"},
+          "401":{"description":"Требуется вход"},
+          "403":{"description":"Недостаточно прав или неверный CSRF"},
+          "404":{"description":"Источник или одна из заявок отсутствует"},
+          "429":{"description":"Превышен лимит запросов"}
+        }
+      }
+    },
+    "/api/analysis/{id}": {
+      "post": {
+        "summary": "Сводка или вопрос по одной заявке с полями-основаниями, ревизией и методом анализа",
+        "requestBody": {"content":{"application/json":{"schema":{"type":"object","properties":{"question":{"type":"string","maxLength":500}}}}}},
+        "responses": {
+          "200": {
+            "description": "Успешный результат"
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream": {
+      "get": {
+        "summary": "SSE: ready/resync/revision/status/reset/heartbeat, id=revision; cursor или Last-Event-ID; полный resync",
+        "responses": {
+          "200": {
+            "description": "Успешный результат",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный ввод"
+          },
+          "401": {
+            "description": "Требуется вход"
+          },
+          "403": {
+            "description": "Недостаточно прав / CSRF"
+          },
+          "503": {
+            "description": "Зависимость не готова"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "demo",
+                "workspace",
+                "original"
+              ],
+              "default": "demo"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

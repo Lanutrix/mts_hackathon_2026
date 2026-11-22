@@ -1,0 +1,75 @@
+:root {
+  --scroll-thumb: color-mix(in srgb, var(--wm-violet) 65%, var(--wm-control));
+  --scroll-track: var(--wm-tint);
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+/* scrollbar-color is inherited by each scroll container, including the page. */
+select.srez-select {
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+/* Two strokes follow currentColor in both themes and in high-contrast mode. */
+select.srez-select:not([multiple]) {
+  padding-inline-end: 2.1rem;
+  background-image: linear-gradient(45deg, transparent 48%, currentColor 50% 66%, transparent 68%),
+    linear-gradient(-45deg, transparent 48%, currentColor 50% 66%, transparent 68%);
+  background-position: right 1rem center, right .7rem center;
+  background-size: .34rem .42rem;
+  background-repeat: no-repeat;
+}
+select.srez-select:is(:hover:not(:disabled), [aria-expanded="true"]) { border-color: var(--wm-violet); }
+select.srez-select:disabled { cursor: default; }
+.srez-options {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--wm-control);
+  border-radius: 12px;
+  color: var(--wm-ink);
+  background: var(--wm-surface);
+  box-shadow: 0 8px 24px #16102230;
+  max-height: min(22rem, var(--popup-space));
+  max-width: calc(100vw - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font: 400 .9rem/1.35 "Golos Text", sans-serif;
+}
+.srez-options:focus-visible { outline: 2px solid var(--wm-violet); outline-offset: -1px; }
+.srez-options [role="option"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  min-height: 40px;
+  padding: .45rem .65rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.srez-options [aria-selected="true"] { font-weight: 600; color: var(--wm-green); }
+.srez-options [data-active="true"] { background: var(--wm-tint); border-color: var(--wm-violet); }
+@media (hover: hover) {
+  .srez-options [role="option"]:hover { background: var(--wm-tint); }
+}
+.srez-options [aria-disabled="true"] { opacity: .55; cursor: default; }
+@media (pointer: coarse) {
+  .srez-options [role="option"] { min-height: 44px; }
+  select.srez-select { font-size: max(1rem, 1em); }
+}
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--scroll-track); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb); border: 2px solid var(--scroll-track); border-radius: 8px;
+  }
+}
+@media (forced-colors: active) {
+  :root { scrollbar-color: auto; }
+  .srez-options [data-active="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  select.srez-select:not([multiple]) { forced-color-adjust: auto; appearance: auto; background-image: none; }
+}
