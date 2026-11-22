@@ -189,6 +189,7 @@ function SearchFilters({
 type RegisterPage = { offset: number; total: number; nextChangeAt: number | null; items: Incident[] };
 type RegisterDashboard = Dashboard & { register: RegisterPage; triage: Triage; facets: DashboardFacets };
 type Props = SelectionProps & {
+  shift?: ReactNode;
   adviceCache: LiveAdviceCache;
   username: string;
   data: RegisterDashboard & { simulation?: { runId: string } };
@@ -202,6 +203,7 @@ type Props = SelectionProps & {
   children?: ReactNode;
 };
 export default function LiveBoard({
+  shift,
   adviceCache,
   data,
   username,
@@ -287,6 +289,7 @@ export default function LiveBoard({
           ))}
         </div>
         <SearchFilters {...search} defaultSort={defaultSort} facets={data.facets} />
+        {shift}
       </div>
       {activeBand && <button type="button" className="scope-band" aria-label={"Снять ограничение: " + activeBand.label}
         onClick={() => search.setParam(search.params.get("groupBy") === "symptomProduct" ? "breakdown" : "band", "")}><Icon name="queue" size={15} />

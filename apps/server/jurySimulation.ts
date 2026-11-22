@@ -19,10 +19,12 @@ import {
 } from "../../packages/domain/index.ts";
 import { atomicWrite } from "./demo.ts";
 import { IncidentArrivals } from "./incidentArrivals.ts";
+import { TrainingError, trainingPatch, type TrainingCommand } from "./trainingActions.ts";
 
 export interface JuryIncident {
   id: string;
   key: string;
+  revision: number;
   header: string;
   product: string;
   team: string;
@@ -35,7 +37,6 @@ export interface JuryIncident {
 }
 
 export interface JuryEvent extends JuryIncident {
-  revision: number;
   reasons: string[];
   at: string;
 }
@@ -62,9 +63,8 @@ const defaultDelays = [5_000, 9_000, 10_000, 9_000, 9_000] as const;
 const maxEvents = 24;
 const maxViewers = 80;
 
-// These six synthetic tickets stay unchanged throughout one rehearsal. They
-// enter through the same JSON export as the moving ticket. The initial import
-// is a baseline, so it does not emit notifications for pre-existing incidents.
+// These six synthetic tickets enter through the same export as the moving
+// ticket. The initial import establishes their baseline without notifications.
 function backgroundTickets(identity: string, now: number): Raw[] {
   const seeds = [
     [
@@ -237,6 +237,7 @@ function forViewer(item: Incident): JuryIncident {
   return {
     id: item.id,
     key: item.key,
+    revision: item.revision,
     header: String(item.raw.header),
     product: String(item.raw.productName),
     team: item.team,
@@ -259,6 +260,8 @@ interface Version {
   changed: string[];
   before_doc: Incident | null;
   after_doc: Incident;
+  actor?: string;
+  action?: TrainingCommand["action"];
 }
 
 interface Accepted {
@@ -267,9 +270,18 @@ interface Accepted {
   versions: Map<string, Version[]>;
 }
 
+type TrainingOperation = { id: string; actor: string; action: TrainingCommand["action"] };
+
 // Keep the JSON export and its queryable ticket history bounded together.
 // Every event in the 24-item journal still has a corresponding ticket.
 const maxTickets = 12;
+
+function retainRecent(rows: Raw[], limit: number, referenced: Set<string>): Raw[] {
+  const cutoff = rows.length - limit;
+  return cutoff > 0
+    ? rows.filter((row, index) => index >= cutoff || referenced.has(String(row.id)))
+    : rows;
+}
 
 function accept(
   previous: Accepted | undefined,
@@ -277,9 +289,10 @@ function accept(
   runId: string,
   revision: number,
   step: number,
-  stepDelay: number,
+  nextAt: string,
   currentId: string,
   arrivals: ReturnType<IncidentArrivals["status"]>,
+  operation?: TrainingOperation,
 ) {
   const now = Date.now();
   const time = new Date(now).toISOString();
@@ -309,6 +322,7 @@ function accept(
       changed,
       before_doc: before ?? null,
       after_doc: incident,
+      ...(operation?.id === incident.id ? { actor: operation.actor, action: operation.action } : {}),
     };
     versions.set(incident.key, [entry, ...history].slice(0, 50));
     if (previous && reasons.length) {
@@ -319,13 +333,17 @@ function accept(
     }
   }
   const active = [...rows.values()].find((r) => r.id === currentId)!;
-  const nextAt = new Date(now + stepDelay).toISOString();
+  const incidents = [forViewer(active)];
+  if (operation && operation.id !== currentId) {
+    const edited = candidates.find(row => row.id === operation.id)!;
+    incidents.push(forViewer(rows.get(edited.key)!));
+  }
   const snapshot: JurySnapshot = {
     runId,
     revision,
     step,
     nextAt,
-    incidents: [forViewer(active)],
+    incidents,
     events,
     time,
     arrivals,
@@ -382,76 +400,108 @@ function accept(
 
 type ReadView = ReturnType<typeof accept>;
 
-async function runSimulation(
+function startRun(
   signal: AbortSignal,
   publish: (view: ReadView) => void,
   options: SimulationOptions,
 ) {
-  const directory = await mkdtemp(
-    join(options.temporaryRoot ?? tmpdir(), "watermelon-jury-"),
-  );
-  const file = join(directory, "incidents.json");
-  const delays = options.stepDelays ?? defaultDelays;
   const runId = randomUUID();
   const model = new IncidentArrivals(runId, options.arrivalRandom);
-  let modelRows: Raw[] = [];
-  let displayElapsed = 0;
-  const records: Raw[] = [];
-  const background = backgroundTickets(runId, Date.now());
-  let previous: Accepted | undefined;
-  try {
-    for (let revision = 1; !signal.aborted; revision++) {
-      const step = (revision - 1) % delays.length;
-      const cycle = Math.floor((revision - 1) / delays.length) + 1;
-      const now = Date.now();
-      const raw = sourceRow(
-        records.at(-1) ?? {},
-        step,
-        runId,
-        cycle,
-        now,
-      );
-      if (step === 0) records.push(raw);
-      else records[records.length - 1] = raw;
-      if (records.length > maxTickets) records.shift();
-      modelRows.push(...model.advance(displayElapsed, now));
-      if (modelRows.length > 96) {
-        const pinned = new Set(previous?.snapshot.events.map(event => event.id));
-        const cutoff = modelRows.length - 96;
-        modelRows = modelRows.filter((row, index) => index >= cutoff || pinned.has(String(row.id)));
-      }
-      await atomicWrite(file, JSON.stringify([...modelRows, ...records, ...background]));
-      const { rows } = parseSnapshot(
-        await readFile(file, "utf8"),
-        "simulation",
-      );
-      const view = accept(
-        previous,
-        rows,
-        runId,
-        revision,
-        step,
-        delays[step],
-        String(raw.id),
-        model.status(),
-      );
-      previous = view;
-      if (signal.aborted) break;
-      publish(view);
-      displayElapsed = delays[step];
-      await wait(delays[step], undefined, { signal });
-    }
-  } catch (error) {
-    if (!(signal.aborted && (error as Error).name === "AbortError"))
-      throw error;
-  } finally {
-    await rm(directory, {
-      recursive: true,
-      force: true,
-      maxRetries: 3,
-      retryDelay: 50,
+  const overrides = new Map<string, Raw>();
+  let latest: ReadView | undefined;
+  let file: string;
+  let pending: Promise<unknown> = Promise.resolve();
+
+  // Both a generator tick and a coordinator action replace one file, accept
+  // its entire contents and publish one immutable revision before the next writer.
+  function exclusive<T>(operation: () => Promise<T>) {
+    const result = pending.then(operation);
+    pending = result.catch(() => {});
+    return result;
+  }
+
+  async function commit(
+    rows: Raw[], step: number, nextAt: string, currentId: string,
+    operation?: TrainingOperation,
+  ) {
+    if (signal.aborted) throw new TrainingError(409, "Учебная сессия завершилась.");
+    await atomicWrite(file, JSON.stringify(rows));
+    const parsed = parseSnapshot(await readFile(file, "utf8"), "simulation");
+    if (signal.aborted) throw new TrainingError(409, "Учебная сессия завершилась.");
+    latest = accept(latest, parsed.rows, runId, (latest?.revision ?? 0) + 1, step, nextAt, currentId, model.status(), operation);
+    publish(latest);
+    return latest;
+  }
+
+  function change(id: string, command: TrainingCommand, actor: string) {
+    return exclusive(async () => {
+      const view = latest;
+      if (signal.aborted || !view || command.runId !== runId)
+        throw new TrainingError(409, "Учебная сессия сменилась. Обновите карточку.", runId);
+      const ticket = [...view.rows.values()].find(row => row.id === id);
+      if (!ticket) throw new TrainingError(404, "Учебный инцидент не найден.");
+      if (command.expectedRevision !== ticket.revision)
+        throw new TrainingError(409, "Инцидент изменился. Обновите карточку.", runId, ticket.revision);
+      const patch = trainingPatch(command, ticket, view.rows);
+      if (Object.keys(patch).every(field => patch[field] === ticket.raw[field]))
+        return { runId, revision: ticket.revision, incident: ticket };
+      const raw = { ...ticket.raw, ...patch };
+      const rows = [...view.rows.values()].map(other => other.key === ticket.key ? raw : other.raw);
+      const { step, nextAt, currentId } = view.simulation;
+      const updated = await commit(rows, step, nextAt, currentId, { id, actor, action: command.action });
+      // Keep explicitly edited fields during subsequent scripted updates. A
+      // manually resolved ticket has a final record and no later scripted steps.
+      overrides.set(id, command.action === "resolve" ? raw : { ...overrides.get(id), ...patch });
+      const incident = updated.rows.get(ticket.key)!;
+      return { runId, revision: incident.revision, incident };
     });
   }
+
+  async function generate() {
+    const directory = await mkdtemp(join(options.temporaryRoot ?? tmpdir(), "watermelon-jury-"));
+    file = join(directory, "incidents.json");
+    const delays = options.stepDelays ?? defaultDelays;
+    let modelRows: Raw[] = [];
+    let displayElapsed = 0;
+    let records: Raw[] = [];
+    const background = backgroundTickets(runId, Date.now());
+    try {
+      for (let tick = 0; !signal.aborted; tick++) {
+        const step = tick % delays.length;
+        const cycle = Math.floor(tick / delays.length) + 1;
+        await exclusive(async () => {
+          const now = Date.now();
+          const last = records.at(-1) ?? {};
+          // This step specifically narrates a reassignment. Skip it when a
+          // coordinator already chose the team, including its generated text.
+          const routed = step === 2 && overrides.get(String(last.id))?.assignedGroupName !== undefined;
+          const raw = routed ? last : sourceRow(last, step, runId, cycle, now);
+          if (step === 0) records.push(raw);
+          else records[records.length - 1] = raw;
+          modelRows.push(...model.advance(displayElapsed, now));
+          const pinned = new Set(latest?.snapshot.events.map(event => event.id));
+          records = retainRecent(records, maxTickets, pinned);
+          modelRows = retainRecent(modelRows, 96, pinned);
+          const batch = [...modelRows, ...records, ...background];
+          const rows = batch.map(row => {
+            const patch = overrides.get(String(row.id));
+            return patch ? { ...row, ...patch } : row;
+          });
+          await commit(rows, step, new Date(now + delays[step]).toISOString(), String(raw.id));
+          const presentIds = new Set(batch.map(row => String(row.id)));
+          for (const id of overrides.keys()) if (!presentIds.has(id)) overrides.delete(id);
+        });
+        displayElapsed = delays[step];
+        await wait(delays[step], undefined, { signal });
+      }
+    } catch (error) {
+      if (!(signal.aborted && ((error as Error).name === "AbortError" || error instanceof TrainingError))) throw error;
+    } finally {
+      await pending;
+      await rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    }
+  }
+  return { done: generate(), change };
 }
 
 function frame(event: string, data: unknown, id?: string | number) {
@@ -480,6 +530,7 @@ export function registerJurySimulation(
         controller: AbortController;
         done: Promise<void>;
         first: Promise<ReadView | undefined>;
+        change: ReturnType<typeof startRun>["change"];
       }
     | undefined;
   let latest: ReadView | undefined;
@@ -571,7 +622,7 @@ export function registerJurySimulation(
               }),
         );
     }, 10_000);
-    const done = runSimulation(
+    const run = startRun(
       controller.signal,
       (view) => {
         latest = view;
@@ -585,7 +636,8 @@ export function registerJurySimulation(
           deliver(response, viewer, view, snapshotFrame);
       },
       options,
-    )
+    );
+    const done = run.done
       .catch((error: unknown) => {
         app.log.error({ err: error }, "Jury simulation stopped");
         for (const [response, viewer] of viewers)
@@ -600,7 +652,7 @@ export function registerJurySimulation(
         current = undefined;
         if (viewers.size) start();
       });
-    current = { controller, done, first };
+    current = { controller, done, first, change: run.change };
     return current;
   }
 
@@ -684,5 +736,10 @@ export function registerJurySimulation(
     endViewers();
     await current?.done;
   });
-  return { read, stream, latest: () => latest };
+  async function change(reply: FastifyReply, id: string, command: TrainingCommand, actor: string) {
+    if (!(await read(reply))) return;
+    if (!current) throw new TrainingError(409, "Учебная сессия завершилась.");
+    return current.change(id, command, actor);
+  }
+  return { read, stream, change, latest: () => latest };
 }

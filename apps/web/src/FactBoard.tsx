@@ -236,10 +236,11 @@ function Moment({ iso }: { iso: string }) {
 
 function RecentIncidents({ result, ...navigation }: Navigation & { result: CanvasResult }) {
   if (!result.tickets.length) return null;
-  return <ol className="fact-arrivals" aria-label="По времени регистрации">
+  return <ol className="fact-arrivals" aria-label={result.intent.fact?.dateField === "completionDate" ? "По времени завершения" : "По времени регистрации"}>
     {result.tickets.map(ticket => <li key={ticket.id}>
       <div className="fact-arrival-stamp">
         {ticket.submittedAt && <><Moment iso={ticket.submittedAt} /> <small>МСК</small></>}
+        {ticket.completedAt && <><Moment iso={ticket.completedAt} /> <small>МСК</small></>}
       </div>
       <div className="fact-arrival-body">
         <div><SourceId id={ticket.id} {...navigation} /><span>{ticket.state}</span></div>

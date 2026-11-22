@@ -29,6 +29,8 @@ import Loader from "./Loader";
 import { IncidentNotice, type IncidentSignal } from "./IncidentNotice";
 import { mergeSignals } from "./signalQueue";
 import CoordinatorDispatch from "./CoordinatorDispatch";
+import ShiftDesk from "./ShiftDesk";
+import TrainingTicket from "./TrainingTicket";
 import { ItsmLink, TicketDeadline, TicketSource } from "./TicketRecord";
 import { groups } from "./liveFeed";
 import { ProductBrand, MtsCaseBrand, Icon, type IconName } from "./Brand";
@@ -962,6 +964,7 @@ function Dashboard({
           ) : path === "/live" ? (
             <React.Suspense fallback={<Loader stage label="Открываем эфир…" />}>
               <LiveBoard
+                shift={user.role !== "viewer" && <ShiftDesk key={ns} ns={ns} csrf={user.csrf} username={user.username} isAdmin={user.role==="demo-admin"} open={open}/>}
                 adviceCache={adviceCache}
                 data={data}
                 username={user.username}
@@ -1014,6 +1017,10 @@ function Dashboard({
                 item={extra}
                 now={tick}
                 dispatch={
+                  <>{user.role !== "viewer" && <ShiftDesk key={ns+extra.incident.key} ns={ns} csrf={user.csrf} username={user.username}
+                    isAdmin={user.role==="demo-admin"} ticket={extra.incident.id} open={open}/>}
+                  {training && user.role !== "viewer" ? <TrainingTicket key={data.simulation.runId + extra.incident.key} incident={extra.incident}
+                    teams={extra.trainingTeams ?? []} runId={data.simulation.runId} csrf={user.csrf} refresh={async()=>{detailCache.current=null;await latestLoad.current();}}/> :
                   <CoordinatorDispatch
                     key={
                       ns +
@@ -1031,7 +1038,7 @@ function Dashboard({
                     itsmHref={extra.itsmMock ? link(extra.itsm) : extra.itsm}
                     itsmMock={extra.itsmMock}
                     navigate={go}
-                  />
+                  />}</>
                 }
                 zone={zone}
                 mock={path.startsWith("/itsm/")}
@@ -1423,6 +1430,7 @@ function Detail({
               {item.history.map((e: any) => (
                 <li key={e.revision}>
                   <time dateTime={e.at}>{formatDate(e.at, zone)}</time>
+                  {typeof e.actor === "string" && <small> · {e.actor}</small>}
                   <p>
                     {e.kind === "missing"
                       ? "Запись исчезла из выписки. Сохранено последнее состояние."

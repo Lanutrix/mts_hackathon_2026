@@ -5,6 +5,12 @@ export const factPeriods = [
   "week",
   "month",
   "year",
+  "thisWeek",
+  "previousWeek",
+  "thisMonth",
+  "previousMonth",
+  "thisYear",
+  "previousYear",
   "dates",
   "rolling",
 ] as const;
@@ -44,8 +50,10 @@ export interface FactPlan {
   period: FactPeriod;
   /** Inclusive calendar days in Europe/Moscow. */
   dateRange?: [string, string];
+  /** Minutes since Moscow midnight on one day, start inclusive, end exclusive. */
+  clockRange?: [number, number];
   lookbackHours?: number;
-  dateField?: "completionDate";
+  dateField?: "completionDate" | "submitDate";
   ascending?: true;
 }
 export interface DurationEvidence {

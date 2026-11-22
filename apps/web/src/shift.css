@@ -1,0 +1,186 @@
+.shift-entry {
+  flex: 0 0 auto;
+}
+.shift-trigger,
+.shift-training h3,
+.shift-owner h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shift-trigger,
+.shift-dialog button,
+.shift-training button,
+.shift-owner button {
+  min-height: 38px;
+  border-radius: 12px;
+  font: inherit;
+}
+.shift-trigger {
+  color: var(--text);
+  background: transparent;
+  border-color: var(--border);
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.shift-trigger b {
+  font-size: 0.8rem;
+  color: var(--wm-violet);
+}
+.shift-dialog {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  width: min(610px, 94vw);
+  max-height: 84dvh;
+  padding: clamp(16px, 3vw, 28px);
+  overscroll-behavior: contain;
+}
+.shift-dialog::backdrop {
+  background: rgb(26 20 35 / 0.48);
+}
+.shift-dialog header,
+.shift-pager,
+.shift-dialog li {
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  align-items: center;
+}
+.shift-dialog h2 {
+  margin: 2px 0 0;
+  letter-spacing: -0.035em;
+}
+.shift-dialog small,
+.shift-dialog p,
+.shift-owner p,
+.shift-training p {
+  color: var(--muted);
+  line-height: 1.4;
+}
+.shift-dialog .shift-close {
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  font-size: 1.6rem;
+  padding: 2px 12px;
+}
+.shift-tabs,
+.shift-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.shift-tabs {
+  margin: 16px 0 4px;
+}
+.shift-tabs button,
+.shift-actions button,
+.shift-pager button {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 11px;
+}
+.shift-tabs button[aria-pressed="true"],
+.shift-actions button:hover,
+.shift-tabs button:hover {
+  background: var(--tint);
+  color: var(--wm-violet);
+  border-color: var(--wm-violet);
+}
+.shift-dialog ol {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+.shift-roster {
+  margin-top: 10px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.shift-roster summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.shift-roster ul {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+}
+.shift-dialog li {
+  border-bottom: 1px solid var(--border);
+  padding: 13px 0;
+  overflow-wrap: anywhere;
+}
+.shift-dialog li > div {
+  min-width: 0;
+}
+.shift-dialog li p {
+  margin: 4px 0;
+  font-size: 0.88rem;
+}
+.shift-dialog .shift-ticket-link {
+  display: block;
+  text-align: left;
+  font-weight: 600;
+  line-height: 1.3;
+  min-height: 0;
+  padding: 3px 0;
+  background: transparent;
+  color: var(--text);
+  border: 0;
+}
+.shift-ticket-link:hover {
+  text-decoration: underline;
+}
+.shift-take {
+  font-size: 0.88rem;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.shift-training,
+.shift-owner:not(:empty) {
+  border-top: 1px solid var(--border);
+  padding: 14px 0;
+  margin: 6px 0;
+}
+.shift-training h3,
+.shift-owner h3 {
+  margin: 0 0 9px;
+  font-size: 1.05rem;
+}
+.shift-training form,
+.shift-training fieldset,
+.shift-owner label {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+.shift-training fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.shift-training textarea {
+  resize: vertical;
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  padding: 8px;
+}
+@media (max-width: 600px) {
+  .shift-dialog li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .shift-trigger {
+    padding: 4px 8px;
+  }
+}

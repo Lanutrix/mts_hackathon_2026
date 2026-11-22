@@ -381,7 +381,7 @@
         "additionalProperties": false
       },
       "DurationEvidence": {"type":"object","properties":{"id":{"type":"string"},"header":{"type":["string","null"]},"start":{"type":"string","format":"date-time"},"end":{"type":"string","format":"date-time"},"ms":{"type":"integer","minimum":0}},"required":["id","header","start","end","ms"],"additionalProperties":false},
-      "CanvasFactPlan": {"type":"object","properties":{"sourceSelection":{"type":"string","format":"uuid"},"intervalMeasure":{"enum":["median"]},"durationCohort":{"enum":[true]},"durationMeasure":{"enum":["individual","median","mean"]},"limit":{"type":"integer","minimum":1,"maximum":999999},"operation":{"enum":["frequency","distinct","count","duration","recent","statusInterval","relations"]},"period":{"enum":["snapshot","today","yesterday","week","month","year","dates","rolling"]},"dateRange":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"string","format":"date"}},"lookbackHours":{"type":"integer","minimum":1,"maximum":2399976},"display":{"enum":["ring","table","bars","list","cards","diagram"]},"dateField":{"enum":["completionDate"]},"ascending":{"enum":[true]}},"required":["operation","period"],"additionalProperties":false},
+      "CanvasFactPlan": {"type":"object","properties":{"sourceSelection":{"type":"string","format":"uuid"},"intervalMeasure":{"enum":["median"]},"durationCohort":{"enum":[true]},"durationMeasure":{"enum":["individual","median","mean"]},"limit":{"type":"integer","minimum":1,"maximum":999999},"operation":{"enum":["frequency","distinct","count","duration","recent","statusInterval","relations"]},"period":{"enum":["snapshot","today","yesterday","week","month","year","thisWeek","previousWeek","thisMonth","previousMonth","thisYear","previousYear","dates","rolling"]},"dateRange":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"string","format":"date"}},"clockRange":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer","minimum":0,"maximum":1440},"description":"Minutes from Moscow midnight on a single date (inclusive start, exclusive end)."},"lookbackHours":{"type":"integer","minimum":1,"maximum":2399976},"display":{"enum":["ring","table","bars","list","cards","diagram"]},"dateField":{"enum":["completionDate","submitDate"]},"ascending":{"enum":[true]}},"required":["operation","period"],"additionalProperties":false},
       "CanvasFact": {"type":"object","properties":{"headline":{"type":"string"},"method":{"type":"string"},"notes":{"type":"array","items":{"type":"string"}},"statusCounts":{"type":"array","items":{"type":"object","required":["label","count","state"],"properties":{"label":{"type":"string"},"count":{"type":"integer","minimum":1},"state":{"type":["integer","null"]}}}},
           "durationSummary":{"type":"object","required":["measure","valueMs","measuredCount","scopeCount"],"properties":{"measure":{"enum":["mean","median"]},"valueMs":{"type":["number","null"],"minimum":0},"measuredCount":{"type":"integer","minimum":0},"scopeCount":{"type":"integer","minimum":0}},"additionalProperties":false},
           "statusIntervals":{"type":"object","required":["meanMs","intervalCount","ticketCount","scopeCount"],"properties":{"medianMs":{"type":["number","null"],"minimum":0},"meanMs":{"type":["number","null"],"minimum":0},"intervalCount":{"type":"integer","minimum":0},"ticketCount":{"type":"integer","minimum":0},"scopeCount":{"type":"integer","minimum":0}},"additionalProperties":false},
@@ -533,6 +533,7 @@
         "type": "object",
         "properties": {
           "submittedAt": {"type":"string","format":"date-time"},
+          "completedAt": {"type":"string","format":"date-time"},
           "statusIntervals":{"type":"object","required":["meanMs","intervalCount"],"properties":{"medianMs":{"type":"number","minimum":0},"meanMs":{"type":"number","minimum":0},"intervalCount":{"type":"integer","minimum":1}},"additionalProperties":false},
           "duration": { "$ref": "#/components/schemas/DurationEvidence" },
           "id": {
@@ -911,6 +912,39 @@
     }
   },
   "paths": {
+    "/api/voice": {
+      "post": {
+        "summary": "Распознать запись и вернуть редактируемый черновик",
+        "security": [{"session": [], "csrf": []}],
+        "requestBody": {"required": true, "description": "Моно PCM 16 кГц, 16 бит, до 30 секунд", "content": {"audio/wav": {"schema": {"type":"string","format":"binary"}}}},
+        "responses": {"200": {"description":"Распознанная речь","content":{"application/json":{"schema":{"type":"object","required":["text"],"properties":{"text":{"type":"string"}}}}}}, "422":{"description":"В записи не слышна речь"},"429":{"description":"Достигнут предел запросов"}}
+      }
+    },
+    "/api/shift": {
+      "get": {
+        "summary": "Присутствие, нагрузка и персональная очередь координатора",
+        "parameters": [{"name":"ns","in":"query","schema":{"type":"string"}},{"name":"tab","in":"query","schema":{"enum":["suggested","mine","team"]}},{"name":"offset","in":"query","schema":{"type":"integer","minimum":0}},{"name":"ticket","in":"query","schema":{"type":"string"}}],
+        "responses": {"200":{"description":"Текущий запуск, координаторы, страница заявок, количество и запрошенная карточка"},"403":{"description":"Доступно координатору и администратору"}}
+      }
+    },
+    "/api/shift/{id}/owner": {
+      "post": {
+        "summary": "Взять заявку в работу, передать коллеге или вернуть в очередь",
+        "security": [{"session": [], "csrf": []}],
+        "parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}},{"name":"ns","in":"query","schema":{"type":"string"}}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["runId","version","owner"],"properties":{"runId":{"type":"string"},"version":{"type":"integer","minimum":0},"owner":{"type":["string","null"]}}}}}},
+        "responses":{"200":{"description":"Получатель и новая версия назначения"},"409":{"description":"Заявка, ответственный или учебный запуск изменились"}}
+      }
+    },
+    "/api/simulation/incidents/{id}": {
+      "post": {
+        "summary":"Изменить, направить или решить учебный инцидент",
+        "security":[{"session":[],"csrf":[]}],
+        "parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["runId","expectedRevision","action"],"properties":{"runId":{"type":"string"},"expectedRevision":{"type":"integer"},"action":{"enum":["edit","route","resolve"]},"header":{"type":"string","maxLength":300},"description":{"type":"string","maxLength":4000},"team":{"type":"string"},"solution":{"type":"string","maxLength":2000}}}}}},
+        "responses":{"200":{"description":"Учебный запуск, версия и обновлённая заявка"},"403":{"description":"Действие недоступно наблюдателю"},"409":{"description":"Обновите карточку"}}
+      }
+    },
     "/api/canvas": {
       "parameters": [
         {

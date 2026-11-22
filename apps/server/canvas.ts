@@ -682,7 +682,8 @@ export class CanvasService {
     const measuringDuration = intent.fact?.operation === "duration" && !intent.brief;
     const tickets = matches.map((r, i) => ({
       ...ticket(r, now),
-      ...(intent.fact?.operation === "recent" ? { submittedAt: r.dates.submitDate! } : {}),
+      ...(intent.fact?.operation === "recent" ? intent.fact.dateField === "completionDate"
+        ? { completedAt: r.dates.completionDate! } : { submittedAt: r.dates.submitDate! } : {}),
       ...(prepared?.statusIntervals ? { statusIntervals: prepared.statusIntervals.tickets.get(r.key) } : {}),
       ...(measuringDuration ? { duration: prepared!.durations[i] } : {}),
     }));
@@ -746,7 +747,8 @@ export class CanvasService {
       states: openStates.every(s => intent.filters.states?.includes(s)) && intent.filters.states?.length === openStates.length
         ? undefined : intent.filters.states,
     }), prepared && intent.fact?.period !== "snapshot"
-      ? (intent.fact?.dateField || intent.fact?.operation === "duration" ? "По дате завершения — " : "По дате регистрации — ") + prepared.range
+      ? (intent.fact?.dateField === "completionDate" || intent.fact?.dateField !== "submitDate" && (intent.fact?.operation === "duration" || intent.fact?.durationCohort)
+        ? "По дате завершения — " : intent.fact?.operation === "statusInterval" ? "По второй смене статуса — " : "По дате регистрации — ") + prepared.range
       : undefined, overdue, escalated) : undefined;
     const title =
       scope && intent.layout === "list" ? "Заявки · " + scope : primary.title;

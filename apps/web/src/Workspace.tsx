@@ -68,10 +68,14 @@ function selectionConditions({ filters, fact }: CanvasIntent) {
   const priorities: Record<number, string> = { 1: "Низкий", 2: "Средний", 3: "Высокий", 4: "Наивысший" };
   const deadlines = { overdue: "Срок прошёл", soon: "В ближайшие 15 минут", normal: "Позже 15 минут", unset: "Без срока" };
   const escalations = { yes: "Требуется устранение последствий", no: "Устранение последствий не требуется", unknown: "Устранение последствий не указано" };
-  const periods = { today: "Сегодня", yesterday: "Вчера", week: "За неделю", month: "За месяц", year: "За год" };
+  const periods = { today: "Сегодня", yesterday: "Вчера", week: "За неделю", month: "За месяц", year: "За год",
+    thisWeek: "На этой неделе", previousWeek: "На прошлой неделе", thisMonth: "В этом месяце",
+    previousMonth: "В прошлом месяце", thisYear: "В этом году", previousYear: "В прошлом году" };
   return [
     fact && fact.period !== "snapshot" && (fact.period === "dates" ? fact.dateRange?.join(" — ") :
       fact.period === "rolling" ? `За последние ${fact.lookbackHours} ч` : periods[fact.period]),
+    fact?.clockRange &&
+      fact.clockRange.map(minutes => [Math.floor(minutes / 60), minutes % 60].map(v => String(v).padStart(2, "0")).join(":")).join(" — ") + " МСК",
     filters.deadline && deadlines[filters.deadline],
     filters.teams?.map(name => "Команда «" + name + "»").join(", "),
     filters.excludedTeams?.map(name => "Кроме команды «" + name + "»").join(", "),
@@ -735,7 +739,7 @@ function WorkspaceScreen({
                 setChat((c) => ({ ...c, draft }));
               }}
             />
-            {canAsk && busy === null && <VoiceEntry append={words => {
+            {canAsk && busy === null && <VoiceEntry csrf={csrf} ns={ns} append={words => {
               setChat(c => ({ ...c, draft: [c.draft.trimEnd(), words].filter(Boolean).join(" ").slice(0, 500) }));
             }} />}
             {busy !== null ? (

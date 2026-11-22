@@ -102,42 +102,64 @@ async function login(page: Page, role = "coordinator") {
 }
 test("dictation preserves the draft and help links retain the selected source", async ({ page }) => {
   await page.addInitScript(() => {
-    class Recognition {
-      onresult?: (value: unknown) => void;
-      onerror?: (value: unknown) => void;
-      onend?: () => void;
-      start() {
-        window.addEventListener("test-speech", this);
-      }
-      handleEvent(event: Event) {
-        const sample = (event as CustomEvent).detail;
-        if (sample.error) {
-          this.onerror?.(sample);
-          this.stop();
-        } else this.onresult?.({ results: [{ 0: { transcript: sample.words }, isFinal: sample.final }] });
-      }
-      stop() { window.removeEventListener("test-speech", this); this.onend?.(); }
-      abort() { this.stop(); }
-    }
-    Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition });
+    Object.defineProperty(window, "SpeechRecognition", { value: undefined, configurable: true });
+    Object.defineProperty(window, "webkitSpeechRecognition", { value: undefined, configurable: true });
+    if (!navigator.mediaDevices) return;
+    let calls = 0;
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", { value: async () => {
+      document.documentElement.dataset.micCalls = String(++calls);
+      if (calls === 2) throw new DOMException("Denied", "NotAllowedError");
+      const context = new AudioContext();
+      await context.resume();
+      const target = context.createMediaStreamDestination();
+      const tone = context.createOscillator();
+      tone.connect(target);
+      tone.start();
+      return target.stream;
+    } });
+  });
+  let recordings = 0;
+  await page.route("**/api/voice?ns=*", async route => {
+    const body = route.request().postDataBuffer()!;
+    expect(route.request().headers()["x-csrf-token"]).toBeTruthy();
+    expect(body.toString("ascii", 0, 4)).toBe("RIFF");
+    expect(body.readUInt32LE(24)).toBe(16_000);
+    expect(body.length).toBeGreaterThan(1_000);
+    recordings++;
+    await route.fulfill({ json: { text: "самый первый инцидент" } });
   });
   await login(page);
   await page.goto("/workspace");
   const draft = page.getByRole("textbox", { name: "Вопрос об инцидентах" });
   const mic = page.getByRole("button", { name: "Продиктовать вопрос" });
-  const emit = (detail: object) => page.evaluate(d => { window.dispatchEvent(new CustomEvent("test-speech", { detail: d })); }, detail);
   await draft.fill("Покажи");
   await mic.click();
-  await emit({words: "первый", final: false});
-  await expect(draft).toHaveValue("Покажи");
-  await emit({words: "самый первый инцидент", final: true});
-  await emit({words: "самый первый инцидент", final: true});
-  await page.getByRole("button", { name: "Завершить диктовку" }).click();
-  await expect(draft).toHaveValue("Покажи самый первый инцидент");
-  await mic.click();
-  await emit({error: "not-allowed"});
-  await expect(page.getByText("Разрешите микрофон в настройках сайта.")).toBeVisible();
-  await expect(draft).toHaveValue("Покажи самый первый инцидент");
+  await expect(page.getByText(/передана во внешнюю службу распознавания/)).toBeVisible();
+  expect(await page.locator("html").getAttribute("data-mic-calls")).toBeNull();
+  await page.getByRole("button", { name: "Начать запись" }).click();
+  // Some WebKit ports ship without a media backend. Their fallback remains actionable.
+  const hasCapture = await page.evaluate(() => !!(navigator.mediaDevices && window.MediaRecorder && window.OfflineAudioContext));
+  if (!hasCapture) {
+    await expect(page.getByText(/Браузер не поддерживает запись с микрофона/)).toBeVisible();
+    expect(recordings).toBe(0);
+    await expect(draft).toHaveValue("Покажи");
+  } else {
+    await expect(page.getByText(/Идёт запись/)).toBeVisible();
+    // Give the platform encoder a second of real, non-silent browser audio.
+    const started = await page.evaluate(() => performance.now());
+    await page.waitForFunction(start => performance.now() > start + 1000, started);
+    await page.getByRole("button", { name: "Завершить диктовку" }).click();
+    await expect(draft).toHaveValue("Покажи самый первый инцидент");
+    await mic.click();
+    await page.getByRole("button", { name: "Начать запись" }).click();
+    await expect(page.getByText("Разрешите микрофон в настройках сайта.")).toBeVisible();
+    await mic.click();
+    await page.getByRole("button", { name: "Начать запись" }).click();
+    await expect(page.getByText(/Идёт запись/)).toBeVisible();
+    await page.getByRole("button", { name: "Отменить запись" }).click();
+    expect(recordings).toBe(1);
+    await expect(draft).toHaveValue("Покажи самый первый инцидент");
+  }
   await page.goto("/simulation/help");
   const contents = page.getByRole("navigation", {name: "Содержание помощи"});
   await expect(contents.getByRole("link")).toHaveCount(8);

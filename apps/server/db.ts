@@ -70,6 +70,8 @@ const schema = [
      subscription jsonb NOT NULL, namespace text NOT NULL, version uuid UNIQUE NOT NULL, since_revision integer NOT NULL,
      expires_at bigint NOT NULL, next_at bigint NOT NULL)`,
   `ALTER TABLE push_devices ADD COLUMN IF NOT EXISTS test_after bigint NOT NULL DEFAULT 0`,
+  `CREATE TABLE IF NOT EXISTS shift_owners(namespace text NOT NULL, key text NOT NULL, owner text, version integer NOT NULL,
+     PRIMARY KEY(namespace,key), FOREIGN KEY(namespace,key) REFERENCES incidents(namespace,key) ON DELETE CASCADE)`,
   `CREATE TABLE IF NOT EXISTS preferences(username text PRIMARY KEY, doc jsonb NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS ai_cache(cache_key text PRIMARY KEY, doc jsonb NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS event_history ON events(namespace,key,revision DESC)`,

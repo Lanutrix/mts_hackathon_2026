@@ -10,6 +10,7 @@ import {
   parseSnapshot,
   GROUPS,
   safeItsm,
+  TEAM,
   deadlineStatus,
   type Group,
   type Incident,
@@ -34,6 +35,9 @@ import { CanvasService } from "./canvas.ts";
 import type { CanvasResult } from "../../packages/contracts/canvas.ts";
 import { validContext } from "./canvasPlan.ts";
 import { registerDispatch } from "./dispatch.ts";
+import { registerShift, shiftRead, shiftWrite } from "./shift.ts";
+import { registerTrainingActions, trainingActionRoute } from "./trainingActions.ts";
+import { registerVoice, voicePath } from "./voice.ts";
 import { registerPush, type PushOptions } from "./push.ts";
 import {
   buildTriage,
@@ -195,7 +199,7 @@ export async function createApp(o: AppOptions) {
       o.publicDemo &&
       (ns === "simulation" || ns === "demo") &&
       req.method === "POST" &&
-      (req.routeOptions.url === "/api/triage/:id/analysis" || req.routeOptions.url === "/api/canvas")
+      (req.routeOptions.url === "/api/triage/:id/analysis" || req.routeOptions.url === "/api/canvas" || req.routeOptions.url === voicePath)
     );
   }
   async function readCase(req: FastifyRequest, reply: FastifyReply) {
@@ -229,6 +233,7 @@ export async function createApp(o: AppOptions) {
     });
   }
   const juryReadRoutes = new Set([
+    shiftRead,
     "/api/me",
     "/api/health",
     "/api/dashboard",
@@ -263,6 +268,7 @@ export async function createApp(o: AppOptions) {
         return reply.code(404).send({ message: "Учебный эфир отключён" });
       if (
         !trainingAnalysis(req) &&
+        !(req.method === "POST" && (route === trainingActionRoute || route === shiftWrite)) &&
         (!["GET", "HEAD"].includes(req.method) ||
           !juryReadRoutes.has(req.routeOptions.url ?? ""))
       )
@@ -299,6 +305,9 @@ export async function createApp(o: AppOptions) {
   juryReadRoutes.add(
     registerDispatch(app, { db, identity, readStoreFor, requireRole, remote: o.ai?.remote }),
   );
+  registerTrainingActions(app, jury, requireRole);
+  registerShift(app, {db, clusters, requireRole, readStoreFor});
+  registerVoice(app, o.ai?.remote, (req, reply) => trainingAnalysis(req) || !!requireRole(req, reply, ["coordinator", "demo-admin"]));
   const canvas = new CanvasService(o.ai?.remote);
   app.get("/api/canvas", async (req, reply) => {
     const source = await readStoreFor(req, reply);
@@ -804,6 +813,8 @@ export async function createApp(o: AppOptions) {
     const itsmUrl = s.namespace === "simulation" ? undefined : o.itsmUrl;
     return {
       incident: r,
+      ...(s.namespace === "simulation" && identity(req)?.role !== "viewer" ? {trainingTeams: [...new Set([TEAM,
+        ...[...s.rows.values()].map(row=>row.team).filter((team):team is string=>!!team)])].sort((a,b)=>a.localeCompare(b,"ru"))} : {}),
       history: await s.history(r.key, r.revision),
       itsm: safeItsm(r.id, itsmUrl),
       itsmMock: !itsmUrl,

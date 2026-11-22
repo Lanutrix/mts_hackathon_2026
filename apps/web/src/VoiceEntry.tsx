@@ -1,91 +1,101 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Brand";
+import { recordVoice } from "./recordVoice";
 
-type Utterance = { isFinal: boolean; 0: { transcript: string } };
-type Recognizer = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: { results: ArrayLike<Utterance> }) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-  abort(): void;
-};
-type SpeechWindow = Window & {
-  SpeechRecognition?: new () => Recognizer;
-  webkitSpeechRecognition?: new () => Recognizer;
-};
-const notices: Record<string, string> = {
-  "not-allowed": "Разрешите микрофон в настройках сайта.",
-  "service-not-allowed": "Браузер ограничил доступ к распознаванию речи.",
-  "audio-capture": "Проверьте подключение микрофона.",
-  "no-speech": "Речь не распознана. Попробуйте ещё раз.",
-  "network": "Сервис распознавания недоступен. Попробуйте ещё раз.",
-};
+type Phase = "idle" | "consent" | "permission" | "recording" | "processing";
+type Props = { csrf: string; ns: string; append: (text: string) => void };
 
-export default function VoiceEntry({ append }: { append: (words: string) => void }) {
-  const browser = window as SpeechWindow;
-  const Engine = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
-  const session = useRef<Recognizer | null>(null);
-  const [listening, setListening] = useState(false);
-  const [status, setStatus] = useState("");
+function message(error: unknown) {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError") return "Разрешите микрофон в настройках сайта.";
+    if (error.name === "NotFoundError") return "Микрофон не найден. Проверьте подключение.";
+    if (error.name === "NotReadableError") return "Микрофон занят или недоступен.";
+    if (error.name === "EncodingError") return "Не удалось прочитать запись. Попробуйте ещё раз.";
+  }
+  return error instanceof Error ? error.message : "Не удалось распознать речь. Попробуйте ещё раз.";
+}
 
-  useEffect(() => () => {
-    const current = session.current;
+export default function VoiceEntry({ csrf, ns, append }: Props) {
+  const session = useRef<AbortController | null>(null);
+  const stop = useRef<(() => void) | null>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [error, setError] = useState("");
+  const mic = useRef<HTMLButtonElement>(null);
+  const confirm = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => () => { session.current?.abort(); }, []);
+  useEffect(() => { if (phase === "consent") confirm.current?.focus(); }, [phase]);
+
+  function cancel() {
+    session.current?.abort();
     session.current = null;
-    current?.abort();
-  }, []);
-  if (!Engine) return null;
-  const label = listening ? "Завершить диктовку" : "Продиктовать вопрос";
-  function toggle() {
-    if (session.current) {
-      session.current.stop();
-      return;
-    }
-    if (!Engine) return;
-    const engine = new Engine();
-    session.current = engine;
-    engine.lang = "ru-RU";
-    engine.continuous = false;
-    engine.interimResults = true;
-    let committed = 0;
-    let failed = false;
-    engine.onresult = ({ results }) => {
-      if (session.current !== engine) return;
-      const phrases = Array.from(results);
-      let next = committed;
-      while (next < phrases.length && phrases[next].isFinal) next++;
-      const words = phrases.slice(committed, next).map(r => r[0].transcript.trim()).join(" ").trim();
-      if (words) append(words);
-      committed = next;
-      setStatus(phrases.slice(next).map(r => r[0].transcript).join(" ").trim() || "Слушаю…");
-    };
-    engine.onerror = ({ error }) => {
-      if (session.current !== engine) return;
-      failed = true;
-      setStatus(notices[error] ?? "Не удалось распознать речь. Попробуйте ещё раз.");
-    };
-    engine.onend = () => {
-      if (session.current !== engine) return;
-      session.current = null;
-      setListening(false);
-      if (!failed) setStatus(committed ? "" : notices["no-speech"]);
-    };
-    setListening(true);
-    setStatus("Слушаю…");
-    try { engine.start(); }
-    catch {
-      session.current = null;
-      setListening(false);
-      setStatus("Не удалось включить микрофон.");
+    stop.current = null;
+    setPhase("idle");
+    setError("");
+    mic.current?.focus();
+  }
+
+  async function start() {
+    if (session.current) return;
+    const controller = new AbortController();
+    session.current = controller;
+    setPhase("permission");
+    setError("");
+    try {
+      const audio = await recordVoice(controller.signal, finish => {
+        stop.current = finish;
+        setPhase("recording");
+        mic.current?.focus();
+      });
+      controller.signal.throwIfAborted();
+      stop.current = null;
+      setPhase("processing");
+      const response = await fetch("/api/voice?ns=" + encodeURIComponent(ns), {
+        method: "POST", credentials: "same-origin", signal: controller.signal,
+        headers: { "Content-Type": "audio/wav", "X-CSRF-Token": csrf }, body: audio,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(response.status === 429 ? "Слишком много запросов. Попробуйте через минуту."
+        : data.message || "Сервис распознавания недоступен.");
+      controller.signal.throwIfAborted();
+      if (typeof data.text !== "string" || !data.text.trim()) throw new Error("Речь не распознана.");
+      append(data.text);
+    } catch (problem) {
+      if (!controller.signal.aborted) setError(message(problem));
+    } finally {
+      if (session.current === controller && !controller.signal.aborted) {
+        session.current = null;
+        stop.current = null;
+        setPhase("idle");
+      }
     }
   }
-  return <div className="cx-voice">
-    <button type="button" aria-label={label} data-hint={label} aria-pressed={listening} onClick={toggle}>
+
+  const recording = phase === "recording";
+  const label = recording ? "Завершить диктовку" : "Продиктовать вопрос";
+  const status = {
+    idle: error, consent: "Запись до 30 секунд будет передана во внешнюю службу распознавания. Текст появится в поле вопроса.",
+    permission: "Разрешите браузеру доступ к микрофону.",
+    recording: "Идёт запись. Нажмите микрофон, чтобы распознать вопрос.",
+    processing: "Распознаю речь…",
+  }[phase];
+  return <div className="cx-voice" onKeyDown={e => {
+    if (e.key === "Escape" && phase !== "idle") { e.stopPropagation(); cancel(); }
+  }}>
+    <button type="button" ref={mic} aria-label={label} data-hint={label} aria-pressed={recording}
+      disabled={phase === "permission" || phase === "processing"} onClick={() => {
+        if (recording) { setPhase("processing"); stop.current?.(); }
+        else if (phase === "consent") cancel();
+        else { setError(""); setPhase("consent"); }
+      }}>
       <Icon name="microphone" size={21} />
     </button>
-    <span role="status" className="cx-voice-status">{status}</span>
+    {status && <div className="cx-voice-status">
+      <span role="status">{status}</span>
+      {phase !== "idle" && <div className="cx-voice-actions">
+        {phase === "consent" && <button type="button" ref={confirm} onClick={() => void start()}>Начать запись</button>}
+        <button type="button" onClick={cancel} aria-label="Отменить запись">Отмена</button>
+      </div>}
+    </div>}
   </div>;
 }

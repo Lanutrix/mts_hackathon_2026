@@ -48,6 +48,14 @@ const norm = (v: string) => v.normalize("NFKC").toLocaleLowerCase("ru");
 function bounds(plan: FactPlan, now: number) {
   const { period } = plan;
   const midnight = Math.floor((now + moscow) / day) * day - moscow;
+  if (plan.clockRange) {
+    const dayStart = period === "dates" ? Date.parse(plan.dateRange![0] + "T00:00:00+03:00") :
+      period === "yesterday" ? midnight - day : midnight;
+    const start = dayStart + plan.clockRange[0] * 60_000;
+    const until = dayStart + plan.clockRange[1] * 60_000;
+    return { start, end: Math.min(now, until - 1), label: "С " + dateTime.format(start) + " до " +
+      dateTime.format(until) + " МСК (верхняя граница исключена). Срез на " + dateTime.format(now) + " МСК." };
+  }
   if (period === "rolling") {
     const start = now - plan.lookbackHours! * 3_600_000;
     return { start, end: now, label: dateTime.format(start) + " — " + dateTime.format(now) + " МСК." };
@@ -79,6 +87,19 @@ function bounds(plan: FactPlan, now: number) {
     };
   }
   const date = new Date(now + moscow);
+  if (period === "thisWeek" || period === "previousWeek" || period === "thisMonth" ||
+      period === "previousMonth" || period === "thisYear" || period === "previousYear") {
+    const year = date.getUTCFullYear(), month = date.getUTCMonth();
+    const monday = midnight - ((date.getUTCDay() + 6) % 7) * day;
+    const monthStart = Date.UTC(year, month, 1) - moscow;
+    const yearStart = Date.UTC(year, 0, 1) - moscow;
+    const [start, end] = {
+      thisWeek: [monday, now], previousWeek: [monday - 7 * day, monday - 1],
+      thisMonth: [monthStart, now], previousMonth: [Date.UTC(year, month - 1, 1) - moscow, monthStart - 1],
+      thisYear: [yearStart, now], previousYear: [Date.UTC(year - 1, 0, 1) - moscow, yearStart - 1],
+    }[period];
+    return { start, end, label: dateTime.format(start) + " — " + dateTime.format(end) + " МСК." };
+  }
   // Clip an anniversary such as 29 February or 31 March to the last day of the target month.
   const localDay = date.getUTCDate();
   date.setUTCDate(1);
@@ -112,16 +133,17 @@ export function prepareFact(
     const skipped = source.length - rows.length;
     if (skipped) notes.push("Заявок без пары наблюдаемых смен статуса за выбранный период — " + number.format(skipped) + ".");
   } else if (plan.operation === "recent") {
-    const undated = rows.filter(r => !r.dates.submitDate).length;
-    if (undated) notes.push("Заявок без даты регистрации — " + number.format(undated) + ". Они исключены из списка.");
+    const field = plan.dateField ?? "submitDate";
+    const undated = rows.filter(r => !r.dates[field]).length;
+    if (undated) notes.push("Заявок без даты " + (field === "completionDate" ? "завершения" : "регистрации") + " — " + number.format(undated) + ". Они исключены из списка.");
     rows = rows.filter(r => {
-      const at = Date.parse(r.dates.submitDate ?? "");
+      const at = Date.parse(r.dates[field] ?? "");
       return at >= range.start && at <= range.end;
-    }).sort((a, b) => (plan.ascending ? 1 : -1) * a.dates.submitDate!.localeCompare(b.dates.submitDate!) || a.id.localeCompare(b.id, "ru", { numeric: true }) || a.id.localeCompare(b.id))
+    }).sort((a, b) => (plan.ascending ? 1 : -1) * a.dates[field]!.localeCompare(b.dates[field]!) || a.id.localeCompare(b.id, "ru", { numeric: true }) || a.id.localeCompare(b.id))
       .slice(0, plan.limit);
   } else if (plan.operation === "duration" || plan.durationCohort) {
     let missingCompletion = 0,
-      invalidStart = 0, unfinished = 0, outside = 0;
+      invalidStart = 0, unfinished = 0, outside = 0, futureFinish = 0;
     for (const r of source) {
       if (r.stateId !== 7 && r.stateId !== 10) {
         unfinished++;
@@ -134,11 +156,17 @@ export function prepareFact(
         continue;
       }
       const finish = Date.parse(end);
-      if (finish < range.start || finish > range.end) {
+      const started = Date.parse(start ?? "");
+      const event = plan.dateField === "submitDate" ? started : finish;
+      if (finish > now) {
+        futureFinish++;
+        continue;
+      }
+      if (event < range.start || event > range.end) {
         outside++;
         continue;
       }
-      const ms = finish - Date.parse(start ?? "");
+      const ms = finish - started;
       if (!start || !Number.isFinite(ms) || ms < 0) {
         invalidStart++;
         continue;
@@ -161,12 +189,13 @@ export function prepareFact(
     );
     rows = durations.map((e) => e.row);
     if (unfinished) notes.push("Исключены незавершённые заявки: " + number.format(unfinished) + ".");
-    if (outside) notes.push("Вне периода по дате завершения: " + number.format(outside) + ".");
+    if (outside) notes.push("Вне периода по дате " + (plan.dateField === "submitDate" ? "регистрации" : "завершения") + ": " + number.format(outside) + ".");
+    if (futureFinish) notes.push("Дата завершения позже момента среза: " + number.format(futureFinish) + ".");
     if (missingCompletion)
       notes.push(
         "Без даты завершения в исходной выборке: " +
           missingCompletion +
-          ". Их принадлежность периоду неизвестна.",
+          ".",
       );
     if (invalidStart)
       notes.push("Без корректной пары дат в периоде: " + invalidStart + ".");
@@ -314,10 +343,12 @@ export function describeFact(
   const n = number.format(rows.length);
   let title = dimension;
   let headline: string;
+  const dateDescription = (intent.fact!.dateField === "completionDate" || intent.fact!.dateField !== "submitDate" &&
+    (operation === "duration" || intent.fact!.durationCohort)) ? "По дате завершения (completionDate)" : "По дате регистрации (submitDate)";
   let method =
     period === "snapshot"
       ? range
-      : "По дате регистрации (submitDate). " + range;
+      : dateDescription + ". " + range;
   const fact: CanvasFact = { headline: "", method: "", notes: [...notes] };
   if (operation === "relations") {
     title = "Связи инцидентов";
@@ -345,11 +376,14 @@ export function describeFact(
           ".",
       );
   } else if (operation === "recent") {
-    title = intent.fact!.limit ? (ascending ? "Первые" : "Последние") + " зарегистрированные инциденты" : "Зарегистрированные инциденты";
-    headline = !rows.length ? "Нет заявок с датой регистрации в выбранном периоде." : rows.length === 1 ?
-      (ascending ? "Первым" : "Последним") + " зарегистрирован " + rows[0].id + "." :
-      (intent.fact!.limit ? (ascending ? "Первые инциденты" : "Последние инциденты") : "Инциденты") + " по дате регистрации · " + n;
-    method = "По дате регистрации (submitDate), " + (ascending ? "от старых к новым" : "от новых к старым") +
+    const byCompletion = intent.fact!.dateField === "completionDate";
+    const event = byCompletion ? "завершения" : "регистрации";
+    const cohort = byCompletion ? "завершённые инциденты" : "зарегистрированные инциденты";
+    title = intent.fact!.limit ? (ascending ? "Первые" : "Последние") + " " + cohort : byCompletion ? "Завершённые инциденты" : "Зарегистрированные инциденты";
+    headline = !rows.length ? "Нет заявок с датой " + event + " в выбранном периоде." : rows.length === 1 ?
+      (ascending ? "Первым" : "Последним") + (byCompletion ? " завершён " : " зарегистрирован ") + rows[0].id + "." :
+      (intent.fact!.limit ? (ascending ? "Первые инциденты" : "Последние инциденты") : "Инциденты") + " по дате " + event + " · " + n;
+    method = dateDescription + ", " + (ascending ? "от старых к новым" : "от новых к старым") +
       ". При совпадении времени — по номеру заявки. " + range;
   } else if (operation === "statusInterval") {
     const median = intent.fact!.intervalMeasure === "median";
@@ -368,7 +402,7 @@ export function describeFact(
     const lead = durations[0];
     headline = "Нет завершённых заявок с подходящими датами для расчёта.";
     method =
-      "По дате завершения (completionDate). " +
+      dateDescription + ". " +
       range +
       " От регистрации (submitDate) до завершения (completionDate). Учтены статусы «Завершён» и «Закрыт».";
     if (isDurationGroup(intent.groupBy)) {
@@ -434,7 +468,7 @@ export function describeFact(
     if (intent.fact!.durationCohort) {
       headline = "Заявок с измеренной длительностью решения: " + n + ".";
       method = "Учтены завершённые и закрытые заявки с корректной парой дат регистрации и завершения. " +
-        (period === "snapshot" ? range : "По дате завершения (completionDate). " + range);
+        (period === "snapshot" ? range : dateDescription + ". " + range);
     } else if (intent.fact!.dateField === "completionDate") {
       method = "По дате завершения (completionDate). " + range;
       if (

@@ -1,3 +1,4 @@
+import { transcribeRussian } from "./voice.ts";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { hash } from "../../packages/domain/index.ts";
@@ -122,6 +123,9 @@ export class VseLlm {
     readonly model: string,
     private readonly request: typeof fetch = fetch,
   ) {}
+  transcribe(wav: Buffer) {
+    return transcribeRussian(wav, this.key, this.request);
+  }
   async read(packet: EvidencePacket): Promise<Result> {
     const reply = await this.json(VSELLM_PROMPT, instructions, packet, 10_000);
     if ("error" in reply) return reply;

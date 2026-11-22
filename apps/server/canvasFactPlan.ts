@@ -12,20 +12,20 @@ import {
 } from "../../packages/contracts/canvasFacts.ts";
 
 import { supportsFactDisplay } from "./factDisplay.ts";
-import { calendarWindow, rollingWindow, validDateRange } from "./canvasCalendar.ts";
+import { calendarWindow, validClockRange, validDateRange } from "./canvasCalendar.ts";
 
 export function validFact(fact: unknown): fact is FactPlan {
   if (!fact || typeof fact !== "object") return false;
   const f = fact as Record<string, unknown>;
   return (
     Object.keys(f).every((k) =>
-      ["operation", "period", "dateRange", "lookbackHours", "ascending", "dateField", "display", "limit", "durationMeasure", "intervalMeasure", "durationCohort", "sourceSelection"].includes(k),
+      ["operation", "period", "dateRange", "clockRange", "lookbackHours", "ascending", "dateField", "display", "limit", "durationMeasure", "intervalMeasure", "durationCohort", "sourceSelection"].includes(k),
     ) &&
     factOperations.some((v) => v === f.operation) &&
     (f.intervalMeasure === undefined || f.operation === "statusInterval" && f.intervalMeasure === "median") &&
     (f.sourceSelection === undefined || typeof f.sourceSelection === "string" && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u.test(f.sourceSelection)) &&
     (f.operation !== "recent" || f.limit !== undefined || f.period !== "snapshot") &&
-    (f.durationCohort === undefined || (f.operation === "count" && f.durationCohort === true && f.dateField === undefined)) &&
+    (f.durationCohort === undefined || (f.operation === "count" && f.durationCohort === true && f.dateField !== "completionDate")) &&
     (f.durationMeasure === undefined || (f.operation === "duration" &&
       ["individual", "median", "mean"].some(m => m === f.durationMeasure))) &&
     (f.limit === undefined || ((f.operation === "frequency" || f.operation === "recent") && typeof f.limit === "number" &&
@@ -33,11 +33,11 @@ export function validFact(fact: unknown): fact is FactPlan {
     (f.display === undefined || supportsFactDisplay(f.operation, f.display)) &&
     factPeriods.some((v) => v === f.period) &&
     (f.period === "dates" ? validDateRange(f.dateRange) : f.dateRange === undefined) &&
+    (f.clockRange === undefined || validClockRange(f.clockRange, f.period, f.dateRange)) &&
     (f.period === "rolling" ? typeof f.lookbackHours === "number" && Number.isSafeInteger(f.lookbackHours) && f.lookbackHours > 0 && f.lookbackHours <= 24 * 99999 : f.lookbackHours === undefined) &&
-    (f.dateField === undefined ||
-      (f.dateField === "completionDate" &&
-        f.operation === "count" &&
-        f.period !== "snapshot")) &&
+    (f.dateField === undefined || f.period !== "snapshot" && (
+      f.dateField === "completionDate" && ["count", "recent", "frequency", "distinct"].includes(String(f.operation)) ||
+      f.dateField === "submitDate" && (f.operation === "duration" || f.durationCohort === true))) &&
     (f.ascending === undefined || f.ascending === true)
   );
 }
@@ -80,7 +80,7 @@ export function registrationOrder(question: string, previous?: CanvasIntent) {
     return { limit: n ? recentNumbers[n] ?? Number(n) : /(?:ие|их|им|ими|ые|ых)$/u.test(match[3]) ? 3 : 1, ascending: false };
   }
   // Strip calendar/priority modifiers before reading an ordinal and a count.
-  const subject = (rollingWindow(text)?.rest ?? calendarWindow(text).rest)
+  const subject = calendarWindow(text).rest
     .replace(/(?:последн|перв)\p{L}*\s+(?:(?:\d+|семь)\s+)?(?:день|дн\p{L}*|сут\p{L}*|час\p{L}*|недел\p{L}*|месяц\p{L}*|год\p{L}*)|приоритет\p{L}*\s+\d+|\b[pe]\d+\b/gu, " ");
   if (/в первую очередь|первым делом|перв\p{L}* (?:мест|лини|смен|статус|ответ|назнач|реакц)|по (?:срочности|важности|приоритету)|закрыли|решили|завершили|по сроку|дедлайн|ранн\p{L}* срок/u.test(subject)) return;
   if (incidentWord.test(subject) &&
@@ -137,7 +137,7 @@ const commonality =
   /что (?:у них )?общего|чем (?:они )?(?:похож|схож)|что (?:их )?объединяет|общие (?:черт|признак|пол[яе])|(?:сходств|совпадени|пересечени)/u;
 const referredTickets = /эти[хм]|между ними|у них|они (?:похож|схож)|их объединяет/u;
 const closed = /(?<!\p{L})закры(?:ли|т)/u;
-const finished = /(?<!\p{L})(?:заверш(?:или|ен)|реш(?:или|ен)|устранили)/u;
+const finished = /(?<!\p{L})(?:заверш(?:или|ен)|реш(?:или|ен)|устранили)|по дат[еам]+ (?:завершения|решения)/u;
 const intake = /регистрац|зарегистр|поступ|создан|создали|завели|пода(?:ли|н)/u;
 const ticketTerm = /заяв[ко]|инцидент|тикет|обращени|сбо[яией]|проблем/u;
 // A count of tickets has a ticket noun as its object. A count of clients,
@@ -158,7 +158,7 @@ const normalized = (s: string) =>
 // the request, its source cohort, or its calendar window. A named external
 // process (such as page loading) has its own timestamps.
 function unqualifiedDuration(text: string) {
-  const rest = rollingWindow(text)?.rest ?? calendarWindow(text).rest;
+  const rest = calendarWindow(text).rest;
   return (rest.match(/[\p{L}\p{N}]+/gu) ?? []).every(word =>
     /^(?:а|и|ну|нам|мне|у|нас|в|во|по|из|за|с|для|только|тут|там|же|ли|бы|какое|какая|оно|сейчас|тогда|теперь|пожалуйста|сколько|обычно|mttr|E\d+)$/u.test(word) ||
     /^(?:посчита|рассчита|подсчита|покаж|вывед|подскаж|скажи|давай|можеш|средн|врем|длительност|продолжительност|инц[ие]дент|тикет|заявк|заявок|обращени|сутк|год|дн[ея]|месяц|недел|сегодня|вчера|последн|период|выборк|источник|очеред)/u.test(word));
@@ -215,24 +215,7 @@ export function onlyTicketIds(shaped: string, idAliases: string[]) {
 }
 
 export function periodIn(s: string): FactPeriod | undefined {
-  if (calendarWindow(s).range) return "dates";
-  if (rollingWindow(s)) return "rolling";
-  if (/сегодня|сегодняш/u.test(s)) return "today";
-  if (/вчера/u.test(s)) return "yesterday";
-  if (
-    /12\s+месяц|двенадцать месяц|(?:последн|прошедш|минувш)\p{L}*\s+год|за год(?!\p{L})|последн\p{L}* 365 (?:дней|суток)/u.test(
-      s,
-    )
-  )
-    return "year";
-  if (/(?:последн|прошедш|минувш)\p{L}*\s+месяц|за месяц(?!\p{L})/u.test(s))
-    return "month";
-  if (
-    /последн\p{L}* (?:7|семь) дн|(?:последн|прошедш|минувш)\p{L}*\s+недел|за неделю/u.test(
-      s,
-    )
-  )
-    return "week";
+  return calendarWindow(s).period;
 }
 export function validFactView(
   fact: FactPlan,
@@ -240,7 +223,7 @@ export function validFactView(
   filters: CanvasFilters,
 ) {
   if (
-    fact.dateField &&
+    fact.dateField === "completionDate" &&
     (!filters.states ||
       !filters.states.every((state) => state === 7 || state === 10))
   )
@@ -283,8 +266,9 @@ export function periodQuestion(s: string) {
 }
 export function mightAskFact(question: string, previous?: CanvasIntent) {
   const s = normalized(question);
+  const calendar = calendarWindow(s);
   return (
-    ((ticketTerm.test(s) || intake.test(s)) && (!!periodIn(s) || calendarWindow(s).invalid)) ||
+    ((ticketTerm.test(s) || intake.test(s) || previous?.fact) && (!!calendar.period || calendar.invalid)) ||
     !!registrationOrder(s, previous) || asksOverdueCount(s) || !!aggregateFollowup(s) || asksStatusInterval(s, previous) || !!durationRequest(s, previous) ||
     /средн/u.test(s) && /регистр|поступле|создани/u.test(s) ||
     frequency.test(s) || workloadRank.test(s) || asksBacklog(s) || requestedLimit(s) !== undefined || commonality.test(s) || ticketCount.test(s) ||
@@ -350,23 +334,23 @@ export function readFact(
   if (limit && dim && [...measure.matchAll(/(?:^|\s)по\s+(\p{L}+)/gu)].some(([, field]) =>
     !/^(?:числ|количеств|нагрузк|частот|заявк|обращени|инцидент|тикет|просроч|продукт|команд|статус|приоритет|симптом|состоян)/u.test(field)))
     return { problem: "Уточните показатель для рейтинга. По этим полям можно сравнить группы по количеству заявок." };
+  const calendar = calendarWindow(shaped);
+  if (calendar.invalid) return { problem: "Уточните период: укажите один день, интервал дат или последние часы или дни. Для части дня подойдёт «сегодня с 09:00 до 12:00 МСК»." };
+  const askedPeriod = calendar.period;
+  if (askedPeriod && !statusInterval && /(?:перевели|переведен|вернули|переназначили|назначили|взяли в работу|передали в работу)/u.test(measure))
+    return { problem: "Для подсчёта таких переходов нужен журнал событий за период. В карточке есть текущий статус и момент последнего назначения команды. Можно посчитать регистрации или завершения за этот период." };
+  const periodOnly = !!askedPeriod && !calendar.rest.replace(/(?<!\p{L})(?:а|и|ну|тогда|теперь|за|в|на|с|по|мск|пожалуйста)(?!\p{L})|[\s?.,!]/gu, "");
   const continuation =
     !!previous?.fact &&
-    (duration?.continuation || follow.test(shaped) || /(?:из|среди) них/u.test(shaped) ||
+    (periodOnly || duration?.continuation || follow.test(shaped) || /(?:из|среди) них/u.test(shaped) ||
       !!aggregate || previous.fact.operation === "recent" && !!order && /^(?:а|и|теперь)\s/u.test(shaped.trim()));
   const namedStatus = /(?:со\s+статус(?:ом|ами)|в\s+статус(?:е|ах))/u.test(shaped);
   const hasClosed = closed.test(shaped);
   const actionStates = finished.test(shaped)
     ? (namedStatus && !hasClosed ? [7] : [7, 10])
     : hasClosed ? [10] : undefined;
-  const calendar = calendarWindow(shaped);
-  if (calendar.invalid) return { problem: "Укажите существующую дату или диапазон от более ранней до более поздней даты, например с 20.11.2026 по 22.11.2026." };
-  const askedPeriod = periodIn(shaped);
   const period = askedPeriod ?? (continuation ? previous!.fact!.period : "snapshot");
-  const dateRange = period === "dates" ? calendar.range ?? previous?.fact?.dateRange : undefined;
-  const rolling = rollingWindow(shaped);
-  if (rolling?.hours === 0) return { problem: "Укажите положительную длительность периода." };
-  const lookbackHours = period === "rolling" ? rolling?.hours ?? previous?.fact?.lookbackHours : undefined;
+  const window = askedPeriod ? calendar : continuation ? previous!.fact : undefined;
   const datedList = !order && !!askedPeriod && ticketTerm.test(measure) && !quantity.test(measure) && !dim && !duration &&
     !/часто|динамик|график|распредел|по дням|по часам|когда/u.test(measure) &&
     /покаж|вывед|перечисл|каки[ех]|список|найди|пришл|поступил/u.test(measure);
@@ -448,10 +432,7 @@ export function readFact(
   if (
     operation !== "relations" &&
     /\d{1,4}[./-]\d{1,2}|\b(?:19|20)\d{2}\b|прошл\p{L}* (год|месяц|недел)|эт(?:ом|от) (?:год|месяц)|календарн|квартал|позавчера|\d+\s+(?:дн|день|дня|недел|месяц|год|лет|час|сут)|за сутки/u.test(
-      (rolling?.rest ?? calendar.rest).replace(
-        /12\s+месяц\p{L}*|365\s+(?:дней|суток)|7\s+дн\p{L}*/gu,
-        "",
-      ),
+      calendar.rest,
     )
   ) {
     return {
@@ -488,15 +469,18 @@ export function readFact(
   const durationCohort = operation === "count" && continuation &&
     (previous?.fact?.operation === "duration" || previous?.fact?.durationCohort) && !intake.test(shaped);
   const completionWindow =
-    operation === "count" &&
+    (operation === "count" || operation === "recent" || operation === "frequency" || operation === "distinct") &&
     !durationCohort &&
     period !== "snapshot" &&
-    (pinnedPeriod
-      ? previous!.fact!.dateField || previous!.fact!.operation === "duration"
+    (pinnedPeriod || periodOnly && continuation
+      ? previous!.fact!.dateField === "completionDate" || previous!.fact!.operation === "duration" && previous!.fact!.dateField !== "submitDate"
       : actionStates &&
         !intake.test(shaped) &&
         !/(?:со |в )статусе|со статусом/u.test(shaped));
-  const states = operation === "count" ? actionStates : operation === "frequency" && asksBacklog(measure) ? [0, 2, 20] : undefined;
+  const registrationWindow = (operation === "duration" || durationCohort) && period !== "snapshot" &&
+    (/(?<!\p{L})(?:зарегистрирован|поступивш|созданн)|по дат[еам]+ (?:регистрации|создания|поступления)/u.test(measure) ||
+      continuation && previous?.fact?.dateField === "submitDate" && !actionStates);
+  const states = operation === "count" || completionWindow ? actionStates : operation === "frequency" && asksBacklog(measure) ? [0, 2, 20] : undefined;
   const durationMeasure = duration ? duration.measure : continuation ? previous?.fact?.durationMeasure : undefined;
   const medianInterval = operation === "statusInterval" && (/медиан/u.test(measure) ||
     continuation && !/средн/u.test(measure) && previous?.fact?.intervalMeasure === "median");
@@ -505,13 +489,14 @@ export function readFact(
       operation,
       period,
       ...(medianInterval ? { intervalMeasure: "median" as const } : {}),
-      ...(dateRange ? { dateRange } : {}),
-      ...(lookbackHours ? { lookbackHours } : {}),
+      ...(window?.dateRange ? { dateRange: window.dateRange } : {}),
+      ...(window?.clockRange ? { clockRange: window.clockRange } : {}),
+      ...(window?.lookbackHours ? { lookbackHours: window.lookbackHours } : {}),
       ...(durationCohort ? { durationCohort: true } : {}),
       ...(operation === "duration" && durationMeasure ? { durationMeasure } : {}),
       ...(operation === "frequency" && limit !== undefined ? { limit } : {}),
       ...(operation === "recent" && !datedList && (order || previous?.fact?.limit) ? { limit: recent ?? previous?.fact?.limit } : {}),
-      ...(completionWindow ? { dateField: "completionDate" } : {}),
+      ...(completionWindow ? { dateField: "completionDate" } : registrationWindow ? { dateField: "submitDate" } : {}),
       ...(ascending ? { ascending: true } : {}),
     },
     dimension,

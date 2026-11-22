@@ -13,6 +13,7 @@ import {
 } from "../apps/server/jurySimulation.ts";
 import { TEAM } from "../packages/domain/index.ts";
 import { createApp } from "../apps/server/api.ts";
+import { registerTrainingActions } from "../apps/server/trainingActions.ts";
 import { Auth } from "../apps/server/auth.ts";
 import { Store } from "../apps/worker/ingestion.ts";
 
@@ -148,11 +149,17 @@ test(
   },
 );
 
-test("disabling the public demo also disables the jury stream", async () => {
+test("disabling the public demo disables the jury stream and training writes", async () => {
   const app = Fastify();
-  registerJurySimulation(app, false);
+  const jury = registerJurySimulation(app, false);
+  registerTrainingActions(app, jury, () => ({ username: "coordinator" }));
   try {
     assert.equal((await app.inject("/api/simulation/stream")).statusCode, 404);
+    for (const suffix of ["", "?ns=simulation"]) {
+      const response = await app.inject({ method: "POST", url: "/api/simulation/incidents/SIM-001" + suffix,
+        payload: { runId: "old", expectedRevision: 1, action: "resolve" } });
+      assert.equal(response.statusCode, 404);
+    }
   } finally {
     await app.close();
   }
@@ -372,5 +379,149 @@ test("model arrivals enter the same export and read view as the scripted inciden
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("coordinators share versioned training edits, routing and resolution with read-only viewers", { timeout: 12_000 }, async () => {
+  const auth = new Auth();
+  for (const [username, role] of [["anna", "coordinator"], ["ivan", "coordinator"], ["reader", "viewer"]] as const) {
+    auth.sessions.set(auth.digest(username), { username, role, csrf: username, expires: Date.now() + 60_000 });
+  }
+  const headers = (name: string) => ({ cookie: "wm_session=" + name, "x-csrf-token": name });
+  const blocked = async () => { throw new Error("workspace DB accessed"); };
+  const workspace = new Store({ query: blocked, transaction: blocked, close: blocked }, "workspace");
+  const app = await createApp({
+    auth, publicDemo: true, secure: false, origin: "http://localhost",
+    stores: new Map([["workspace", workspace]]), sources: new Map(),
+    jurySimulation: { stepDelays: [650, 150, 120, 120, 120], arrivalRandom: () => 0.5 },
+  });
+  const base = await app.listen({ host: "127.0.0.1", port: 0 });
+  try {
+    const reader = await view(base + "/api/simulation/stream", undefined, headers("reader").cookie);
+    const first = await reader.next();
+    const stream = await view(base + "/api/stream?ns=simulation&cursor=1", undefined, headers("ivan").cookie);
+    assert.equal((await stream.frame()).event, "ready");
+    const id = first.incidents[0].id;
+    const url = "/api/simulation/incidents/" + id;
+    const command = (who: string, body: object, ns = "simulation", csrf = who) => app.inject({
+      method: "POST", url: url + "?ns=" + ns, headers: { ...headers(who), "x-csrf-token": csrf },
+      payload: { runId: first.runId, expectedRevision: 1, ...body },
+    });
+    const edit = { action: "edit", header: "Учебная ошибка", description: "Проверен журнал операции." };
+    const changed = await command("anna", edit);
+    assert.equal(changed.statusCode, 200, changed.body);
+    assert.equal(changed.json().incident.raw.header, edit.header);
+    assert.equal(changed.json().incident.revision, 2);
+    const edited = await reader.next();
+    assert.equal(edited.revision, 2);
+    assert.equal(edited.incidents[0].description, edit.description);
+    assert.equal(edited.nextAt, first.nextAt);
+    assert.equal((await stream.frame()).data.revision, 2);
+    assert.equal((await command("reader", edit)).statusCode, 403);
+    assert.equal((await command("anna", edit, "simulation", "wrong")).statusCode, 403);
+    assert.equal((await command("anna", edit, "workspace")).statusCode, 403);
+    assert.equal((await command("ivan", { ...edit, runId: "stale-run" })).statusCode, 409);
+    assert.equal((await command("anna", { action: "edit", expectedRevision: 2 })).statusCode, 400);
+    assert.equal((await command("anna", { action: "route", team: "Несуществующая", expectedRevision: 2 })).statusCode, 400);
+    const route = { action: "route", expectedRevision: 2, team: "Мобильная платформа" };
+    const concurrent = await Promise.all([command("anna", route), command("ivan", route)]);
+    assert.deepEqual(concurrent.map(r => r.statusCode).sort(), [200, 409]);
+    assert.equal(concurrent.find(r => r.statusCode === 409)!.json().revision, 3);
+    const routed = await reader.next();
+    assert.equal(routed.incidents[0].team, route.team);
+    assert.equal(routed.incidents[0].assignee, null);
+    const background = await app.inject({ method: "POST", url: "/api/simulation/incidents/SIM-NET-02?ns=simulation",
+      headers: headers("ivan"), payload: { runId: first.runId, expectedRevision: 1, action: "edit", header: "Второй инцидент" } });
+    assert.equal(background.statusCode, 200, background.body);
+    const editedBackground = await reader.next();
+    assert.equal(editedBackground.revision, 4);
+    assert.equal(editedBackground.incidents.find(row => row.id === "SIM-NET-02")?.header, "Второй инцидент");
+    // The second ticket's edit and both scripted ticks preserve the coordinator's fields.
+    let tick = await reader.next();
+    while (tick.step < 2) tick = await reader.next();
+    assert.equal(tick.incidents[0].team, route.team);
+    assert.equal(tick.incidents[0].description, edit.description);
+    const detail = async () => (await app.inject({ url: "/api/incident/" + id + "?ns=simulation", headers: headers("reader") })).json();
+    const current = await detail();
+    assert.equal((await command("ivan", { action: "resolve", expectedRevision: current.incident.revision, solution: "X".repeat(2001) })).statusCode, 400);
+    const resolved = await command("ivan", { action: "resolve", expectedRevision: current.incident.revision, solution: "  Доступ восстановлен.  " });
+    assert.equal(resolved.statusCode, 200, resolved.body);
+    assert.equal(resolved.json().incident.stateId, 7);
+    assert.ok(resolved.json().incident.dates.completionDate);
+    assert.equal(resolved.json().incident.raw.solution, "Доступ восстановлен.");
+    const resolvedView = await reader.next();
+    assert.equal(resolvedView.incidents[0].state, "Завершён");
+    assert.deepEqual(resolvedView.events[0].reasons, ["critical-resolved"]);
+    while ((await reader.next()).step !== 0) {}
+    const archived = await detail();
+    assert.equal(archived.incident.revision, resolved.json().revision);
+    assert.equal(archived.incident.raw.description, edit.description);
+    assert.equal(archived.history[0].actor, "ivan");
+    assert.equal(archived.history[0].action, "resolve");
+    assert.equal(archived.history.find((h: { action: string }) => h.action === "edit").before_doc.raw.header, first.incidents[0].header);
+  } finally {
+    await app.close();
+  }
+});
+
+test("training history is bounded and repeated ticket IDs start fresh in a new run", { timeout: 12_000 }, async () => {
+  const app = Fastify();
+  const jury = registerJurySimulation(app, true, { stepDelays: [60_000, 60_000, 60_000, 60_000, 60_000], graceMs: 40 });
+  registerTrainingActions(app, jury, () => ({ username: "coordinator" }));
+  const base = await app.listen({ host: "127.0.0.1", port: 0 });
+  try {
+    const stream = await view(base + "/api/simulation/stream");
+    const start = await stream.next();
+    const item = start.incidents[0];
+    const post = (runId: string, expectedRevision: number, header: string) => app.inject({
+      method: "POST", url: "/api/simulation/incidents/" + item.id, payload: { runId, expectedRevision, action: "edit", header },
+    });
+    for (let revision = 1; revision < 55; revision++) {
+      const accepted = await post(start.runId, revision, "Версия " + revision);
+      assert.equal(accepted.statusCode, 200, accepted.body);
+    }
+    const history = jury.latest()!.history(item.key);
+    assert.equal(history.length, 50);
+    assert.equal(history[0].revision, 55);
+    assert.equal(history.at(-1)!.revision, 6);
+    stream.close();
+    for (let i = 0; i < 100 && jury.latest(); i++) await delay(10);
+    assert.equal(jury.latest(), undefined);
+    const restarted = await view(base + "/api/simulation/stream");
+    const fresh = await restarted.next();
+    assert.notEqual(fresh.runId, start.runId);
+    assert.equal(fresh.incidents[0].id, item.id);
+    assert.equal((await post(start.runId, fresh.incidents[0].revision, "Чужая сессия")).statusCode, 409);
+    assert.equal(jury.latest()!.rows.get(fresh.incidents[0].key)!.raw.header, item.header);
+    assert.equal(jury.latest()!.history(fresh.incidents[0].key).length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("early coordinator resolutions keep tickets referenced by the retained alert journal", { timeout: 15_000 }, async () => {
+  const app = Fastify();
+  const jury = registerJurySimulation(app, true, { stepDelays: [160, 10, 10, 10, 10], arrivalRandom: () => 0.5 });
+  registerTrainingActions(app, jury, () => ({ username: "coordinator" }));
+  const base = await app.listen({ host: "127.0.0.1", port: 0 });
+  try {
+    const stream = await view(base + "/api/simulation/stream");
+    const start = await stream.next();
+    let tick = await stream.next();
+    while (tick.incidents[0].id !== "SIM-015") {
+      if (tick.step === 0 && tick.incidents[0].state !== "Завершён") {
+        const ticket = tick.incidents[0];
+        const resolved = await app.inject({ method: "POST", url: "/api/simulation/incidents/" + ticket.id,
+          payload: { runId: start.runId, expectedRevision: ticket.revision, action: "resolve" } });
+        assert.equal(resolved.statusCode, 200, resolved.body);
+      }
+      tick = await stream.next();
+    }
+    const firstEvent = tick.events.find(event => event.id === start.incidents[0].id);
+    assert.ok(firstEvent);
+    assert.ok(jury.latest()!.rows.has(firstEvent.key));
+    assert.ok(jury.latest()!.history(firstEvent.key).some(version => version.revision === firstEvent.revision));
+  } finally {
+    await app.close();
   }
 });
