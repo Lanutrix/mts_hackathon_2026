@@ -441,6 +441,9 @@ function clearedFields(text: string, previous?: CanvasIntent) {
       if (pattern.test(all)) clear.add(key);
   return clear;
 }
+const fullQueueCommand =
+  /^(?:(?:а|теперь|снова|покажи|верни|открой|выведи|пожалуйста)\s+)*(?:все (?:заявки|тикеты|инциденты)|всю очередь)[?!.\s]*$/iu;
+
 function localReading(
   text: string,
   mentioned: CanvasFilters,
@@ -469,9 +472,7 @@ function localReading(
     /заново|начни сначала|новый (?:срез|вопрос)|другой вопрос|сбрось вс[её]|без (?:всех )?фильтров|вс[ею] (?:очередь|заявки|инциденты) без ограничений/u.test(
       text,
     ) ||
-    /^(?:(?:а|теперь|снова|покажи|верни|открой|выведи|пожалуйста)\s+)*(?:все (?:заявки|инциденты)|всю очередь)[?!.\s]*$/u.test(
-      text,
-    );
+    fullQueueCommand.test(text);
   const base = reset ? initialIntent : (previous ?? initialIntent);
   if (
     /просроч|ист[её]к|срок (?:прош[её]л|нарушен)|нарушен\p{L}* срок/iu.test(
@@ -659,6 +660,8 @@ export async function planCanvas(
   client?: VseLlm,
   history: DialogueTurn[] = [],
 ): Promise<Decision> {
+  if (fullQueueCommand.test(question.trim()))
+    return { intent: { ...initialIntent, filters: {} }, mode: "snapshot", provider: "Поля ITSM" };
   const reading = readGuide(question, previous);
   const priorData = previous && { ...previous };
   if (priorData) {

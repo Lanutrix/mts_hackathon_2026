@@ -418,6 +418,11 @@ test("asking for the entire queue drops inherited predicates and a count of thos
     ).json<CanvasResult>();
     assert.deepEqual(all.intent.filters, {});
     assert.equal(all.total, 47);
+    respond({ conversation: { title: "Очередь", text: "Вот все заявки." } });
+    const direct = (await ask("А теперь все заявки", filtered, "demo")).json<CanvasResult>();
+    assert.ok(direct.selection);
+    assert.equal(direct.total, 47);
+    assert.deepEqual(direct.intent.filters, {});
     respond({ layout: "list" });
     const resolved = {
       groupBy: "team",
