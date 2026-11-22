@@ -281,6 +281,31 @@ test("a rejected paragraph receives one targeted revision and only a separately 
   assert.equal(packets[2].candidate.action, fixed.action);
 });
 
+test("a leading Вы before a known imperative preserves model prose and still requires independent review", async () => {
+  const row = ticket(0), group = buildTriage([row], "priority", 1, now).cases[0];
+  const draft = {observation: "Срок решения уже прошёл.", action: "Вы уточните, когда ожидается решение?", refs: ["deadline"]};
+  const packets: any[] = [];
+  const advice = await refineLiveStep(guidanceClient(draft, true, packets), group.step, row, group, now);
+  assert.equal(advice.text, "Срок решения уже прошёл. Уточните, когда ожидается решение?");
+  assert.equal(packets.length, 2);
+  assert.equal(packets[1].candidate.action, "Уточните, когда ожидается решение?");
+  assert.equal((await refineLiveStep(guidanceClient(draft, false), group.step, row, group, now)).mode, "local");
+  for (const action of ["Вы назначьте новый срок решения.", "Вы уточняете срок решения?"])
+    assert.equal((await refineLiveStep(guidanceClient({...draft, action}), group.step, row, group, now)).mode, "local");
+});
+
+test("assignment cannot establish that work has not started, and overdue counts cannot establish severity", async () => {
+  const row = ticket(0, {stateId: 0, stateEnum: STATES[0].enum, state: STATES[0].label});
+  const group = buildTriage([row], "priority", 1, now).cases[0];
+  for (const observation of ["Заявка назначена, работы ещё не начаты.", "В группе все просрочки не критичны."]) {
+    const packets: any[] = [];
+    const draft = {observation, action: "Уточните прогноз решения.", refs: ["deadline","stateId","priorityId","group.overdue","group.allOverdue"]};
+    const advice = await refineLiveStep(guidanceClient(draft, true, packets), group.step, row, group, now);
+    assert.equal(advice.mode, "local", observation);
+    assert.ok(!packets.some(p => p.candidate));
+  }
+});
+
 test("the named coordinator team is a ticket fact; the queue has no aggregate status or assignee", async () => {
   const row = ticket(1, {stateId:20, stateEnum:STATES[20].enum, state:STATES[20].label,
     deadline:new Date(now+5*60_000).toISOString(), isNeedUp:false});

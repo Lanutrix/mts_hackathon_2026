@@ -3,11 +3,11 @@ import { liveFacts, type LiveStep } from "../../packages/domain/liveStep.ts";
 import type { TriageCase } from "../../packages/domain/triage.ts";
 import type { VseLlm } from "./vsellm.ts";
 
-const version = "live-situation-prose-3";
+const version = "live-situation-prose-4";
 const instruction = [
   "Напиши дежурному координатору ИТ один короткий абзац по-русски, около 25 слов. JSON: observation, action, refs.",
-  "observation: назови факт об этой заявке из focus. Статус «Назначен» не означает начало работ. Если уместно, отдельно приведи счётчик group.*: только для показанной группы, с исходными границами диапазонов. Все просрочены лишь при group.allOverdue=true.",
-  "action: один вопрос или ручная проверка по reason. Начни с глагола на «вы». Для просрочки уточни ход работ или прогноз решения; без срока — когда появится оценка. При assignedEmployee=false не обращайся к исполнителю. Об устранении последствий спрашивай лишь при isNeedUp=true.",
+  "observation: достаточно одного факта об этой заявке из focus. Статус «Назначен» не показывает, начались ли работы. Счётчик group.* необязателен; приводи его отдельно только когда он объясняет выбор, с исходными границами диапазона. Все просрочены лишь при group.allOverdue=true.",
+  "action: одна ручная проверка по reason. Первое слово — глагол в повелительном наклонении: «Уточните», «Сверьте» или «Запросите». Не ставь местоимение «Вы» перед глаголом. Для просрочки уточни ход работ или прогноз решения; без срока — когда появится оценка. При assignedEmployee=false не обращайся к исполнителю. Об устранении последствий спрашивай лишь при isNeedUp=true.",
   "Не придумывай причины, влияние, действия и свойства других заявок. Не поручай менять запись, вмешиваться, эскалировать или рассылать сообщения.",
   'refs: скопируй точные ключи использованных facts, включая значение focus, например ["deadline"]. Имена полей в прозу не вставляй.',
 ].join("\n");
@@ -45,6 +45,10 @@ function readCandidate(raw: unknown, facts: Facts, focus: string): Candidate | s
   // Commas introducing a qualifier of the same subject stay in the clause.
   const observation = facts.assignedGroupName === "Группа координаторов" && refs.includes("assignedGroupName")
     ? c.observation.replace(/групп[аеуойы]+\s+координаторов/giu, "команде координаторов") : c.observation;
+  if (/(?:все|всех|каждая|каждой)\s+просроч\p{L}*[^.!?;]{0,36}(?:критичн|приоритет)/iu.test(observation))
+    return "Счётчик просрочек не показывает их приоритет. Оставь одно наблюдение об этой заявке.";
+  if (facts.stateId === "Назначен" && /(?:работ\p{L}*|выполнени\p{L}*)\s+(?:ещ[её]\s+)?не\s+нача/iu.test(observation))
+    return "Из статуса «Назначен» неизвестно, начались ли работы. Укажи только известный факт из focus.";
   const allOverdue = /(?<!\p{L})(?:все|всех|кажд\p{L}*|столько же)(?!\p{L})[^.!?,;]{0,32}(?:просроч|срок\p{L}* (?:уже )?(?:прош|ист[её]к|наруш))|просроч\p{L}*[^.!?,;]{0,24}(?:столько же|все)(?!\p{L})/iu.test(observation);
   if (allOverdue) {
     if (!facts["group.allOverdue"]) return "Часть заявок не просрочена. Приведи только известный счётчик просроченных заявок либо пропусти сведения о группе.";
@@ -57,7 +61,9 @@ function readCandidate(raw: unknown, facts: Facts, focus: string): Candidate | s
     if (groupClaim && (/приоритет|исполнител|назначен|статус|исследован|последств|поручен|в работе|все в пределах сроков/iu.test(clause) ||
         !refs.some(ref => ref.startsWith("group.")))) return "Не приписывай группе свойства этой заявки. Опиши только заявку, счётчик группы можно опустить.";
   }
-  if (!/^\p{Script=Cyrillic}+(?:те|тесь)(?=\s|,)/iu.test(c.action.trim())) return "Начни action с одного глагола, обращаясь к координатору на «вы».";
+  const action = c.action.trim().replace(/^вы\s+(уточните|сверьте|проверьте|запросите)(?=\s|,)/iu,
+    (_, verb: string) => verb[0].toUpperCase() + verb.slice(1));
+  if (!/^\p{Script=Cyrillic}+(?:те|тесь)(?=\s|,)/iu.test(action)) return "Первое слово action — «Уточните», «Проверьте» или другой глагол в повелительном наклонении. Опусти местоимение.";
   const numbers = new Set<string>();
   let remaining = text;
   for (const ref of refs) {
@@ -72,7 +78,7 @@ function readCandidate(raw: unknown, facts: Facts, focus: string): Candidate | s
     }
   }
   if ((remaining.match(/\d+(?:[.,]\d+)?/gu) ?? []).some(n => !numbers.has(n))) return "Убери неподтверждённые числа. Граница диапазона не является точным числом заявок.";
-  return { observation: c.observation.trim(), action: c.action.trim(), refs: [...new Set(refs)] };
+  return { observation: c.observation.trim(), action, refs: [...new Set(refs)] };
 }
 
 export async function refineLiveStep(
