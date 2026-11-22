@@ -320,7 +320,7 @@ test("live embeds a quiet 3D slice with the active count and opens evidence from
   });
   await page.getByTestId("group-critical").click();
   const board = await (await filtered).json();
-  const id = board.triage.cases[0].lead.id;
+  const id = (board.triage.liveFocus?.step ?? board.triage.cases[0].step).ticketId;
   const ticket = page.getByRole("button", { name: id + " ↗", exact: true });
   await expect(ticket).toBeVisible();
   expect(await still()).toBe(image);
@@ -403,7 +403,7 @@ test("cases rank the filtered queue, explain the source tickets and fit the view
     "data-testid",
     "card-" + detail.items[0].id,
   );
-  await expect(page.locator(".case-source").first()).toContainText(c.lead.id);
+  await expect(page.getByTestId("live-guidance").locator(".case-source")).toContainText(c.step.ticketId);
   await page.goto("/simulation");
   await expect(rows.first()).toBeVisible();
   await page.locator(".case-analyze").click();
@@ -727,11 +727,18 @@ test("F08 F14 F28 exact deadline, null and untrusted HTML stay visible without e
   await reset(page);
   await mutate("critical");
   await mutate("deadline", "2026-11-21T09:00:00Z");
-  await page.clock.setFixedTime(new Date("2026-11-21T09:00:00Z"));
+  // The feed takes its time from the server, including when the device clock differs.
+  let serverTime = "2026-11-21T09:00:00Z";
+  await page.route("**/api/dashboard?*", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), serverTime } });
+  });
+  await page.clock.setFixedTime(new Date(serverTime));
   await page.goto("/live?sort=id");
   const card = page.getByTestId("card-DEMO-42-00001").first();
   await expect(card).toContainText("Срок близко");
-  await page.clock.setFixedTime(new Date("2026-11-21T09:00:01Z"));
+  serverTime = "2026-11-21T09:00:01Z";
+  await page.clock.setFixedTime(new Date(serverTime));
   await expect(card).toContainText("Просрочен");
   await mutate("deadline", "null");
   await expect(card).toContainText("Срок не задан");

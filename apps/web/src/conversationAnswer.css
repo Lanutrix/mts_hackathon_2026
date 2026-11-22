@@ -1,0 +1,76 @@
+.cx-plot[data-conversation] .cx-plot-title h2 {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  max-width: 27ch;
+}
+.cx-prose {
+  min-height: 0;
+  max-width: 55rem;
+  display: grid;
+  grid-template-rows: minmax(0,1fr) auto;
+  row-gap: clamp(.35rem, 1.4vh, 1rem);
+  margin-top: clamp(.45rem, 2.4vh, 1.8rem);
+}
+.cx-prose-sheet {
+  min-height: 0;
+  overflow: hidden;
+  column-count: 1;
+  column-fill: auto;
+  column-gap: 0;
+}
+.cx-prose-sheet p {
+  margin: 0;
+  padding-right: .4em;
+  max-width: 52ch;
+  color: var(--cx-ink);
+  font-size: clamp(1rem, 1.8vw, 1.55rem);
+  line-height: 1.48;
+  letter-spacing: -.02em;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  orphans: 1;
+  widows: 1;
+}
+.cx-prose-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .4rem 1rem;
+  margin-bottom: clamp(.2rem, 1vh, .9rem);
+}
+.cx-prose-actions:empty { display: none; }
+.cx-prose-question {
+  display: inline-flex;
+  align-items: center;
+  gap: .8em;
+  min-height: 2.5rem;
+  padding: .45em .8em .45em 0;
+  text-align: left;
+  color: var(--cx-ink);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+}
+.cx-prose-question span {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 1.8em;
+  aspect-ratio: 1;
+  border: 1px solid var(--cx-line);
+  border-radius: 50%;
+  color: var(--cx-ink);
+}
+.cx-prose-question:hover span,
+.cx-prose-question:focus-visible span {
+  background: var(--cx-ink);
+  color: var(--cx-bg);
+}
+.cx-prose-question:disabled { opacity: .6; cursor: default; }
+@media (max-height: 490px) {
+  .cx-prose { margin-top: .15rem; gap: .15rem; }
+  .cx-prose-question { min-height: 1.8rem; padding-block: 0; }
+}

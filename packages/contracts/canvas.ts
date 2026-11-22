@@ -74,7 +74,14 @@ export interface CanvasBlock extends CanvasView {
   tickets: CanvasTicket[];
   selection: string;
 }
+export interface CanvasConversation {
+  title: string;
+  text: string;
+  followUp?: string;
+}
 export interface CanvasResult {
+  conversation?: CanvasConversation;
+  turnToken?: string;
   insights?: AnswerInsight[];
   namespace: string;
   revision: number;

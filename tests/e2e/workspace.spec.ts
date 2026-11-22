@@ -222,8 +222,8 @@ test("square map to compound views to incident and back preserves the conversati
   await expect(page.getByTestId("group-comparison")).toBeVisible();
   await capture(page, "canvas-compare");
   await ask(page, "Какая была выручка вчера?");
-  await expect(page.locator(".cx-latest")).toContainText("недостаточно");
-  await expect(page.getByTestId("group-comparison")).toBeVisible();
+  await expect(page.getByTestId("conversation-answer")).toContainText("недостаточно");
+  await expect(page.getByTestId("group-comparison")).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 568 });
   await page.getByRole("button", { name: "История диалога" }).click();
   await expect
@@ -339,6 +339,68 @@ test("a reader can inspect an empty private source without submitting model ques
   expect(writes).toEqual([]);
 });
 
+test("generation appears alongside the previous answer until the requested result arrives", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const status = page.getByRole("status").filter({ hasText: "Готовлю ответ" });
+  let openSource!: () => void;
+  const initialLoad = new Promise<void>((resolve) => {
+    openSource = resolve;
+  });
+  fault = { method: "GET", path: "/api/canvas", respond: () => initialLoad };
+  const starting = enter(page);
+  try {
+    await expect(page.getByText("Читаю источник…", { exact: true })).toBeVisible();
+    await expect(status).toHaveCount(0);
+  } finally {
+    openSource();
+    await starting;
+  }
+  await ask(page, "Покажи доли команд круговой диаграммой");
+  const previous = page.getByTestId("answer-orbit");
+  await expect(previous).toBeVisible();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  fault = { method: "POST", path: "/api/canvas", respond: () => pending };
+  const input = page.getByRole("textbox", { name: "Вопрос об инцидентах" });
+  const question = "Сравни команды по приоритетам";
+  await input.fill(question);
+  await input.press("Enter");
+  try {
+    await expect(status).toBeInViewport();
+    await expect(previous).toBeInViewport();
+    await expect(page.getByRole("timer")).toContainText(/0:0[1-9]/);
+    await capture(page, "assistant-generation");
+    const history = page.getByRole("button", { name: "История диалога" });
+    await history.press("Enter");
+    await expect(page.getByRole("log")).toContainText(question);
+    await page.keyboard.press("Escape");
+    await expect(history).toBeFocused();
+    await input.focus();
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
+    await expect(status).toBeInViewport();
+    await expect(
+      page.getByRole("button", { name: "Остановить запрос" }),
+    ).toBeInViewport();
+    await expect(previous).toBeInViewport();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    ).toBe(true);
+    expect(
+      await status.evaluate((el) => el.getAnimations({ subtree: true }).length),
+    ).toBe(0);
+    await capture(page, "assistant-generation-mobile");
+  } finally {
+    release();
+  }
+  await expect(page.getByTestId("group-comparison")).toBeVisible();
+  await expect(status).toHaveCount(0);
+});
+
 test("a mobile keyboard can ask, recover from a failed request, cancel, and reopen an expired selection", async ({
   page,
 }) => {
@@ -425,8 +487,19 @@ test("a mobile keyboard can ask, recover from a failed request, cancel, and reop
   await input.fill("Покажи по продуктам");
   await input.press("Enter");
   await intercepted;
-  await page.getByRole("button", { name: "Остановить запрос" }).click();
-  release();
+  const generating = page.getByRole("status").filter({ hasText: "Готовлю ответ" });
+  try {
+    await expect(generating).toBeVisible();
+    await input.press("Tab");
+    await expect(
+      page.getByRole("button", { name: "Остановить запрос" }),
+    ).toBeFocused();
+    await page.keyboard.press("Enter");
+  } finally {
+    release();
+  }
+  await expect(generating).toHaveCount(0);
+  await expect(input).toBeFocused();
   await expect(input).toHaveValue("Покажи по продуктам");
   await expect(page.getByTestId("group-comparison")).toBeVisible();
   fault = {
@@ -562,4 +635,39 @@ test("a definition opens relevant help and a conversation can change into diagra
         await capture(page, "answer-links-" + size.width);
     }
   }
+});
+
+test("free-form answers paginate on a phone and follow-up uses the same conversation", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  const initial = await enter(page);
+  const followUp = "А что с просроченными?";
+  const answer = {
+    title: "Дежурный и арбуз",
+    text: "Дежурный заметил сбой и сверил срок решения. ".repeat(11).trim(),
+    followUp,
+  };
+  const token = "test-conversation";
+  let followUpBody;
+  await page.route("**/api/canvas?*", async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.question === followUp) followUpBody = body;
+    await route.fulfill({ json: body.question === followUp ? initial : {
+      ...initial, title: answer.title, summary: answer.text, conversation: answer,
+      turnToken: token, mode: "model", provider: "VseLLM", total: 0, selection: "",
+      groups: [], blocks: [], tickets: [], metrics: [],
+    } });
+  });
+  await ask(page, "Расскажи как сказку");
+  const prose = page.getByTestId("conversation-answer");
+  await expect(prose).toBeVisible();
+  await expect(page.getByTestId("group-field")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: answer.title })).toBeVisible();
+  const pagination = prose.getByRole("navigation", { name: "Страницы ответа" });
+  await pagination.getByRole("button", { name: "Следующая страница" }).click();
+  expect(await prose.locator(".cx-prose-sheet").evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1
+    && document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+  await prose.getByRole("button", { name: followUp }).click();
+  await expect(page.getByTestId("group-field")).toBeVisible();
+  expect(followUpBody).toMatchObject({ question: followUp, turnToken: token, context: initial.intent });
 });

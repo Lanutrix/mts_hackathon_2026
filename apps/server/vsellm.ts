@@ -93,7 +93,8 @@ export class VseLlm {
     string,
     { expires: number; result: JsonReply }
   >();
-  private started: number[] = [];
+  private started: { at: number; background: boolean }[] = [];
+  private backgroundPending = 0;
   constructor(
     private readonly key: string,
     readonly model: string,
@@ -117,6 +118,7 @@ export class VseLlm {
     system: string,
     packet: object,
     timeout: number,
+    priority: "interactive" | "background" = "interactive",
   ): Promise<JsonReply> {
     const id = hash([this.model, version, packet]);
     const now = Date.now();
@@ -124,14 +126,18 @@ export class VseLlm {
     if (cached && cached.expires > now) return cached.result;
     const running = this.pending.get(id);
     if (running) return running;
-    this.started = this.started.filter((at) => at > now - 86_400_000);
-    if (
-      this.pending.size >= 3 ||
-      this.started.length >= 500 ||
-      this.started.filter((at) => at > now - 60_000).length >= 18
-    )
+    this.started = this.started.filter(({ at }) => at > now - 86_400_000);
+    const recent = this.started.filter(({ at }) => at > now - 60_000);
+    const background = priority === "background";
+    if (this.pending.size >= 3 || this.started.length >= 500 || recent.length >= 18)
       return failure("достигнут лимит запросов.");
-    this.started.push(now);
+    // A busy live feed must leave capacity for a coordinator typing a question.
+    if (background && (this.backgroundPending >= 1 ||
+      recent.filter((call) => call.background).length >= 6 ||
+      this.started.filter((call) => call.background).length >= 180))
+      return failure("достигнут лимит фоновых обновлений.");
+    this.started.push({ at: now, background });
+    if (background) this.backgroundPending++;
     const job = this.complete(system, packet, timeout);
     this.pending.set(id, job);
     try {
@@ -145,6 +151,7 @@ export class VseLlm {
       return result;
     } finally {
       this.pending.delete(id);
+      if (background) this.backgroundPending--;
     }
   }
   private async complete(

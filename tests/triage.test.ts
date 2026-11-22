@@ -11,6 +11,8 @@ import { buildTriage, filterDashboard } from "../packages/domain/triage.ts";
 import { createApp } from "../apps/server/api.ts";
 import { AnalysisService } from "../apps/server/analysis.ts";
 import { analyzeCase } from "../apps/server/caseAnalysis.ts";
+import { refineLiveStep } from "../apps/server/liveGuidance.ts";
+import { VseLlm } from "../apps/server/vsellm.ts";
 import { Auth } from "../apps/server/auth.ts";
 import { Store } from "../apps/worker/ingestion.ts";
 import type { DB } from "../apps/server/db.ts";
@@ -80,6 +82,49 @@ const unusedDB: DB = {
   },
   close: async () => {},
 };
+
+test("live guidance follows the ticket deadline through both boundaries without a source revision", () => {
+  const deadline = new Date(now + 16 * 60_000).toISOString();
+  const row = ticket(1, { deadline, isNeedUp: false, assignedGroupName: "Команда сети" });
+  const at = (clock: number) => buildTriage([row], "priority", 7, clock);
+  const initial = at(now);
+  assert.ok(initial.cases[0].step, "a recommendation must refer to a specific incident");
+  assert.equal(initial.nextChangeAt, now + 60_000);
+  const soon = at(now + 60_000);
+  assert.equal(soon.cases[0].step.reason, "soon");
+  assert.equal(soon.nextChangeAt, Date.parse(deadline) + 1);
+  assert.notEqual(soon.cases[0].step.key, initial.cases[0].step.key);
+  const overdue = at(Date.parse(deadline) + 1);
+  assert.equal(overdue.cases[0].step.reason, "overdue");
+  assert.equal(overdue.cases[0].step.ticketId, "T-1");
+  assert.equal(overdue.cases[0].step.evidence.field, "deadline");
+  assert.notEqual(overdue.cases[0].step.key, soon.cases[0].step.key);
+  assert.equal(overdue.nextChangeAt, null);
+  const expanded = buildTriage([row, ticket(5, {deadline: null})], "priority", 7, Date.parse(deadline) + 1);
+  assert.equal(expanded.cases[0].step.ticketId, "T-1");
+  assert.notEqual(expanded.cases[0].step.key, overdue.cases[0].step.key);
+  row.sourcePresent = false;
+  assert.equal(at(Date.parse(deadline) + 1).cases[0].step.reason, "missingSource");
+});
+
+test("live AI renders distinct grounded manual checks and rejects invented facts and unrelated references", async () => {
+  const row = ticket(0);
+  const group = buildTriage([row], "priority", 1, now).cases[0];
+  for (const [action, ref, expected] of [
+    ["Уточните у команды новый срок решения.", "deadline", "model"],
+    ["Спросите, когда исполнитель сообщит новый срок.", "deadline", "model"],
+    ["Уточните срок восстановления после пожара.", "deadline", "local"],
+    ["Уточните у команды новый срок решения.", "unverifiedCause", "local"],
+    ["Назначьте заявку другой команде.", "deadline", "local"],
+  ]) {
+    const reply = { action, ref, choice: 2 };
+    const client = new VseLlm("key", "test-model", async () =>
+      Response.json({choices: [{message: {content: JSON.stringify(reply)}}]}));
+    const result = await refineLiveStep(client, group.step, row, group, now);
+    assert.equal(result.mode, expected);
+    assert.equal(result.action, expected === "model" ? action : group.step.action);
+  }
+});
 
 test("case pages pin all members to the same revision and locally analyze only the selected source", async () => {
   const demo = new Store(unusedDB, "demo");

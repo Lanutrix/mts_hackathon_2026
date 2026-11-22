@@ -625,6 +625,15 @@
       "CanvasResult": {
         "type": "object",
         "properties": {
+          "turnToken": {"type":"string","format":"uuid"},
+          "conversation": {
+            "type":"object","additionalProperties":false,"required":["title","text"],
+            "properties":{
+              "title":{"type":"string","maxLength":100},
+              "text":{"type":"string","maxLength":1200},
+              "followUp":{"type":"string","maxLength":200}
+            }
+          },
           "insights":{"type":"array","maxItems":3,"items":{"$ref":"#/components/schemas/AnswerInsight"}},
           "answer":{"$ref":"#/components/schemas/CanvasAnswer"},
           "title": {
@@ -908,6 +917,7 @@
                       "question": {
                         "type": "string"
                       },
+                      "turnToken": {"type":"string","format":"uuid"},
                       "context": {
                         "$ref": "#/components/schemas/CanvasIntent"
                       }
@@ -1065,10 +1075,13 @@
       ],
       "post": {
         "summary": "Разбор кейса с привязкой к снимку и полям заявок",
-        "requestBody": {"content":{"application/json":{"schema":{"type":"object","properties":{"question":{"type":"string","maxLength":500}}}}}},
+        "requestBody": {"content":{"application/json":{"schema":{"oneOf":[
+          {"type":"object","additionalProperties":false,"properties":{"question":{"type":"string","maxLength":500}}},
+          {"type":"object","additionalProperties":false,"required":["purpose","decisionKey","ticketId","runId"],"properties":{"purpose":{"const":"liveStep"},"decisionKey":{"type":"string"},"ticketId":{"type":"string"},"runId":{"type":"string","description":"Идентификатор учебного запуска, пустая строка для других источников"}}}
+        ]}}}},
         "description": "Фильтры и источник совпадают с запросом очереди. В учебных источниках разбор доступен вошедшим наблюдателям при включённой демонстрации. Для рабочих источников нужна роль coordinator или demo-admin. Запрос требует CSRF.",
         "responses": {
-          "200":{"description":"Режим, модель, текст, цитаты с ID и полем, ограничения, хэш и версия"},
+          "200":{"description":"Разбор группы с источниками или текущий шаг {key, action, mode, model?} для purpose=liveStep"},
           "401":{"description":"Требуется вход"},
           "403":{"description":"Недостаточно прав или неверный источник запроса"},
           "409":{"description":"Версия недоступна или хэш выборки не совпал"},

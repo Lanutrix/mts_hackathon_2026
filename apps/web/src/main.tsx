@@ -374,7 +374,7 @@ function Dashboard({
       const dashboard = await read("/dashboard?" + q);
       if (gen !== generation.current) return;
       const serverTime = Date.parse(dashboard.serverTime);
-      if (training && Number.isFinite(serverTime)) {
+      if (Number.isFinite(serverTime)) {
         serverClockOffset.current = serverTime - Date.now();
         setTick(serverTime);
       }
@@ -495,6 +495,16 @@ function Dashboard({
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    const boundary = data?.triage?.nextChangeAt;
+    if (path !== "/live" || data?.namespace !== ns || data.filterQuery !== query ||
+      typeof boundary !== "number") return;
+    const delay = boundary - Date.parse(data.serverTime);
+    // The regular five-second poll covers distant boundaries and reconnects.
+    if (delay > 5000) return;
+    const timer = setTimeout(() => void latestLoad.current(), Math.max(0, delay));
+    return () => clearTimeout(timer);
+  }, [data, ns, path, query]);
   useEffect(() => {
     let disposed = false;
     const es = new EventSource(
@@ -837,12 +847,11 @@ function Dashboard({
             <React.Suspense fallback={<Loader stage label="Открываем эфир…" />}>
               <LiveBoard
                 data={data}
-                canDispatch={!!write && (ns === "demo" || ns === "workspace")}
                 csrf={user?.csrf}
                 canAnalyze={
                   !!write || (publicDemo && (ns === "demo" || training))
                 }
-                filtering={data.filterQuery !== query && !error}
+                filtering={data.filterQuery !== query}
                 params={params}
                 ns={ns}
                 now={tick}

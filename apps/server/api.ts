@@ -23,6 +23,8 @@ import {
 } from "./jurySimulation.ts";
 import type { AnalysisService } from "./analysis.ts";
 import { analyzeCase } from "./caseAnalysis.ts";
+import { liveStep } from "../../packages/domain/liveStep.ts";
+import { refineLiveStep } from "./liveGuidance.ts";
 import { analyzeSelection } from "./operationalAnalysis.ts";
 import { CanvasService } from "./canvas.ts";
 import { validContext } from "./canvasPlan.ts";
@@ -185,7 +187,7 @@ export async function createApp(o: AppOptions) {
         signal,
       );
       const detail = triage.cases.find((c) => c.id === id && c.hash === q.hash);
-      if (detail) return { s, detail, rows: triage.members.get(id)! };
+      if (detail) return { s, detail, rows: triage.members.get(id)!, nextChangeAt: triage.nextChangeAt };
     }
     reply.code(409).send({
       message: "Подборка изменилась. Откройте её из обновлённой очереди.",
@@ -283,7 +285,11 @@ export async function createApp(o: AppOptions) {
         question?: unknown;
         context?: unknown;
         refresh?: unknown;
+        turnToken?: unknown;
       } | null;
+      if (body?.turnToken !== undefined && (typeof body.turnToken !== "string" ||
+          !/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/iu.test(body.turnToken)))
+        return reply.code(400).send({ message: "Некорректная ссылка на реплику." });
       if (body?.context !== undefined && !validContext(body.context))
         return reply
           .code(400)
@@ -322,6 +328,7 @@ export async function createApp(o: AppOptions) {
           identity(req)!.username,
           body.question.trim(),
           body.context,
+          body.turnToken,
         );
     },
   );
@@ -523,6 +530,11 @@ export async function createApp(o: AppOptions) {
     const tracking =
       ("simulation" in s ? eligible.get(s.simulation.currentId) : undefined) ??
       notifications.map((n) => eligible.get(n.id)).find(Boolean);
+    const recentEvent = notifications.find((n) => n.revision === revision &&
+      Date.parse(n.at) >= now - 15 * 60_000 && eligible.has(n.id));
+    const active = "simulation" in s ? eligible.get(s.simulation.currentId)
+      : recentEvent ? eligible.get(recentEvent.id) : undefined;
+    const activeCase = active && triage.cases.find((c) => members.get(c.id)?.includes(active));
     return {
       revision,
       acceptedAt,
@@ -536,6 +548,10 @@ export async function createApp(o: AppOptions) {
       groups,
       triage: {
         ...triage,
+        modelGuidance: !!o.ai?.remote,
+        liveFocus: activeCase && active
+          ? { caseId: activeCase.id, step: liveStep(active, now, activeCase) }
+          : null,
         tracking: tracking
           ? {
               id: tracking.id,
@@ -593,6 +609,41 @@ export async function createApp(o: AppOptions) {
       const selection = await readCase(req, reply);
       if (!selection) return;
       const { s, detail, rows } = selection;
+      const request = req.body as {
+        purpose?: unknown; ticketId?: unknown; decisionKey?: unknown; runId?: unknown;
+      } | null;
+      if (request?.purpose !== undefined && request.purpose !== "liveStep")
+        return reply.code(400).send({ message: "Неизвестный вид разбора." });
+      if (request?.purpose === "liveStep") {
+        const runId = "simulation" in s ? s.simulation.runId : "";
+        const row = rows.find((r) => r.id === request.ticketId);
+        if (!row || request.runId !== runId || typeof request.decisionKey !== "string")
+          return reply.code(409).send({ message: "Совет уже изменился." });
+        const now = Date.now();
+        const step = liveStep(row, now, detail);
+        const currentStep = () => {
+          const store = s.namespace === "simulation" ? jury.latest() : s;
+          if (!store || ("simulation" in store && store.simulation.runId !== runId))
+            return false;
+          const clock = Date.now();
+          if (store.revision === detail.revision && store.rows.get(row.key)?.hash === row.hash &&
+            store.rows.get(row.key)?.sourcePresent === row.sourcePresent &&
+            (selection.nextChangeAt === null || clock < selection.nextChangeAt)) return true;
+          const q = req.query as Record<string, string>;
+          const { groupBy, signal } = grouping(q);
+          const latest = buildTriage(filterDashboard([...store.rows.values()], q),
+            groupBy, store.revision, clock, signal);
+          const group = latest.cases.find((c) => c.id === detail.id);
+          const target = latest.members.get(detail.id)?.find((r) => r.key === row.key);
+          return !!group && !!target && liveStep(target, clock, group).key === step.key;
+        };
+        if (step.key !== request.decisionKey || !currentStep())
+          return reply.code(409).send({ message: "Совет уже изменился." });
+        const result = await refineLiveStep(o.ai?.remote, step, row, detail, now);
+        if (!currentStep())
+          return reply.code(409).send({ message: "Совет уже изменился." });
+        return result;
+      }
       const question =
         (req.body as { question?: unknown } | null)?.question ?? "";
       if (typeof question !== "string" || question.length > 500)

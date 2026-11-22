@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CaseAnalysis, TriageCase } from "../../../packages/domain/triage";
+import type { LiveStep } from "../../../packages/domain/liveStep";
 import Loader from "./Loader";
 import { Icon } from "./Brand";
 import { fieldName, TicketMentions } from "./IncidentSources";
@@ -84,12 +85,15 @@ type Props = {
   chosen: TriageCase | undefined;
   dimension: string;
   amount: number;
+  liveFocus?: { caseId: string; step: LiveStep } | null;
+  ready: boolean;
+  modelGuidance: boolean;
+  runId: string;
   revision: number;
   query: string;
   ns: string;
   csrf?: string;
   canAnalyze: boolean;
-  canDispatch: boolean;
   open: (id: string) => void;
   setParam: (key: string, value: string) => void;
 };
@@ -111,11 +115,9 @@ export default function TriageCases(props: Props) {
     Math.floor(offset / perPage) * perPage,
     Math.max(0, Math.floor((cases.length - 1) / perPage) * perPage),
   );
-  const focus = chosen ?? cases[0];
-  const [opened, setOpened] = useState<TriageCase | null>(null);
-  const currentCase = opened && cases.find((item) => item.id === opened.id);
+  const focus = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
+  const step = (!chosen && props.liveFocus?.caseId === focus?.id ? props.liveFocus?.step : null) ?? focus?.step;
   const pick = (id: string) => {
-    setOpened(null);
     setParam("case", id);
   };
   return (
@@ -129,7 +131,6 @@ export default function TriageCases(props: Props) {
           value={dimension}
           onChange={(e) => {
             setOffset(0);
-            setOpened(null);
             setParam("groupBy", e.target.value);
           }}
         >
@@ -224,87 +225,97 @@ export default function TriageCases(props: Props) {
           </nav>
         )}
       </div>
-      {focus && (
-        <div className="case-insight">
-          <div className="case-insight-head">
-            <h3>{chosen ? "Выбранная группа" : "В первую очередь"}</h3>
-            <button className="case-analyze" onClick={() => setOpened(focus)}>
-              {props.canAnalyze ? "ИИ-разбор" : "Разбор"}{" "}
-              <span aria-hidden="true">↗</span>
-            </button>
-          </div>
-          <strong className="case-insight-name">{focus.label}</strong>
-          <CaseExample record={focus} dimension={dimension} open={props.open} />
-          <p className="case-recommendation">
-            <TicketMentions
-              text={focus.recommendation}
-              ids={[focus.topId, ...focus.evidence.map((e) => e.id)]}
-              ns={props.ns}
-              open={props.open}
-              className="case-source"
-            />
-          </p>
-          {!chosen && (
-            <button
-              className="case-drill"
-              type="button"
-              onClick={() => pick(focus.id)}
-            >
-              Инциденты группы · {focus.count} <span aria-hidden="true">→</span>
-            </button>
-          )}
-          {props.canDispatch && (
-            <button
-              className="dispatch-entry"
-              type="button"
-              aria-label={"Назначить исполнителя для " + focus.recommendationId}
-              onClick={() => props.open(focus.recommendationId)}
-            >
-              Назначить исполнителя <span aria-hidden="true">→</span>
-            </button>
-          )}
-        </div>
-      )}
-      {opened && (
-        <CaseDialog
-          key={opened.id}
-          record={currentCase || opened}
-          inQueue={!!currentCase}
-          {...props}
-          close={() => setOpened(null)}
-        />
+      {props.ready && focus && step && (
+        <LiveAdvice key={focus.id} {...props} record={focus} step={step} />
       )}
     </aside>
   );
 }
 
+type Advice = { key: string; action: string; mode: "local" | "model"; model?: string; retryAfterMs?: number };
+
+function LiveAdvice(props: Props & { record: TriageCase; step: LiveStep }) {
+  const {record, step, query, ns, runId, revision, csrf, canAnalyze, modelGuidance, open} = props;
+  const [details, showDetails] = useState(false);
+  const scope = JSON.stringify([ns, runId, query, record.id, step.key]);
+  const latestRequest = useRef("");
+  latestRequest.current = caseRequest(record, query, ns, revision, true);
+  const [reply, setReply] = useState<{ scope: string; advice: Advice } | null>(null);
+  useEffect(() => {
+    if (!canAnalyze || !modelGuidance) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const refine = async (canRetry: boolean) => {
+      try {
+        const response = await fetch(latestRequest.current, {
+          method: "POST", signal: controller.signal,
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf ?? "" },
+          body: JSON.stringify({ purpose: "liveStep", decisionKey: step.key, ticketId: step.ticketId, runId }),
+        });
+        if (!response.ok) {
+          if (!controller.signal.aborted && canRetry && response.status === 429)
+            timer = setTimeout(() => void refine(false), 60_000);
+          return;
+        }
+        const advice: Advice = await response.json();
+        if (controller.signal.aborted || advice.key !== step.key) return;
+        if (advice.mode === "model") setReply({ scope, advice });
+        else if (canRetry && advice.retryAfterMs)
+          timer = setTimeout(() => void refine(false), advice.retryAfterMs);
+      } catch {
+        // The field-based step remains available when the provider or network is offline.
+      }
+    };
+    timer = setTimeout(() => void refine(true), 450);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [scope, csrf, canAnalyze, modelGuidance, step.key, step.ticketId, runId]);
+  const refined = canAnalyze && modelGuidance && reply?.scope === scope ? reply.advice : null;
+  return (
+    <section className="case-insight live-advice" aria-label="Следующий шаг" data-testid="live-guidance" data-origin={refined ? "model" : "local"}>
+      <div className="case-insight-head">
+        <h3>{refined ? "Совет ИИ" : "Следующий шаг"}</h3>
+        <button type="button" className="case-analyze" onClick={() => showDetails(true)}>Подробнее</button>
+      </div>
+      <div aria-live="polite" aria-atomic="true">
+        <p className="advice-action" data-testid="guidance-action">{refined?.action ?? step.action}</p>
+        <p className="advice-basis" data-testid="guidance-basis">{step.basis}</p>
+        <button type="button" className="case-source" onClick={() => open(step.ticketId)}>{step.ticketId} ↗</button>
+      </div>
+      {details && <CaseDialog {...props} advice={refined} close={() => showDetails(false)} />}
+    </section>
+  );
+}
+
 function CaseDialog({
   record,
+  step,
   dimension,
-  inQueue,
   query,
   ns,
   revision,
   csrf,
   canAnalyze,
+  advice,
   close,
   open,
-}: Props & { record: TriageCase; inQueue: boolean; close: () => void }) {
+}: Props & { record: TriageCase; step: LiveStep; advice: Advice | null; close: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const current = useRef({ record, query, revision });
   current.current = { record, query, revision };
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<CaseAnalysis | null>(null);
+  const scope = JSON.stringify([ns, query, record.hash, record.overdue, record.soon, step.key]);
+  const [requested, setRequested] = useState(scope);
+  const [reading, setReading] = useState<{ scope: string; result: CaseAnalysis } | null>(null);
+  const result = reading?.scope === scope ? reading.result : null;
   const [fault, setFault] = useState("");
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
   useEffect(() => {
-    if (!canAnalyze) return;
+    if (!canAnalyze || requested !== scope) return;
     const ac = new AbortController();
     const { record: input, query: filters, revision: rev } = current.current;
     setFault("");
-    setResult(null);
     void fetch(caseRequest(input, filters, ns, rev, true), {
       method: "POST",
       signal: ac.signal,
@@ -317,25 +328,22 @@ function CaseDialog({
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.message || "Разбор недоступен.");
-        if (!ac.signal.aborted) setResult(body);
+        if (!ac.signal.aborted && !body.stale && body.inputHash === input.hash)
+          setReading({ scope, result: body });
+        else if (!ac.signal.aborted) setFault("Подборка изменилась. Обновите разбор.");
       })
       .catch((e) => {
         if (!ac.signal.aborted) setFault(e.message);
       });
     return () => ac.abort();
-  }, [ns, csrf, canAnalyze, attempt]);
-  const stale =
-    inQueue && result && (result.stale || result.inputHash !== record.hash);
-  const evidence = result?.evidence.length ? result.evidence : record.evidence;
+  }, [scope, requested, ns, csrf, canAnalyze, attempt]);
+  const evidence = [step.evidence, ...(result?.evidence.length ? result.evidence : record.evidence)]
+    .filter((e, i, all) => all.findIndex((other) => other.id === e.id && other.field === e.field) === i);
   const sourceIds = [
     record.topId,
     ...record.evidence.map((e) => e.id),
     ...evidence.map((e) => e.id),
   ];
-  const hasNextCheck = result?.summary.some(
-    (line) =>
-      line === record.recommendation || line.startsWith("Следующая проверка"),
-  );
   return (
     <dialog
       className="case-dialog"
@@ -350,6 +358,9 @@ function CaseDialog({
         </button>
       </div>
       <h2 id="case-dialog-title">{record.label}</h2>
+      <p className="case-advice-origin">
+        {advice?.model ? "Совет подготовлен VseLLM · " + advice.model : "Совет по полям ITSM"}
+      </p>
       <CaseExample
         record={record}
         dimension={dimension}
@@ -372,10 +383,13 @@ function CaseDialog({
           <dd>{record.escalations}</dd>
         </div>
       </dl>
-      {canAnalyze && !result && !fault && (
+      {canAnalyze && requested !== scope && (
+        <button className="case-inline" onClick={() => setRequested(scope)}>Обновить разбор группы</button>
+      )}
+      {canAnalyze && requested === scope && !result && !fault && (
         <Loader label="Сопоставляем описания инцидентов…" />
       )}
-      {fault && (
+      {fault && requested === scope && (
         <div role="alert">
           <p>{fault}</p>
           <button
@@ -386,17 +400,12 @@ function CaseDialog({
           </button>
         </div>
       )}
-      {!inQueue && (
-        <p role="status">
-          Группа вышла из текущей выборки. Здесь сохранён её последний разбор.
-        </p>
-      )}
       {result && (
         <section className="case-result">
           <h3>
             {result.mode === "model" ? "Вывод по группе" : "Сводка по полям"}
           </h3>
-          {result.summary.map((line, i) => (
+          {result.summary.filter((line) => line !== record.recommendation && !line.startsWith("Следующая проверка")).map((line, i) => (
             <p key={i}>
               <TicketMentions
                 text={line}
@@ -408,31 +417,6 @@ function CaseDialog({
             </p>
           ))}
           {result.mode === "fallback" && result.error && <p>{result.error}</p>}
-          {stale && (
-            <p role="status">
-              Состав группы изменился.{" "}
-              <button
-                className="case-inline"
-                onClick={() => setAttempt((n) => n + 1)}
-              >
-                Обновить разбор
-              </button>
-            </p>
-          )}
-        </section>
-      )}
-      {!hasNextCheck && (
-        <section className="case-next">
-          <h3>Что проверить</h3>
-          <p>
-            <TicketMentions
-              text={record.recommendation}
-              ids={sourceIds}
-              ns={ns}
-              open={open}
-              className="case-source"
-            />
-          </p>
         </section>
       )}
       {!!evidence.length && (

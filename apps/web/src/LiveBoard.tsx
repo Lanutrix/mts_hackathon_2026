@@ -161,10 +161,9 @@ function SearchFilters({
   );
 }
 type Props = SelectionProps & {
-  data: Dashboard & { triage: Triage };
+  data: Dashboard & { triage: Triage; simulation?: { runId: string } };
   csrf?: string;
   canAnalyze: boolean;
-  canDispatch: boolean;
   filtering: boolean;
   now: number;
   zone: string;
@@ -177,7 +176,6 @@ export default function LiveBoard({
   filtering,
   csrf,
   canAnalyze,
-  canDispatch,
   now,
   zone,
   open,
@@ -251,16 +249,20 @@ export default function LiveBoard({
       </div>
       <div className="triage-layout">
         <TriageCases
+          key={search.ns + "/" + (data.simulation?.runId ?? "")}
           cases={triage.cases}
           chosen={chosen}
           dimension={triage.groupBy}
           amount={amount}
+          liveFocus={chosen ? null : triage.liveFocus}
+          ready={!filtering}
+          runId={data.simulation?.runId ?? ""}
+          modelGuidance={!!triage.modelGuidance}
           revision={data.revision}
           query={search.params.toString()}
           ns={search.ns}
           csrf={csrf}
           canAnalyze={canAnalyze}
-          canDispatch={canDispatch}
           open={open}
           setParam={search.setParam}
         />

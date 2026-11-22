@@ -254,6 +254,229 @@ test("contextual VseLLM chart patches work without repeating the support flag", 
     await app.close();
   }
 });
+
+test("private unrecognizable text receives a standalone clarification without sending private words", async () => {
+  const { app, ask, prompts } = await setup();
+  try {
+    const r = (await ask("Фжык! PRIVATE-TEXT")).json<CanvasResult>();
+    assert.ok(r.conversation?.text);
+    assert.equal(r.provider, "Поля ITSM");
+    assert.equal(r.selection, "");
+    assert.equal(prompts.length, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a free-form dialogue keeps the user's wording and continues without inventing ticket data", async () => {
+  const { app, ask, respond, prompts, headers } = await setup();
+  try {
+    const poem = {
+      title: "Дежурный космодрома",
+      text: "Дежурный слышит звёздный хор.\nИ снова смотрит в монитор.",
+      followUp: "Перепиши это как хокку",
+    };
+    // The production provider sometimes repeats a default layout even for a poem.
+    respond({
+      conversation: { ...poem, text: poem.text.replace("\n", "\\n") },
+      supported: true,
+      groupBy: "symptom",
+      layout: "groups",
+    });
+    const first = (
+      await ask(
+        "Сочини двустишие про дежурного космодрома. PRIVATE-PERSON, PRIVATE-HEADER, token=abcDEF1234567",
+        undefined,
+        "demo",
+      )
+    ).json<CanvasResult>();
+    assert.deepEqual(first.conversation, poem);
+    assert.equal(first.mode, "model");
+    assert.equal(first.selection, "");
+    assert.deepEqual(first.metrics, []);
+    assert.ok(first.turnToken);
+    const packet = () =>
+      JSON.parse(JSON.parse(prompts.at(-1)!).messages[1].content);
+    assert.match(packet().question, /двустишие про дежурного космодрома/);
+    assert.doesNotMatch(
+      prompts.join(""),
+      /PRIVATE-|private-|abcDEF1234567|abcdef1234567/,
+    );
+    const askNext = async (ns: string, role = "coordinator") =>
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/canvas?ns=" + ns,
+          headers: headers(role),
+          payload: {
+            question: "Перепиши это как хокку",
+            context: first.intent,
+            turnToken: first.turnToken,
+          },
+        })
+      ).json<CanvasResult>();
+    await askNext("demo");
+    assert.match(JSON.stringify(packet().previousConversation), /звёздный хор/);
+    assert.match(JSON.stringify(packet().previousConversation), /космодрома/);
+    await askNext("workspace");
+    assert.equal(packet().previousConversation, undefined);
+    await askNext("demo", "viewer");
+    assert.equal(packet().previousConversation, undefined);
+    respond({
+      groupBy: "deadline",
+      layout: "groups",
+      presentation: "deadline",
+    });
+    const real = await ask("Покажи сроки заявок", first.intent, "demo");
+    assert.equal(real.json<CanvasResult>().total, 47);
+    assert.ok(real.json<CanvasResult>().selection);
+    assert.equal(real.json<CanvasResult>().conversation, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test("creative interpretations can accompany a verified view and unavailable figures never create one", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    const conversation = {
+      title: "На мостике",
+      text: "Капитан, посмотрите на сроки подхода к причалу.",
+    };
+    respond({
+      conversation,
+      groupBy: "deadline",
+      layout: "groups",
+      presentation: "deadline",
+    });
+    const chart = (
+      await ask(
+        "Мы на мостике космолёта. Покажи сроки на звёздной карте.",
+        undefined,
+        "demo",
+      )
+    ).json<CanvasResult>();
+    assert.deepEqual(chart.conversation, conversation);
+    assert.equal(chart.total, 47);
+    assert.ok(chart.selection);
+    respond({ conversation });
+    const omittedPlan = (
+      await ask("Капитан на связи, покажи на радаре сроки", undefined, "demo")
+    ).json<CanvasResult>();
+    assert.ok(omittedPlan.selection);
+    assert.equal(omittedPlan.intent.groupBy, "deadline");
+    respond({
+      conversation: { title: "Итог", text: "Сейчас в очереди 9999 заявок." },
+    });
+    const count = (
+      await ask("Сколько сейчас заявок?", undefined, "demo")
+    ).json<CanvasResult>();
+    assert.doesNotMatch(JSON.stringify(count), /9999/);
+    assert.equal(count.total, 47);
+    assert.ok(count.selection);
+    respond({
+      conversation: {
+        title: "Денежный ущерб",
+        text: "В заявках нет сведений о денежных потерях.",
+      },
+    });
+    const limitation = (
+      await ask("Сколько денег мы потеряли?", chart.intent, "demo")
+    ).json<CanvasResult>();
+    assert.match(limitation.conversation?.text ?? "", /потерях/);
+    assert.equal(limitation.selection, "");
+    assert.deepEqual(limitation.groups, []);
+    respond({
+      conversation: { title: "Ущерб", text: "Убыток составил 975 рублей." },
+      groupBy: "product",
+    });
+    const invented = (
+      await ask("Оцени ущерб в рублях", chart.intent, "demo")
+    ).json<CanvasResult>();
+    assert.equal(invented.selection, "");
+    assert.doesNotMatch(JSON.stringify(invented), /975/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("asking for the entire queue drops inherited predicates and a count of those tickets retains its cohort", async () => {
+  const { app, ask, respond } = await setup();
+  try {
+    const filtered = {
+      groupBy: "team",
+      layout: "groups",
+      filters: { deadline: "overdue", priorities: [4] },
+    };
+    respond({
+      groupBy: "team",
+      layout: "groups",
+      filters: { deadline: "overdue", priorities: [4] },
+    });
+    const all = (
+      await ask("А теперь все заявки", filtered)
+    ).json<CanvasResult>();
+    assert.deepEqual(all.intent.filters, {});
+    assert.equal(all.total, 47);
+    respond({ layout: "list" });
+    const resolved = {
+      groupBy: "team",
+      layout: "groups",
+      filters: { priorities: [3], states: [7, 10] },
+      automaticStates: true,
+      insightIds: ["resolve-median"],
+    };
+    const count = (
+      await ask("А сколько всего таких заявок?", resolved)
+    ).json<CanvasResult>();
+    assert.deepEqual(count.intent.filters, resolved.filters);
+    assert.equal(count.total, 0);
+    const reset = (
+      await ask("Покажи всю очередь", resolved)
+    ).json<CanvasResult>();
+    assert.deepEqual(reset.intent.filters, {});
+  } finally {
+    await app.close();
+  }
+});
+
+test("an explanation reports actual current-slice values even if the model supplies invented figures", async () => {
+  const { app, ask, respond, prompts } = await setup();
+  try {
+    const filtered = {
+      groupBy: "team",
+      layout: "groups",
+      filters: { products: ["PRIVATE-PRODUCT"], deadline: "overdue" },
+    };
+    respond({ highlight: ["overdue", "soon"] });
+    const simple = (
+      await ask("Что сейчас происходит простыми словами?", undefined, "demo")
+    ).json<CanvasResult>();
+    assert.match(simple.conversation?.text ?? "", /47/);
+    assert.match(simple.conversation?.text ?? "", /24/);
+    assert.ok(simple.selection);
+    const focused = (
+      await ask("А теперь объясни этот срез словами", filtered, "workspace")
+    ).json<CanvasResult>();
+    assert.deepEqual(focused.intent, filtered);
+    assert.equal(focused.total, 23);
+    assert.match(focused.conversation?.text ?? "", /23/);
+    assert.ok(focused.turnToken);
+    assert.doesNotMatch(prompts.join(""), /PRIVATE-/);
+    respond({ highlight: ["overdue"], total: 9999 });
+    const fabricated = (
+      await ask("Перескажи текущую диаграмму", filtered)
+    ).json<CanvasResult>();
+    assert.doesNotMatch(fabricated.conversation?.text ?? "", /9999/);
+    assert.match(fabricated.conversation?.text ?? "", /23/);
+    const chart = (
+      await ask("Покажи просроченные заявки списком", undefined, "demo")
+    ).json<CanvasResult>();
+    assert.ok(chart.turnToken);
+  } finally {
+    await app.close();
+  }
+});
 test("questions about starting a shift and the most urgent work use the guide and current source queue", async () => {
   const { app, ask, respond, prompts } = await setup();
   try {

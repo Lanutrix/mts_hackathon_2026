@@ -22,12 +22,18 @@ import { facet, urgent } from "../../packages/domain/triage.ts";
 import { initialIntent, planCanvas } from "./canvasPlan.ts";
 import { buildAnswerInsights } from "./answerInsights.ts";
 import { makeAnswer } from "./canvasGuide.ts";
+import {
+  asksForScopeExplanation,
+  explainScope,
+  type DialogueTurn,
+} from "./canvasDialogue.ts";
 import type { VseLlm } from "./vsellm.ts";
 
 export interface CanvasSource {
   namespace: string;
   revision: number;
   rows: Map<string, Incident>;
+  simulation?: { runId: string };
 }
 const titles: Record<CanvasDimension, string> = {
   symptom: "Похожие симптомы",
@@ -138,7 +144,38 @@ interface PinnedSelection {
 }
 export class CanvasService {
   private readonly pinned = new Map<string, PinnedSelection>();
+  private readonly turns = new Map<
+    string,
+    {
+      namespace: string;
+      actor: string;
+      run?: string;
+      expires: number;
+      history: DialogueTurn[];
+    }
+  >();
   constructor(private readonly client?: VseLlm) {}
+  private remember(
+    source: CanvasSource,
+    actor: string,
+    history: DialogueTurn[],
+    turn: DialogueTurn,
+  ) {
+    const now = Date.now();
+    for (const [key, entry] of this.turns)
+      if (entry.expires <= now) this.turns.delete(key);
+    while (this.turns.size >= 256)
+      this.turns.delete(this.turns.keys().next().value!);
+    const token = randomUUID();
+    this.turns.set(token, {
+      namespace: source.namespace,
+      actor,
+      run: source.simulation?.runId,
+      expires: now + 15 * 60_000,
+      history: [...history.slice(-2), turn],
+    });
+    return token;
+  }
   // Store small source projections only. Paging uses the same membership and
   // time as the result, even if the source or a deadline changes meanwhile.
   private pin(
@@ -261,9 +298,37 @@ export class CanvasService {
     actor: string,
     question?: string,
     context?: CanvasIntent,
+    turnToken?: string,
   ): Promise<CanvasResult> {
     const { namespace, revision } = source;
     const now = Date.now();
+    const prior = turnToken && this.turns.get(turnToken);
+    const history =
+      prior &&
+      prior.namespace === namespace &&
+      prior.actor === actor &&
+      prior.run === source.simulation?.runId &&
+      prior.expires > now
+        ? prior.history
+        : [];
+    if (question && asksForScopeExplanation(question)) {
+      const active = { ...(context ?? initialIntent) };
+      delete active.topic;
+      delete active.related;
+      delete active.focus;
+      delete active.guideOnly;
+      const explanation = await explainScope(
+        await this.read(source, actor, undefined, active),
+        this.client,
+      );
+      return {
+        ...explanation,
+        turnToken: this.remember(source, actor, history, {
+          question: "Объясни текущий срез",
+          answer: explanation.conversation!.text,
+        }),
+      };
+    }
     const byId = new Map<string, Incident>();
     for (const r of source.rows.values()) {
       if (r.quarantined || !r.sourcePresent || byId.has(r.id)) continue;
@@ -283,8 +348,15 @@ export class CanvasService {
             ],
           }
         : initialIntent;
-    const decision = question
-      ? await planCanvas(question, rows, namespace, context, this.client)
+    const decision: Awaited<ReturnType<typeof planCanvas>> = question
+      ? await planCanvas(
+          question,
+          rows,
+          namespace,
+          context,
+          this.client,
+          history,
+        )
       : {
           intent: context ?? starter,
           mode: context?.guideOnly
@@ -301,23 +373,40 @@ export class CanvasService {
             : undefined,
         };
     const { intent } = decision;
+    const { textOnly, memoryQuestion, ...publicDecision } = decision;
     const sourceTotal = rows.length;
     const base = {
       namespace,
       revision,
       asOf: new Date(now).toISOString(),
-      ...decision,
+      ...publicDecision,
       sourceTotal,
       suggestions,
     };
     if (
+      textOnly ||
       decision.mode === "unsupported" ||
       decision.answer?.kind === "knowledge"
     )
       return {
         ...base,
-        title: decision.answer?.title ?? "Нужно уточнение",
-        summary: decision.answer?.lead ?? decision.notice ?? "",
+        ...(memoryQuestion && decision.conversation
+          ? {
+              turnToken: this.remember(source, actor, history, {
+                question: memoryQuestion,
+                answer: decision.conversation.text,
+              }),
+            }
+          : {}),
+        title:
+          decision.conversation?.title ??
+          decision.answer?.title ??
+          "Нужно уточнение",
+        summary:
+          decision.conversation?.text ??
+          decision.answer?.lead ??
+          decision.notice ??
+          "",
         metrics: [],
         groups: [],
         blocks: [],
@@ -385,6 +474,25 @@ export class CanvasService {
         ".";
     return {
       ...base,
+      ...(question
+        ? {
+            turnToken: this.remember(source, actor, history, {
+              question: memoryQuestion ?? "Покажи срез заявок",
+              answer: [
+                decision.conversation?.text,
+                "В предыдущем срезе заявок: " +
+                  total +
+                  ". Срок прошёл у " +
+                  overdue +
+                  ", наступал в ближайшие 15 минут у " +
+                  soon +
+                  ".",
+              ]
+                .filter(Boolean)
+                .join(" "),
+            }),
+          }
+        : {}),
       title,
       summary,
       total,

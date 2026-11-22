@@ -11,11 +11,13 @@ import type {
   CanvasResult,
 } from "../../../packages/contracts/canvas";
 import AnswerInsightBoard from "./AnswerInsightBoard";
+import ConversationAnswer from "./ConversationAnswer";
 import { GuideAnswer } from "./GuideAnswer";
 import { CanvasFigure } from "./CanvasFigure";
 import { CanvasDrawer, canvasJson } from "./CanvasTickets";
 import { TicketMentions } from "./IncidentSources";
 import { formatCount, PageControls, useBox } from "./CanvasControls";
+import Loader from "./Loader";
 import "./workspace.css";
 import "./answer.css";
 
@@ -53,11 +55,16 @@ const emptyConversation = (): Conversation => ({
 // Ticket navigation remounts this screen. Keep a short, session-scoped history in tab memory.
 const conversations = new Map<string, Conversation>();
 function panels(result: CanvasResult): CanvasResult[] {
+  const { conversation, ...source } = result;
   const article = result.answer;
   const views: CanvasResult[] = [];
+  if (conversation) {
+    views.push({ ...source, title: conversation.title, conversation, answer: undefined, insights: undefined, total: 0, blocks: [] });
+    if (!result.selection && !article) return views;
+  }
   if (article) {
     views.push({
-      ...result,
+      ...source,
       insights: undefined,
       title: article.title,
       total: 0,
@@ -65,7 +72,7 @@ function panels(result: CanvasResult): CanvasResult[] {
     });
     if (article.kind === "knowledge") return views;
   }
-  const { answer: _article, insights, ...data } = result;
+  const { answer: _article, insights, ...data } = source;
   if (insights?.length) views.push({ ...data, insights, blocks: [] });
   if (!insights?.length || result.intent.presentation) views.push(data);
   for (const block of result.blocks) {
@@ -121,6 +128,43 @@ function SendIcon() {
     </svg>
   );
 }
+
+function GenerationStatus() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const start = performance.now();
+    const timer = window.setInterval(() => {
+      setSeconds(Math.floor((performance.now() - start) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const elapsed =
+    Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+  return (
+    <div className="cx-generation">
+      <Loader label="Готовлю ответ" />
+      <span className="cx-generation-trace" aria-hidden="true" />
+      <span className="cx-generation-time" role="timer" aria-live="off">
+        <svg
+          aria-hidden="true"
+          width="14"
+          height="14"
+          viewBox="0 0 20 20"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        >
+          <circle cx="10" cy="10" r="7" />
+          <path d="M10 6v4l2.5 1.5" />
+        </svg>
+        <span className="sr-only">Время ожидания </span>
+        <time dateTime={`PT${seconds}S`}>{elapsed}</time>
+      </span>
+    </div>
+  );
+}
+
 function ConversationLog({
   turns,
   active,
@@ -166,7 +210,7 @@ function ConversationLog({
               <b>{result.provider}</b>
               {result.mode === "model" && (
                 <span>
-                  {result.answer?.kind === "knowledge"
+                  {result.conversation ? "Ответ в диалоге" : result.answer?.kind === "knowledge"
                     ? "Выбор раздела справки"
                     : "План запроса · расчёт по полям ITSM"}
                 </span>
@@ -182,7 +226,7 @@ function ConversationLog({
             {result.notice && result.notice !== result.summary && (
               <small>{result.notice}</small>
             )}
-            {turns.length > 1 && result.mode !== "unsupported" && (
+            {turns.length > 1 && (result.mode !== "unsupported" || result.conversation) && (
               <button
                 className="cx-transcript-view"
                 type="button"
@@ -201,7 +245,7 @@ function ConversationLog({
           {busy && <p className="cx-question">{busy}</p>}
           <div className="cx-thinking">
             <Spark size={16} />
-            {busy ? "Собираю срез…" : "Читаю источник…"}
+            {busy ? "Готовлю ответ" : "Читаю источник…"}
           </div>
         </article>
       )}
@@ -353,7 +397,7 @@ function WorkspaceScreen({
     if (refresh) setChat((c) => ({ ...c, selection: null }));
     try {
       const body = question
-        ? { question, ...(result ? { context: result.intent } : {}) }
+        ? { question, ...(result ? { context: result.intent, turnToken: result.turnToken } : {}) }
         : refresh && canAsk && result
           ? { refresh: true, context: result.intent }
           : undefined;
@@ -404,7 +448,7 @@ function WorkspaceScreen({
           { question, result: json },
         ];
         const active =
-          json.mode === "unsupported" && operation !== "reset"
+          json.mode === "unsupported" && !json.conversation && operation !== "reset"
             ? previous.active
             : turns.length - 1;
         return {
@@ -442,6 +486,7 @@ function WorkspaceScreen({
 
   const stale =
     !!result &&
+    (!result.conversation || !!result.selection) &&
     result.answer?.kind !== "knowledge" &&
     revision > result.revision;
   const views = useMemo(() => (result ? panels(result) : []), [result]);
@@ -449,15 +494,15 @@ function WorkspaceScreen({
     views.length > 1 &&
     (views.length > 3 ||
       (stage.width < 660 &&
-        (result?.answer || views.length > 2 || stage.height < 450)) ||
+        (result?.answer || result?.conversation || views.length > 2 || stage.height < 450)) ||
       stage.height < 245);
   const panel = Math.min(chat.panel ?? 0, Math.max(0, views.length - 1));
   const visible = switching ? views.slice(panel, panel + 1) : views;
   const choose = (view: CanvasResult, group: CanvasGroup | null) =>
     setChat((c) => ({ ...c, selection: { result: view, group, offset: 0 } }));
-  const reply = last?.mode === "unsupported" ? last.summary : result?.notice;
-  const busyText =
-    busy === null ? "" : busy ? "Собираю срез…" : "Читаю источник…";
+  const reply = last?.mode === "unsupported" && !last.conversation ? last.summary :
+    result?.conversation && result.notice === result.conversation.text ? undefined : result?.notice;
+  const loadingSource = busy === "";
   return (
     <section
       ref={screen}
@@ -500,6 +545,7 @@ function WorkspaceScreen({
           <section
             className="cx-plot"
             data-guide={!!view.answer}
+            data-conversation={!!view.conversation || undefined}
             key={
               (switching ? panel : i) +
               ":" +
@@ -529,7 +575,10 @@ function WorkspaceScreen({
                 />
               )}
             </div>
-            {view.answer ? (
+            {view.conversation ? (
+              <ConversationAnswer key={view.conversation.text} answer={view.conversation}
+                canAsk={canAsk && busy === null} ask={(question) => void send(question)} />
+            ) : view.answer ? (
               <GuideAnswer
                 key={view.answer.topic + view.answer.lead}
                 answer={view.answer}
@@ -551,16 +600,16 @@ function WorkspaceScreen({
             )}
           </section>
         ))}
-        {!visible.length && (
+        {!visible.length && !busy && (
           <div className="cx-empty">
-            <p role="status">{busyText || "Срез ещё не загружен"}</p>
+            <p role="status">{loadingSource ? "Читаю источник…" : "Срез ещё не загружен"}</p>
             {busy === null && !error && (
               <button onClick={() => void send("")}>Загрузить срез</button>
             )}
           </div>
         )}
       </div>
-      <div className="cx-dock">
+      <div className="cx-dock" data-generating={!!busy}>
         <div className="cx-status">
           {error ? (
             <div role="alert">
@@ -571,8 +620,10 @@ function WorkspaceScreen({
                 Повторить запрос
               </button>
             </div>
-          ) : busyText ? (
-            <span role="status">{busyText}</span>
+          ) : busy ? (
+            <GenerationStatus key={busy} />
+          ) : loadingSource ? (
+            visible.length > 0 && <span role="status">Читаю источник…</span>
           ) : !canAsk ? (
             <span>Режим просмотра</span>
           ) : reply ? (
@@ -615,7 +666,7 @@ function WorkspaceScreen({
             className="cx-composer"
             onSubmit={(e) => {
               e.preventDefault();
-              if (chat.draft.trim()) void send(chat.draft);
+              if (busy === null && chat.draft.trim()) void send(chat.draft);
             }}
           >
             <input

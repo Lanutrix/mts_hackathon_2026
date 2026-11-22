@@ -241,3 +241,28 @@ test("private cases return only source-backed references and reject invented cit
     await app.close();
   }
 });
+
+test("automatic recommendations share cached calls and leave capacity for conversations", async () => {
+  const { VseLlm } = await import("../apps/server/vsellm.ts");
+  let resume!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  let calls = 0;
+  const model = new VseLlm("test", "test", async () => {
+    calls++;
+    await gate;
+    return Response.json({ choices: [{ message: { content: "{}" } }] });
+  });
+  const live = (id: number) => model.json("live", "choose", { id }, 5000, "background");
+  const first = live(1);
+  const same = live(1);
+  assert.ok("error" in await live(2));
+  const conversation = model.json("dialogue", "answer", { question: "hello" }, 5000);
+  assert.equal(calls, 2);
+  resume();
+  for (const reply of await Promise.all([first, same, conversation])) assert.ok("json" in reply);
+  for (let id = 2; id <= 6; id++) assert.ok("json" in await live(id));
+  assert.ok("error" in await live(7));
+  assert.ok("json" in await live(1));
+  assert.ok("json" in await model.json("dialogue", "answer", { question: "another" }, 5000));
+  assert.equal(calls, 8);
+});

@@ -1,4 +1,5 @@
 import {serviceFilterId,sourceServiceTypeId} from "../contracts/serviceType.ts";
+import { liveStep, type LiveStep } from "./liveStep.ts";
 import {
   deadlineStatus,
   GROUPS,
@@ -39,6 +40,7 @@ export interface TriageCase {
   product: string | null;
   recommendation: string;
   recommendationId: string;
+  step: LiveStep;
   evidence: CaseEvidence[];
 }
 export interface Triage {
@@ -48,6 +50,9 @@ export interface Triage {
   escalations: number;
   cases: TriageCase[];
   tracking?: TriageCase["lead"] | null;
+  nextChangeAt: number | null;
+  liveFocus?: { caseId: string; step: LiveStep } | null;
+  modelGuidance?: boolean;
 }
 export interface CaseAnalysis {
   mode: "model" | "fallback";
@@ -246,58 +251,10 @@ function summarizeCase(
   }
   cite(lead, signal.field);
   cite(lead, "priorityId");
-  let recommendation: string;
-  let recommendationId = lead.id;
-  if (earliest && (overdue || soon)) {
-    cite(earliest, "deadline");
-    recommendationId = earliest.id;
-    recommendation =
-      (overdue
-        ? "Уточните новый срок по "
-        : "Уточните готовность к сроку по ") +
-      earliest.id +
-      (overdue
-        ? ". Срок прошёл у " + overdue
-        : ". Срок наступит в ближайшие 15 минут у " + soon) +
-      " из " +
-      rows.length +
-      ".";
-  } else if (firstEscalation) {
-    cite(firstEscalation, "isNeedUp");
-    recommendationId = firstEscalation.id;
-    recommendation =
-      "Уточните у исполнителя " +
-      firstEscalation.id +
-      ", какие последствия нужно устранить после решения. Отметка есть у " +
-      escalations +
-      " из " +
-      rows.length +
-      ".";
-  } else if (deadlineMissing) {
-    const withoutDeadline = rows.find((r) => !r.dates.deadline)!;
-    cite(withoutDeadline, "deadline");
-    recommendationId = withoutDeadline.id;
-    recommendation =
-      "Запросите срок по " +
-      withoutDeadline.id +
-      ". Поле срока пустует у " +
-      deadlineMissing +
-      " из " +
-      rows.length +
-      ".";
-  } else {
-    cite(lead, "assignedGroupName");
-    recommendation =
-      "Уточните ход работ по " +
-      lead.id +
-      (lead.team
-        ? " у группы «" + lead.team + "»."
-        : " и ответственную группу.");
-  }
-  if (!lead.sourcePresent) {
-    cite(lead, "sourcePresent");
-    recommendation += " Сверьте " + lead.id + " с последней выгрузкой.";
-  }
+  const target = (overdue || soon ? earliest : undefined) ?? firstEscalation
+    ?? (deadlineMissing ? rows.find((row) => !row.dates.deadline) : undefined) ?? lead;
+  const step = liveStep(target, now, { count: rows.length, overdue, soon });
+  cite(target, step.evidence.field);
   return {
     id,
     label: signal.label,
@@ -324,8 +281,9 @@ function summarizeCase(
     unverified,
     team: mostCommon(rows, "assignedGroupName"),
     product: mostCommon(rows, "productName"),
-    recommendation,
-    recommendationId,
+    recommendation: target.id + " · " + step.action + " " + step.basis,
+    recommendationId: target.id,
+    step,
     evidence,
   };
 }
@@ -339,6 +297,7 @@ export function buildTriage(
 ) {
   const seen = new Set<string>();
   const buckets = new Map<string, Incident[]>();
+  let nextChangeAt: number | null = null;
   for (const r of rows) {
     if (
       !r.groups.length ||
@@ -347,6 +306,13 @@ export function buildTriage(
     )
       continue;
     seen.add(r.key);
+    if (r.dates.deadline) {
+      const end = Date.parse(r.dates.deadline);
+      const soon = end - 15 * 60_000;
+      const boundary = soon > now ? soon : end + 1;
+      if (boundary > now && (nextChangeAt === null || boundary < nextChangeAt))
+        nextChangeAt = boundary;
+    }
     const key = facet(r, groupBy).key;
     const bucket = buckets.get(key);
     if (bucket) bucket.push(r);
@@ -376,6 +342,7 @@ export function buildTriage(
   );
   return {
     groupBy,
+    nextChangeAt,
     unique: seen.size,
     overdue: cases.reduce((n, c) => n + c.overdue, 0),
     escalations: cases.reduce((n, c) => n + c.escalations, 0),
