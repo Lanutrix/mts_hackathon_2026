@@ -1,6 +1,7 @@
 import {serviceFilterId,sourceServiceTypeId} from "../contracts/serviceType.ts";
 import { liveStep, type LiveStep } from "./liveStep.ts";
 import { knownSymptom, recurringSymptoms, type SymptomEvidence, type SymptomTheme } from "./symptoms.ts";
+import { compareResponse, responseBands, responseRank } from "./responseOrder.ts";
 export { knownSymptom } from "./symptoms.ts";
 import {
   deadlineStatus,
@@ -12,7 +13,7 @@ import {
   type Incident,
 } from "./index.ts";
 
-export const GROUP_BY = ["symptom", "symptomProduct", "priority", "product", "team"] as const;
+export const GROUP_BY = ["response", "symptom", "symptomProduct", "priority", "product", "team"] as const;
 export type GroupBy = (typeof GROUP_BY)[number];
 export type Signal = Group | "all";
 export type CaseEvidence = SymptomEvidence;
@@ -36,6 +37,7 @@ export interface TriageCase {
   unverified: number;
   team: string | null;
   product: string | null;
+  responseRank?: number;
   recommendation: string;
   recommendationId: string;
   step: LiveStep;
@@ -81,10 +83,12 @@ export function grouping(q: Record<string, string>) {
 export function filterDashboard(
   rows: Incident[],
   q: Record<string, string>,
+  now = Date.now(),
 ): Incident[] {
   const search = (q.q ?? "").toLocaleLowerCase("ru").slice(0, 300);
   return rows.filter(
     (r) =>
+      (!q.band || responseBands[responseRank(r, now)].key === q.band) &&
       (!search ||
         [r.id, r.raw.header, r.raw.productName, r.team, r.raw.assignedEmployee]
           .join(" ")
@@ -96,7 +100,8 @@ export function filterDashboard(
   );
 }
 
-export function sortTickets(rows: Incident[], sort?: string) {
+export function sortTickets(rows: Incident[], sort?: string, now = Date.now()) {
+  if (sort === "response") return rows.sort((a, b) => compareResponse(a, b, now));
   return rows.sort((a, b) => {
     if (sort === "id") return a.id.localeCompare(b.id);
     if (sort === "registered")
@@ -114,7 +119,8 @@ export function sortTickets(rows: Incident[], sort?: string) {
 
 const norm = (s: string) => s.toLocaleLowerCase("ru").normalize("NFKC");
 type Facet = { key: string; label: string; field: string };
-export function facet(r: Incident, groupBy: GroupBy): Facet {
+export function facet(r: Incident, groupBy: GroupBy, now = Date.now()): Facet {
+  if (groupBy === "response") return responseBands[responseRank(r, now)];
   if (groupBy === "symptomProduct") {
     const symptom = facet(r, "symptom"), product = facet(r, "product");
     return { key: JSON.stringify([symptom.key, product.key]), label: symptom.label + " · " + product.label, field: symptom.field };
@@ -232,13 +238,14 @@ function summarizeCase(
   cite(lead, signal.field);
   if (groupBy === "symptomProduct") cite(lead, "productName");
   cite(lead, "priorityId");
-  const target = (overdue || soon ? earliest : undefined) ?? firstEscalation
+  const target = groupBy === "response" ? lead : (overdue || soon ? earliest : undefined) ?? firstEscalation
     ?? (deadlineMissing ? rows.find((row) => !row.dates.deadline) : undefined) ?? lead;
   const step = liveStep(target, now, { count: rows.length, overdue, soon });
   cite(target, step.evidence.field);
   return {
     id,
     label: signal.label,
+    ...(groupBy === "response" ? { responseRank: responseRank(lead, now) } : {}),
     count: rows.length,
     hash: hash(rows.map((r) => [r.key, r.hash, r.sourcePresent])),
     revision,
@@ -295,7 +302,7 @@ export function buildTriage(
       if (boundary > now && (nextChangeAt === null || boundary < nextChangeAt))
         nextChangeAt = boundary;
     }
-    const key = facet(r, groupBy).key;
+    const key = facet(r, groupBy, now).key;
     const bucket = buckets.get(key);
     if (bucket) bucket.push(r);
     else buckets.set(key, [r]);
@@ -303,13 +310,15 @@ export function buildTriage(
   const members = new Map<string, Incident[]>();
   const cases: TriageCase[] = [];
   for (const [key, rows] of buckets) {
-    rows.sort(urgent);
+    if (groupBy === "response") sortTickets(rows, "response", now);
+    else rows.sort(urgent);
     const id = hash([groupBy, key]).slice(0, 24);
-    cases.push(summarizeCase(id, facet(rows[0], groupBy), groupBy, rows, revision, now));
+    cases.push(summarizeCase(id, facet(rows[0], groupBy, now), groupBy, rows, revision, now));
     members.set(id, rows);
   }
   cases.sort(
     (a, b) =>
+      (a.responseRank ?? 0) - (b.responseRank ?? 0) ||
       (b.highestPriorityId ?? 0) - (a.highestPriorityId ?? 0) ||
       b.overdue - a.overdue ||
       b.soon - a.soon ||

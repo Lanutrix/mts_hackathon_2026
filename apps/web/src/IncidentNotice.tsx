@@ -68,6 +68,7 @@ type NoticeProps = {
   signal: IncidentSignal | null;
   /** Includes the incident currently displayed. */
   pendingCount: number;
+  wave?: { label: string; count: number };
   onOpen: () => void;
   onJournal: () => void;
   onDismiss: () => void;
@@ -76,6 +77,7 @@ type NoticeProps = {
 export function IncidentNotice({
   signal,
   pendingCount,
+  wave,
   onOpen,
   onJournal,
   onDismiss,
@@ -100,18 +102,18 @@ export function IncidentNotice({
   const labels = signal
     ? transitions.filter((item) => signal.reasons.includes(item.reason))
     : [];
-  const title = signal ? signalTitle(signal) : "";
+  const title = wave ? wave.label + " · " + wave.count : signal ? signalTitle(signal) : "";
   const secondary = labels
     .slice(1)
     .map((item) => item.title)
     .join(" · ");
   const severity = signal && signalSeverity(signal);
-  const identity = signal ? JSON.stringify([signal.revision, signal.key]) : "";
+  const identity = wave ? wave.label : signal ? JSON.stringify([signal.revision, signal.key]) : "";
   const subject = signal?.header?.trim() || signal?.product?.trim();
   const deadline = severity !== "resolved" && deadlineToday(signal?.deadline);
   const announcement = signal && (
     <span key={identity}>
-      {[title, subject, secondary, signal.id].filter(Boolean).join(". ")}
+      {wave ? "Первыми к разбору. " + title : [title, subject, secondary, signal.id].filter(Boolean).join(". ")}
     </span>
   );
   const remaining = Math.max(0, pendingCount - 1);
@@ -159,13 +161,13 @@ export function IncidentNotice({
           </div>
           <div className="in-copy">
             <div className="in-meta">
-              <span className="in-id">{signal.id}</span>
-              {subject && (
+              <span className="in-id">{wave ? "Несколько сигналов · первыми к разбору" : signal.id}</span>
+              {!wave && subject && (
                 <span className="in-subject" title={subject}>
                   {subject}
                 </span>
               )}
-              {deadline && (
+              {!wave && deadline && (
                 <time
                   className="in-deadline"
                   dateTime={signal.deadline ?? undefined}
@@ -175,20 +177,20 @@ export function IncidentNotice({
               )}
             </div>
             <strong className="in-title">{title}</strong>
-            {secondary && <span className="in-secondary">{secondary}</span>}
+            {!wave && secondary && <span className="in-secondary">{secondary}</span>}
           </div>
           <div className="in-actions">
             <button
               type="button"
               className="in-open"
               onClick={onOpen}
-              aria-label={"Открыть инцидент " + signal.id}
+              aria-label={wave ? "Открыть подборку" : "Открыть инцидент " + signal.id}
             >
-              Открыть инцидент <span aria-hidden="true">→</span>
+              {wave ? "Открыть подборку" : "Открыть инцидент"} <span aria-hidden="true">→</span>
             </button>
             <button type="button" className="in-journal" onClick={onJournal}>
               Журнал{" "}
-              {remaining > 0 && (
+              {!wave && remaining > 0 && (
                 <span className="in-count">
                   ещё {remaining.toLocaleString("ru-RU")}
                 </span>
@@ -199,7 +201,7 @@ export function IncidentNotice({
             type="button"
             className="in-dismiss"
             onClick={onDismiss}
-            aria-label="Скрыть это уведомление"
+            aria-label={wave ? "Скрыть сводное уведомление" : "Скрыть это уведомление"}
             title="Скрыть это уведомление"
           >
             <svg

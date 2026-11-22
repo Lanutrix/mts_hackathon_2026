@@ -374,6 +374,12 @@ function Dashboard({
       q.set("ns", ns);
       if (path === "/live" || path === "/wallboard")
         for (const group of groups) q.delete(group);
+      if (path === "/live") {
+        q.set("register", "1");
+        q.delete("offset");
+        q.delete("limit");
+        if (!q.has("groupBy") && !q.has("case")) q.set("groupBy", "response");
+      }
       const dashboard = await read("/dashboard?" + q);
       if (gen !== generation.current) return;
       const serverTime = Date.parse(dashboard.serverTime);
@@ -517,12 +523,23 @@ function Dashboard({
         lastRevision.current,
     );
     eventStream.current = es;
+    let refresh: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      refresh = undefined;
+      if (disposed) return;
+      if (pending.current) {
+        refresh = setTimeout(flush, 120);
+        return;
+      }
+      void latestLoad.current();
+    };
     const update = () => {
       if (!disposed) {
         streamReceivedAt.current = Date.now();
         setConnection("На связи");
         liveStatus.current = "На связи";
-        void latestLoad.current();
+        // A continuous stream must allow the current read to reach the screen.
+        refresh ??= setTimeout(flush, 500);
       }
     };
     es.addEventListener("ready", update);
@@ -556,6 +573,7 @@ function Dashboard({
     window.addEventListener("pagehide", unload);
     return () => {
       disposed = true;
+      clearTimeout(refresh);
       es.close();
       eventStream.current = null;
       clearInterval(poll);
@@ -610,6 +628,15 @@ function Dashboard({
   const open = (id: string) => go(link("/incident/" + encodeURIComponent(id)));
   const updateParam = (key: string, value: string) => {
     const p = new URLSearchParams(query);
+    if (key === "breakdown") {
+      if (value) p.set("band", value);
+      else p.delete("band");
+      p.set("groupBy", value ? "symptomProduct" : "response");
+      p.delete("case");
+      go(link(path + "?" + p));
+      return;
+    }
+    if (key === "case" && data?.triage) p.set("groupBy", data.triage.groupBy);
     value ? p.set(key, value) : p.delete(key);
     if (["signal", "groupBy", "q", "service", "up"].includes(key))
       p.delete("case");
@@ -625,6 +652,8 @@ function Dashboard({
       setError((e as Error).message);
     }
   };
+  const wave = path === "/live" && data?.filterQuery === query && signals.length >= 4 &&
+    data.triage?.groupBy === "response" ? data.triage.cases[0] : undefined;
   const sourceProblem =
     error ||
     data?.status.state === "error" ||
@@ -800,8 +829,14 @@ function Dashboard({
               : (signals[0] ?? null)
           }
           pendingCount={signals.length}
-          onDismiss={dismiss}
+          wave={wave ? { label: wave.label, count: wave.count } : undefined}
+          onDismiss={wave ? () => setSignals([]) : dismiss}
           onOpen={() => {
+            if (wave) {
+              setSignals([]);
+              updateParam("case", wave.id);
+              return;
+            }
             const current = signals[0];
             if (current) {
               dismiss();
@@ -836,7 +871,7 @@ function Dashboard({
                 open={open}
               />
             </React.Suspense>
-          ) : !data || data.namespace !== ns ? (
+          ) : !data || data.namespace !== ns || (path === "/live" && !data.register) ? (
             error ? null : (
               <Loader label="Загрузка данных…" stage />
             )
@@ -860,7 +895,7 @@ function Dashboard({
                 ns={ns}
                 now={tick}
                 zone={zone}
-                online={connection === "На связи"}
+                online={connection === "На связи" && !sourceProblem && data.status.state === "live"}
                 sources={sources}
                 open={open}
                 setParam={updateParam}

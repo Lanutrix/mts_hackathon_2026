@@ -503,9 +503,10 @@ export async function createApp(o: AppOptions) {
       acceptedAt = s.acceptedAt;
     let status = structuredClone(s.status);
     const all = [...s.rows.values()];
-    const filtered = sortTickets(filterDashboard(all, q), q.sort);
-    remember(s);
     const { groupBy, signal } = grouping(q);
+    const sort = q.sort || (groupBy === "response" ? "response" : undefined);
+    const filtered = sortTickets(filterDashboard(all, q, now), sort, now);
+    remember(s);
     const groups = Object.fromEntries(
       GROUPS.map((g) => {
         const rows = filtered.filter((r) => r.groups.includes(g));
@@ -516,7 +517,7 @@ export async function createApp(o: AppOptions) {
             count: rows.length,
             unverified: rows.filter((r) => !r.sourcePresent).length,
             offset,
-            items: rows.slice(offset, offset + 30).map(summarize),
+            items: q.register === "1" ? [] : rows.slice(offset, offset + 30).map(summarize),
           },
         ];
       }),
@@ -529,6 +530,15 @@ export async function createApp(o: AppOptions) {
       now,
       signal,
     );
+    let register;
+    if (q.register === "1") {
+      const selected = q.case ? members.get(q.case) ?? [] :
+        signal === "all" ? relevant : relevant.filter(row => row.groups.includes(signal));
+      if (q.case && q.sort) sortTickets(selected, q.sort, now);
+      const offset = Math.max(0, Math.floor(Number(q.offset) || 0));
+      const limit = Math.max(1, Math.min(100, Math.floor(Number(q.limit) || 30)));
+      register = { offset, total: selected.length, nextChangeAt: triage.nextChangeAt, items: selected.slice(offset, offset + limit).map(summarize) };
+    }
     let notifications: any[] = [];
     try {
       notifications = await s.notifications(
@@ -559,6 +569,7 @@ export async function createApp(o: AppOptions) {
     return {
       revision,
       acceptedAt,
+      register,
       status,
       serverTime: new Date(now).toISOString(),
       namespace: s.namespace,
@@ -570,7 +581,9 @@ export async function createApp(o: AppOptions) {
       triage: {
         ...triage,
         modelGuidance: !!o.ai?.remote,
-        liveFocus: activeCase && active
+        liveFocus: groupBy === "response" && triage.cases[0]
+          ? { caseId: triage.cases[0].id, step: triage.cases[0].step }
+          : activeCase && active
           ? { caseId: activeCase.id, step: liveStep(active, now, activeCase) }
           : null,
         tracking: tracking

@@ -325,3 +325,30 @@ test("offline extractive analysis provides source quotations and explicitly hand
   const blank = buildTriage([unknown], "product", 3, now);
   assert.equal((await analyzeCase(blank.cases[0], [unknown])).mode, "fallback");
 });
+
+test("response order partitions the active queue once and exposes the same lead at every level", () => {
+  const active = [
+    ticket(1, { deadline: null }),
+    ticket(2, { deadline: new Date(now + 60_000).toISOString() }),
+    ticket(3, { priorityId: 3, deadline: new Date(now - 60_000).toISOString() }),
+    ticket(4, { deadline: new Date(now - 1).toISOString() }),
+    ticket(5, { priorityId: 3, deadline: new Date(now + 900_000).toISOString() }),
+  ];
+  const missing = { ...ticket(6), sourcePresent: false };
+  const closed = ticket(7, { stateId: 7, state: STATES[7].label, stateEnum: STATES[7].enum });
+  const queue = [active[0], ...active, missing, closed];
+  const run = (rows: typeof queue, time: number) => buildTriage(rows, "response", 1, time);
+  const all = run(queue, now);
+  assert.equal(all.unique, 6);
+  assert.deepEqual(all.cases.map(c => [c.responseRank, c.count]), [[0, 2], [1, 1], [2, 1], [3, 1], [8, 1]]);
+  assert.deepEqual(all.cases, run([...queue].reverse(), now).cases);
+  for (const c of all.cases) {
+    assert.equal(c.step.ticketId, c.lead.id);
+    assert.equal(all.members.get(c.id)![0].id, c.lead.id);
+  }
+  assert.equal(all.cases[0].lead.id, "T-4");
+  const inside = filterDashboard(queue, { band: "criticalDeadline" }, now);
+  assert.equal(buildTriage(inside, "symptomProduct", 1, now).unique, 2);
+  assert.equal(all.cases.at(-1)!.step.reason, "missingSource");
+  assert.deepEqual(run(queue, now + 900_001).cases.map(c => [c.responseRank, c.count]), [[0,2],[1,1],[2,2],[8,1]]);
+});

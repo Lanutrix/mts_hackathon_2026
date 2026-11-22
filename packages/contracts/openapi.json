@@ -1085,7 +1085,7 @@
         "parameters": [
           {"in":"query","name":"offset","schema":{"type":"integer","minimum":0,"default":0}},
           {"in":"query","name":"limit","schema":{"type":"integer","minimum":1,"maximum":100,"default":30}},
-          {"in":"query","name":"sort","schema":{"enum":["id","registered","deadline"]}}
+          {"in":"query","name":"sort","schema":{"enum":["id","registered","deadline","response"]}}
         ],
         "responses": {
           "200":{"description":"revision, hash, total, offset, items и nextOffset"},
@@ -1306,7 +1306,12 @@
           }
         },
         "parameters": [
-          { "in":"query", "name":"groupBy", "schema":{"enum":["symptom","symptomProduct","priority","product","team"],"default":"symptom"} },
+          { "in":"query", "name":"groupBy", "schema":{"enum":["response","symptom","symptomProduct","priority","product","team"],"default":"symptom"} },
+          { "in":"query", "name":"band", "description":"Сохранить подборку по причине при смене группировки", "schema":{"enum":["criticalDeadline","critical","overdue","soon","followUp","handoff","research","monitor","verify"]} },
+          { "in":"query", "name":"case", "description":"ID группы в текущем срезе", "schema":{"type":"string"} },
+          { "in":"query", "name":"register", "description":"Вернуть одну общую страницу register вместо записей в каждой сигнальной очереди", "schema":{"enum":["1"]} },
+          { "in":"query", "name":"offset", "schema":{"type":"integer","minimum":0} },
+          { "in":"query", "name":"limit", "schema":{"type":"integer","minimum":1,"maximum":100,"default":30} },
           { "in":"query", "name":"signal", "schema":{"enum":["all","critical","coordinators","high","research"],"default":"all"} },
           {
             "in": "query",

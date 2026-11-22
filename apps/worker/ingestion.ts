@@ -188,6 +188,9 @@ export class Store extends EventEmitter {
     };
     this.emit("revision", { revision, at });
     if (notifications.length) this.emit("notifications");
+    // Embedded PostgreSQL may resolve consecutive commits as microtasks. Let
+    // Node flush SSE and serve dashboard reads before accepting the next cut.
+    await new Promise<void>(resolve => setImmediate(resolve));
     return { changed: true, revision };
   }
   fail(error: unknown) {

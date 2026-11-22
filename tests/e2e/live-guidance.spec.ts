@@ -86,9 +86,11 @@ test("live recommendations follow real stream changes, reject late AI and expire
     await card.getByRole("button", {name: "ORIG-002 ↗", exact: true}).click();
     await expect(page).toHaveURL(/\/incident\/ORIG-002\?ns=original/);
     await page.goto(origin + "/simulation");
-    await expect(card).toContainText("SIM-001");
-    await expect(basis).toContainText("группе координаторов");
-    await expect(basis).toContainText("15 минут");
+    // The new assignment appears in notifications while the earliest critical
+    // deadline remains the first decision in both real and training queues.
+    await expect(card).toContainText("SIM-AUTH-01");
+    await expect(basis).toContainText("уже прошёл");
+    await expect(page.getByRole("region", {name: "Уведомление об инциденте"})).toContainText("SIM-001");
     await page.screenshot({path: testInfo.outputPath("simulation-mobile.png"), animations: "disabled"});
     await page.setViewportSize({width: 1366, height: 768});
     await page.screenshot({path: testInfo.outputPath("simulation-desktop.png"), animations: "disabled"});

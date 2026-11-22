@@ -5,7 +5,10 @@ import Loader from "./Loader";
 import { Icon } from "./Brand";
 import { fieldName, TicketMentions } from "./IncidentSources";
 
+import { responseBands } from "../../../packages/domain/responseOrder";
+
 const dimensions = [
+  ["response", "По порядку разбора"],
   ["symptom", "По симптому"],
   ["symptomProduct", "Симптом и продукт"],
   ["priority", "По приоритету"],
@@ -44,6 +47,8 @@ function CaseExample({
   dimension: string;
   open: (id: string) => void;
 }) {
+  if (dimension === "response" && record.responseRank !== undefined)
+    return <p className="case-criterion">{responseBands[record.responseRank].basis}</p>;
   const quote =
     dimension === "symptom" || dimension === "symptomProduct" ? record.evidence[0]?.value : record.label;
   return (
@@ -111,6 +116,7 @@ export default function TriageCases(props: Props) {
     media.addEventListener("change", resize);
     return () => media.removeEventListener("change", resize);
   }, []);
+  const [inspection, setInspection] = useState<{ record: TriageCase; step: LiveStep; query: string; advice: Advice | null; dimension: string } | null>(null);
   const perPage = shortDisplay && cases.length > 3 ? 2 : 4;
   const start = Math.min(
     Math.floor(offset / perPage) * perPage,
@@ -118,6 +124,8 @@ export default function TriageCases(props: Props) {
   );
   const focus = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
   const step = (!chosen && props.liveFocus?.caseId === focus?.id ? props.liveFocus?.step : null) ?? focus?.step;
+  const band = focus?.responseRank === undefined ? undefined : responseBands[focus.responseRank];
+  const inspected = inspection?.query === props.query ? cases.find(item => item.id === inspection.record.id) : undefined;
   const pick = (id: string) => {
     setParam("case", id);
   };
@@ -125,7 +133,7 @@ export default function TriageCases(props: Props) {
     <aside className="case-lens" aria-label="Группировка и разбор инцидентов">
       <div className="case-heading">
         <h2>
-          Группы <small>{cases.length}</small>
+          {dimension === "response" ? "К разбору" : "Группы"} <small>{cases.length}</small>
         </h2>
         <select
           aria-label="Группировка инцидентов"
@@ -227,7 +235,21 @@ export default function TriageCases(props: Props) {
         )}
       </div>
       {props.ready && focus && step && (
-        <LiveAdvice key={focus.id} {...props} record={focus} step={step} />
+        <LiveAdvice key={focus.id} {...props} record={focus} step={step}
+          inspect={advice => setInspection({ record: focus, step, query: props.query, advice, dimension })}
+          groupAction={band && !chosen && focus.count > 1 ?
+            <button type="button" className="response-open" onClick={() => pick(focus.id)}>
+              Разобрать группу <b>{focus.count}</b>
+            </button> : band && chosen && chosen.count > 1 ?
+            <button type="button" className="response-open" onClick={() => setParam("breakdown", band.key)}>
+              По симптомам и продуктам
+            </button> : null} />
+      )}
+      {inspection && (
+        <CaseDialog {...props} {...inspection} record={inspected ?? inspection.record}
+          step={inspected?.step ?? inspection.step} revision={(inspected ?? inspection.record).revision}
+          advice={inspected && inspected.step.key !== inspection.step.key ? null : inspection.advice}
+          close={() => setInspection(null)} />
       )}
     </aside>
   );
@@ -235,10 +257,11 @@ export default function TriageCases(props: Props) {
 
 type Advice = { key: string; action: string; mode: "local" | "model"; model?: string; retryAfterMs?: number };
 
-function LiveAdvice(props: Props & { record: TriageCase; step: LiveStep }) {
+function LiveAdvice(props: Props & { record: TriageCase; step: LiveStep; inspect: (advice: Advice | null) => void; groupAction: React.ReactNode }) {
   const {record, step, query, ns, runId, revision, csrf, canAnalyze, modelGuidance, open} = props;
-  const [details, showDetails] = useState(false);
+  const band = record.responseRank === undefined ? undefined : responseBands[record.responseRank];
   const scope = JSON.stringify([ns, runId, query, record.id, step.key]);
+  const lastRefinement = useRef({ reason: "", at: 0 });
   const latestRequest = useRef("");
   latestRequest.current = caseRequest(record, query, ns, revision, true);
   const [reply, setReply] = useState<{ scope: string; advice: Advice } | null>(null);
@@ -246,7 +269,9 @@ function LiveAdvice(props: Props & { record: TriageCase; step: LiveStep }) {
     if (!canAnalyze || !modelGuidance) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    const reason = step.ticketId + "/" + step.reason;
     const refine = async (canRetry: boolean) => {
+      lastRefinement.current = { reason, at: Date.now() };
       try {
         const response = await fetch(latestRequest.current, {
           method: "POST", signal: controller.signal,
@@ -267,22 +292,24 @@ function LiveAdvice(props: Props & { record: TriageCase; step: LiveStep }) {
         // The field-based step remains available when the provider or network is offline.
       }
     };
-    timer = setTimeout(() => void refine(true), 450);
+    const wait = lastRefinement.current.reason === reason ? 12_000 - (Date.now() - lastRefinement.current.at) : 0;
+    timer = setTimeout(() => void refine(true), Math.max(450, wait));
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [scope, csrf, canAnalyze, modelGuidance, step.key, step.ticketId, runId]);
+  }, [scope, csrf, canAnalyze, modelGuidance, step.key, step.ticketId, step.reason, runId]);
   const refined = canAnalyze && modelGuidance && reply?.scope === scope ? reply.advice : null;
   return (
     <section className="case-insight live-advice" aria-label="Следующий шаг" data-testid="live-guidance" data-origin={refined ? "model" : "local"}>
       <div className="case-insight-head">
         <h3>{refined ? "Совет ИИ" : "Следующий шаг"}</h3>
-        <button type="button" className="case-analyze" onClick={() => showDetails(true)}>Подробнее</button>
+        <button type="button" className="case-analyze" onClick={() => props.inspect(refined)}>Подробнее</button>
       </div>
       <div aria-live="polite" aria-atomic="true">
         <p className="advice-action" data-testid="guidance-action">{refined?.action ?? step.action}</p>
-        <p className="advice-basis" data-testid="guidance-basis">{step.basis}</p>
+        <p className="advice-basis" data-testid="guidance-basis">{band?.key === "criticalDeadline" ? "Наивысший приоритет. " :
+          band && band.basis !== step.basis ? band.basis + " " : ""}{step.basis}</p>
         <button type="button" className="case-source" onClick={() => open(step.ticketId)}>{step.ticketId} ↗</button>
       </div>
-      {details && <CaseDialog {...props} advice={refined} close={() => showDetails(false)} />}
+      {props.groupAction}
     </section>
   );
 }
@@ -310,6 +337,9 @@ function CaseDialog({
   const result = reading?.scope === scope ? reading.result : null;
   const themes = [...(result?.semantic?.themes ?? []), ...(record.themes ?? [])];
   const [fault, setFault] = useState("");
+  const [brief, setBrief] = useState("");
+  const [copied, setCopied] = useState(false);
+  const briefField = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
@@ -371,6 +401,29 @@ function CaseDialog({
           open(id);
         }}
       />}
+      <button className="case-inline handoff-brief" type="button" onClick={() => {
+        const band = record.responseRank === undefined ? undefined : responseBands[record.responseRank];
+        const text = [record.label + ". Заявок в подборке: " + record.count + ".",
+          band?.basis, "Срок прошёл у " + record.overdue + ", ближайшие 15 минут — у " + record.soon + ".",
+          ...themes.slice(0, 2).map(theme => theme.label + " — " + theme.count + " из " + record.count + "."),
+          "Первая проверка: " + step.ticketId + ". " + (advice?.action ?? step.action),
+          "Подборка: " + (() => {
+            const url = new URL(location.href);
+            url.search = query;
+            url.searchParams.set("case", record.id);
+            return url.href;
+          })()].filter(Boolean).join("\n");
+        setBrief(text);
+        setCopied(false);
+        void navigator.clipboard?.writeText(text).then(() => setCopied(true)).catch(() => {
+          briefField.current?.focus(); briefField.current?.select();
+        });
+      }}><Icon name="team" size={16} /> Сводка для передачи</button>
+      {brief && <div className="handoff-text">
+        <label>{copied ? "Сводка скопирована" : "Текст для передачи"}
+          <textarea ref={briefField} readOnly rows={4} value={brief} onFocus={e => e.target.select()} />
+        </label>
+      </div>}
       <dl className="case-facts">
         <div>
           <dt>Инциденты</dt>

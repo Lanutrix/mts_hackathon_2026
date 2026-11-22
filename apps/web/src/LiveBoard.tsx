@@ -12,8 +12,8 @@ import Loader from "./Loader";
 import {screenLink} from "./routes";
 import {serviceFilterId} from "../../../packages/contracts/serviceType";
 import { ShiftClock, ShiftMetrics } from "./LiveIndicators";
-import { useLivePrefix } from "./useLivePrefix";
-import TriageCases, { caseRequest } from "./TriageCases";
+import { responseBands, responseRank } from "../../../packages/domain/responseOrder";
+import TriageCases from "./TriageCases";
 import type { TriageCase, Triage } from "../../../packages/domain/triage";
 import "./triage.css";
 import { duration, groups, type Dashboard, type Signal } from "./liveFeed";
@@ -47,12 +47,13 @@ function SearchFilters({
   ns,
   sources,
   switchSource,
-}: SelectionProps) {
+  defaultSort,
+}: SelectionProps & { defaultSort: string }) {
   const panel = useRef<HTMLDetailsElement>(null);
   const filtered = !!(
     params.get("service") ||
     params.has("up") ||
-    (params.get("sort") && params.get("sort") !== "deadline")
+    (params.get("sort") && params.get("sort") !== defaultSort)
   );
   useEffect(() => {
     const outside = (e: PointerEvent) => {
@@ -109,11 +110,12 @@ function SearchFilters({
             Сортировка
             <select
               value={
-                params.get("sort") || (params.has("case") ? "" : "deadline")
+                params.get("sort") || defaultSort
               }
               onChange={(e) => setParam("sort", e.target.value)}
             >
-              {params.has("case") && <option value="">По срочности</option>}
+              {defaultSort === "" && <option value="">По срочности</option>}
+              <option value="response">По порядку разбора</option>
               <option value="deadline">По сроку</option>
               <option value="registered">По регистрации</option>
               <option value="id">По номеру</option>
@@ -160,8 +162,10 @@ function SearchFilters({
     </div>
   );
 }
+type RegisterPage = { offset: number; total: number; nextChangeAt: number | null; items: Incident[] };
+type RegisterDashboard = Dashboard & { register: RegisterPage };
 type Props = SelectionProps & {
-  data: Dashboard & { triage: Triage; simulation?: { runId: string } };
+  data: RegisterDashboard & { triage: Triage; simulation?: { runId: string } };
   csrf?: string;
   canAnalyze: boolean;
   filtering: boolean;
@@ -174,6 +178,7 @@ type Props = SelectionProps & {
 export default function LiveBoard({
   data,
   filtering,
+  online,
   csrf,
   canAnalyze,
   now,
@@ -191,6 +196,12 @@ export default function LiveBoard({
     (item) => item.id === search.params.get("case"),
   );
   const amount = triage.unique;
+  const query = new URLSearchParams(search.params);
+  query.set("groupBy", triage.groupBy);
+  const defaultSort = triage.groupBy === "response" ? "response" : chosen ? "" : "deadline";
+  const missingCase = search.params.has("case") && !chosen;
+  const activeBand = responseBands.find(band => band.key === query.get("band"));
+  const filteredView = !!activeBand || signal !== "all" || ["q", "service", "up"].some(key => search.params.get(key));
   return (
     <section className="broadcast" aria-labelledby="shift-name">
       <header className="triage-header">
@@ -245,9 +256,22 @@ export default function LiveBoard({
             </button>
           ))}
         </div>
-        <SearchFilters {...search} />
+        <SearchFilters {...search} defaultSort={defaultSort} />
       </div>
-      <div className="triage-layout">
+      {activeBand && <button type="button" className="scope-band" aria-label={"Снять ограничение: " + activeBand.label}
+        onClick={() => search.setParam("breakdown", "")}><Icon name="queue" size={15} />
+        {activeBand.label}<span aria-hidden="true">×</span></button>}
+      {(!amount || missingCase) && !filtering ? (
+        <section className="quiet-shift" role="status" data-testid="empty-shift">
+          <span className="quiet-mark"><Icon name={filteredView || missingCase ? "research" : "live"} size={30} /></span>
+          <div><h2>{missingCase ? "Подборка разобрана" : filteredView ? "Совпадений нет" : "Очередь пуста"}</h2>
+            <p>{missingCase ? "В этой группе больше нет заявок. Можно перейти к следующей." :
+              filteredView ? "Попробуйте другой запрос или измените фильтры." :
+              online ? "Новые заявки появятся здесь автоматически." : "Ожидаем подключение к источнику."}</p>
+            {missingCase && <button onClick={() => search.setParam("case", "")}>К очереди</button>}
+          </div>
+        </section>
+      ) : <div className="triage-layout">
         <TriageCases
           key={search.ns + "/" + (data.simulation?.runId ?? "")}
           cases={triage.cases}
@@ -259,7 +283,7 @@ export default function LiveBoard({
           runId={data.simulation?.runId ?? ""}
           modelGuidance={!!triage.modelGuidance}
           revision={data.revision}
-          query={search.params.toString()}
+          query={query.toString()}
           ns={search.ns}
           csrf={csrf}
           canAnalyze={canAnalyze}
@@ -273,35 +297,32 @@ export default function LiveBoard({
             <Ledger
               key={search.ns + "?" + search.params.toString()}
               data={data}
-              signal={signal}
               chosen={chosen}
-              sort={search.params.get("sort") || "deadline"}
-              query={search.params.toString()}
+              responseOrder={triage.groupBy === "response" && (!query.has("sort") || query.get("sort") === "response")}
+              query={query.toString()}
               now={now}
               zone={zone}
               open={open}
             />
           )}
         </section>
-      </div>
+      </div>}
       {children}
     </section>
   );
 }
 function Ledger({
   data,
-  signal,
   chosen,
-  sort,
+  responseOrder,
   query,
   now,
   zone,
   open,
 }: {
-  data: Dashboard;
-  signal: Signal;
+  data: RegisterDashboard;
   chosen?: TriageCase;
-  sort: string;
+  responseOrder: boolean;
   query: string;
   now: number;
   zone: string;
@@ -359,47 +380,40 @@ function Ledger({
   const [page, setPage] = useState(0);
   const [caseError, setCaseError] = useState(""),
     [retry, setRetry] = useState(0);
-  const total =
-    chosen?.count ??
-    (signal === "all" ? data.unique : data.groups[signal].count);
+  const total = data.register.total;
   const current = Math.min(page, Math.max(0, Math.ceil(total / pageSize) - 1));
   const target = Math.min((current + 1) * pageSize, total);
   const [casePage, setCasePage] = useState<{
     request: string;
+    window: string;
     items: Incident[];
   } | null>(null);
-  const scoped = chosen
-    ? caseRequest(chosen, query, data.namespace, data.revision) +
-      "&offset=" +
-      current * pageSize +
-      "&limit=" +
-      pageSize
-    : "";
+  const offset = current * pageSize;
+  const local = offset >= data.register.offset && target <= data.register.offset + data.register.items.length;
+  const params = new URLSearchParams(query);
+  params.set("ns", data.namespace);
+  params.set("register", "1");
+  params.set("offset", String(offset));
+  params.set("limit", String(pageSize));
+  const scoped = local ? "" : "/api/dashboard?" + params;
+  const pageKey = JSON.stringify([scoped, data.revision, data.register.nextChangeAt, chosen?.hash]);
   useEffect(() => {
     if (!scoped) return;
     const ac = new AbortController();
     setCaseError("");
-    void fetch(scoped, { signal: ac.signal })
-      .then(async (r) => {
-        const body = await r.json();
-        if (!r.ok)
-          throw new Error(body.message || "Не удалось загрузить инциденты группы.");
-        if (!ac.signal.aborted)
-          setCasePage({ request: scoped, items: body.items });
-      })
-      .catch((e) => {
-        if (!ac.signal.aborted) setCaseError(e.message);
-      });
+    void fetch(scoped, { signal: ac.signal }).then(async response => {
+      if (!response.ok) throw new Error("Не удалось загрузить страницу.");
+      const next: RegisterDashboard = await response.json();
+      if (next.revision !== data.revision || next.register.total !== total || next.register.nextChangeAt !== data.register.nextChangeAt)
+        throw new Error("Очередь обновляется. Повторите загрузку страницы.");
+      if (!ac.signal.aborted) setCasePage({ request: pageKey, window: scoped, items: next.register.items });
+    }).catch(error => { if (!ac.signal.aborted) setCaseError(error.message); });
     return () => ac.abort();
-  }, [scoped, retry]);
-  const prefix = useLivePrefix(data, signal, sort, query, chosen ? 0 : target);
-  const loading = chosen ? casePage?.request !== scoped : prefix.loading;
-  const error = chosen ? caseError : prefix.error;
-  const records = chosen
-    ? casePage?.request === scoped
-      ? casePage.items
-      : []
-    : prefix.records;
+  }, [scoped, pageKey, data.revision, data.register.nextChangeAt, total, retry]);
+  const loading = !local && casePage?.request !== pageKey;
+  const error = local ? "" : caseError;
+  const records = useMemo(() => local ? data.register.items.slice(offset, target) :
+    casePage?.window === scoped ? casePage.items : [], [local, data.register.items, offset, target, casePage, scoped]);
   const timeFormat = useMemo(
     () =>
       new Intl.DateTimeFormat("ru-RU", {
@@ -434,9 +448,7 @@ function Ledger({
     const timer = setTimeout(() => setFresh([]), 4000);
     return () => clearTimeout(timer);
   }, [fresh]);
-  const visible = chosen
-    ? records.slice(0, pageSize)
-    : records.slice(current * pageSize, target);
+  const visible = records;
   function turnPage(next: number) {
     setPage(next);
     register.current?.focus({ preventScroll: true });
@@ -451,7 +463,7 @@ function Ledger({
     >
       <div className="triage-ledger-title">
         <div>
-          <h2>Инциденты</h2>
+          <h2>{responseOrder ? "Порядок разбора" : "Инциденты"}</h2>
           {chosen && <small>{chosen.label}</small>}
         </div>
         {total > 0 && (
@@ -481,7 +493,7 @@ function Ledger({
         <thead>
           <tr>
             <th scope="col">Инцидент</th>
-            <th scope="col">Сигнал</th>
+            <th scope="col">{responseOrder ? "Почему в очереди" : "Сигнал"}</th>
             <th scope="col">Статус</th>
             <th scope="col">Срок</th>
           </tr>
@@ -500,6 +512,7 @@ function Ledger({
                   : delta <= 900000
                     ? "Срок близко"
                     : "До срока";
+            const band = responseOrder ? responseBands[responseRank(item, now)] : undefined;
             return (
               <tr
                 key={item.key}
@@ -546,6 +559,9 @@ function Ledger({
                   </button>
                 </td>
                 <td className="feed-reasons">
+                  {band && <small className="queue-reason" title={band.basis}>
+                    {band.key === "criticalDeadline" ? (delta !== null && delta < 0 ? "Критический · просрочен" : "Критический · срок близко") : band.label}
+                  </small>}
                   <div className="feed-signals">
                     {item.groups.map((g) => (
                       <SignalBadge key={g} signal={g} />
@@ -577,7 +593,7 @@ function Ledger({
         <div className="feed-empty" role="alert">
           {error}{" "}
           <button
-            onClick={() => (chosen ? setRetry((r) => r + 1) : prefix.retry())}
+            onClick={() => setRetry((r) => r + 1)}
           >
             Повторить
           </button>
