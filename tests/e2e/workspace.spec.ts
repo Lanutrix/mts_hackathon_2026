@@ -168,6 +168,25 @@ test("source answers choose a team directory, ranked durations and an inspectabl
   await expect(page).toHaveURL(/\/incident\/DEMO-42-00004/);
 });
 
+test("natural questions open a team ranking and an evidence graph without a format prompt", async ({ page }) => {
+  await enter(page);
+  const ranking = await ask(page, "У какой команды больше всего заявок?");
+  const bars = page.locator('.fact-distribution[data-display="bars"]');
+  await expect(bars.getByRole("button").first()).toContainText(ranking.groups[0].label);
+  await bars.getByRole("button").first().click();
+  await expect(page.getByRole("dialog").getByRole("link").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await ask(page, "Что общего у двух инцидентов?");
+  await expect(page.locator(".cx-stage")).toContainText("номера");
+  await expect(page.locator(".fact-graph")).toHaveCount(0);
+  const ids = ["DEMO-42-00001", "DEMO-42-00004"];
+  await ask(page, "Что общего у двух инцидентов " + ids.join(" и ") + "?");
+  const graph = page.locator(".fact-graph");
+  for (const id of ids) await expect(graph.getByRole("link", { name: id })).toBeVisible();
+  await expect(graph.locator(".fact-edge").first()).toContainText(/ссылка|совпадение/iu);
+});
+
 test("square map to compound views to incident and back preserves the conversation and each exact selection", async ({
   page,
 }) => {

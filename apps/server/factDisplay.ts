@@ -15,7 +15,7 @@ export function requestedFactDisplay(question: string): FactDisplay | undefined 
   if (/таблиц|таблич/u.test(s)) return "table";
   if (/спис(?:ком|ка|ке|ку)|перечнем/u.test(s)) return "list";
   if (/карточками|плитками/u.test(s)) return "cards";
-  if (/кольц|кругов\p{L}*\s+диаграмм|в (?:виде|форме) круга|в процентах|процентное соотношение/u.test(s)) return "ring";
+  if (/кольц|кругов\p{L}*\s+диаграмм|в (?:виде|форме) круга/u.test(s)) return "ring";
   switch (readVisual(s).presentation) {
     case "flow": return "diagram";
     case "orbit": return "ring";
@@ -24,6 +24,7 @@ export function requestedFactDisplay(question: string): FactDisplay | undefined 
     case "register": return "list";
     case "compare": return "table";
   }
+  if (/в процентах|процентное соотношение/u.test(s)) return "ring";
 }
 
 // A change of medium is allowed to reuse a pinned result only if no subject,

@@ -9,7 +9,7 @@ const formWords: [AnswerPresentation, RegExp][] = [
   ["matrix", /(?:теплов\p{L}*\s+карт|матриц)/u],
   [
     "orbit",
-    /кольц|кругов\p{L}*|сектор|пончик|дол[яию]\s+(?:кажд|команд|продукт|групп)|структур\p{L}*\s+дол/u,
+    /кольц|кругов\p{L}*|сектор|пончик/u,
   ],
   ["flow", /схем|иерарх|дерев|ветв|поток|разветв/u],
   [
@@ -81,18 +81,31 @@ export function validVisual(view: Record<string, unknown>) {
         new Set(view.exhibits).size === view.exhibits.length))
   );
 }
+export function explicitPresentation(question: string) {
+  return formWords.find(([, pattern]) => pattern.test(question))?.[0];
+}
+
 export function readVisual(question: string): Partial<CanvasView> {
   const exhibits = exhibitWords
     .filter(([, pattern]) => pattern.test(question))
     .map(([id]) => id)
     .slice(0, 3);
   const presentation =
-    formWords.find(([, pattern]) => pattern.test(question))?.[0] ??
-    (exhibits.length ? "brief" : undefined);
+    explicitPresentation(question) ??
+    (exhibits.length ? "brief" : inferredPresentation(question));
   return {
     ...(presentation ? { presentation } : {}),
     ...(exhibits.length ? { exhibits } : {}),
   };
+}
+
+export function inferredPresentation(question: string): AnswerPresentation | undefined {
+  if (
+    /дол[яию]\s+(?:кажд|команд|продукт|групп)|структур\p{L}*\s+дол|распредел\p{L}*.*(?:между|по)\s+(?:разн\p{L}*\s+)?(?:команд|продукт|приоритет|статус|симптом)|(?:часть|дол[яиюе]|процент)\p{L}*.*(?:приходится|приходятся|у кажд|на кажд|по команд|по продукт)/u.test(question)
+  ) return "orbit";
+  if (
+    /(?:какие|которые|назови)\s+(?:(?:сейчас|открытые|активные|просроченные|критичные|закрытые)\s+)*(?:заявки|тикеты|обращения|инциденты)(?!\p{L})/u.test(question)
+  ) return "register";
 }
 export function withVisual<T extends CanvasView>(
   view: T,

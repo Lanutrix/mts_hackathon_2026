@@ -42,6 +42,8 @@ const list =
   /перечисл|перечень|список|назови|какие|каков\p{L}* состав|как\p{L}* называ/u;
 const frequency =
   /сам\p{L}*\s+(?:часто\s+)?встреча|чаще|часты[йемх]|частая|частом|наиболее част|распростран|преоблада|превалир|доминиру|лидиру|больше всего|большинств|популярн|реже|редк(?:ий|ая|ое)|меньше всего/u;
+const workloadRank =
+  /(?:сам\p{L}*|более всего|(?:сильнее|больше|меньше) всего|наиболее|наименее)\s+(?:загруж|нагруж)|(?:наибольш|наименьш|максимальн|минимальн)\p{L}*\s+(?:количеств|числ|нагрузк)|(?:больше|меньше) (?:всех|остальных)|(?:максимум|минимум)\s+(?:заяв|инцидент|тикет|обращен)/u;
 const extremum =
   /рекорд|дольш|долг|длительн|медлен|быстр|коротк|минимальн|максимальн|больше всего|меньше всего|наибольш|наименьш|сам\p{L}* много/u;
 const resolution =
@@ -51,10 +53,19 @@ const timeQuestion =
 const graph =
   /связ[ьиьяеи]|связан|связыва|зависимост|отношени|цепочк|граф(?!ик)|схем|диаграмм/u;
 const relation = /связ[ьиьяеи]|связан|связыва|зависимост|отношени|цепочк/u;
+const commonality =
+  /что (?:у них )?общего|чем (?:они )?(?:похож|схож)|что (?:их )?объединяет|общие (?:черт|признак|пол[яе])|(?:сходств|совпадени|пересечени)/u;
+const referredTickets = /эти[хм]|между ними|у них|они (?:похож|схож)|их объединяет/u;
 const closed = /(?<!\p{L})закры(?:ли|т)/u;
 const finished = /(?<!\p{L})(?:заверш(?:или|ен)|реш(?:или|ен)|устранили)/u;
 const intake = /регистрац|зарегистр|поступ|создан|создали|завели|пода(?:ли|н)/u;
 const ticketTerm = /заяв[ко]|инцидент|тикет|обращени|сбо[яией]|проблем/u;
+// A count of tickets has a ticket noun as its object. A count of clients,
+// hours, or distinct teams needs a different measure even when tickets are mentioned.
+const ticketCount =
+  /(?<!\p{L})(?:ск[оo]ль?к[оo]|подсчита[йть]|количеств\p{L}*|число)\s+(?:(?:всего|сейчас|тут|у нас|таких|этих|было|есть|еще|уже|открыт\p{L}*|активн\p{L}*|просроченн\p{L}*|закрыт\p{L}*|критич\p{L}*|новых|завершенн\p{L}*)\s+)*(?:заяв[ко]|инцидент|тикет|обращени)/u;
+export const queueCount =
+  /^(?:(?:а|и|теперь)\s+)*сколько\s+(?:(?:всего|сейчас|таких|тут|у нас)\s+)*(?:заявок|обращений|тикетов|инцидентов)(?:\s+(?:в очереди|сейчас|всего))?[?!.\s]*$/iu;
 const follow =
   /^(?:а |и |теперь |тогда )*(?:только|среди|из них|для |в продукте|по продукту|за |вчера|сегодня|без |кроме|исключ|не счи|оставь|огранич|ск[оo]ль?к[оo] (?:таких|из них))|^(?:а |и |теперь )ск[оo]ль?к[оo]\s+(?:уже\s+)?(?:закры|заверш|решен)/u;
 const namedId =
@@ -127,7 +138,7 @@ export function periodQuestion(s: string) {
 export function mightAskFact(question: string, previous?: CanvasIntent) {
   const s = normalized(question);
   return (
-    frequency.test(s) ||
+    frequency.test(s) || workloadRank.test(s) || commonality.test(s) || ticketCount.test(s) ||
     (resolution.test(s) && extremum.test(s)) ||
     ((list.test(s) || quantity.test(s)) &&
       (dimensions.some(([re]) => re.test(s)) || timeQuestion.test(s))) ||
@@ -154,7 +165,7 @@ export function readFact(
   previous?: CanvasIntent,
 ): Reading | undefined {
   const original = normalized(question);
-  if (/что такое|что означает|что значит|объясни понятие/u.test(original))
+  if (/что такое|что означает|что значит|объясни понятие|почему|зачем/u.test(original))
     return;
   if (/(?<!\p{L})не\s+(?:были?\s+|было\s+)?(?:закры(?:ли|т)|заверш(?:или|ен)|реш(?:или|ен))\p{L}*(?!\p{L})/u.test(shaped))
     return {
@@ -184,9 +195,9 @@ export function readFact(
   let dimension: CanvasDimension = dim ?? "ticket";
   let ids: string[] | undefined;
   if (
-    graph.test(shaped) &&
+    (graph.test(shaped) || commonality.test(shaped)) &&
     (mentioned.ids?.length ||
-      (relation.test(shaped) && ticketTerm.test(shaped)) ||
+      ((relation.test(shaped) || commonality.test(shaped)) && (ticketTerm.test(shaped) || referredTickets.test(shaped))) ||
       /(?:inc|demo|sim)[-\d]/iu.test(shaped))
   ) {
     const cited = [...(mentioned.ids ?? [])];
@@ -198,7 +209,7 @@ export function readFact(
       )
         cited.push(id);
     }
-    ids = cited.length ? cited : previous?.filters.ids;
+    ids = cited.length ? cited : referredTickets.test(shaped) ? previous?.filters.ids : undefined;
     if (!ids || ids.length < 2)
       return {
         problem:
@@ -206,6 +217,9 @@ export function readFact(
       };
     operation = "relations";
     dimension = "ticket";
+  } else if (dim && (frequency.test(measure) || workloadRank.test(measure)) &&
+    !/(?:времени|по времени|длительност)/u.test(measure)) {
+    operation = "frequency";
   } else if (
     extremum.test(shaped) &&
     resolution.test(shaped) &&
@@ -214,8 +228,6 @@ export function readFact(
   ) {
     operation = "duration";
     dimension = "ticket";
-  } else if (dim && frequency.test(shaped)) {
-    operation = "frequency";
   } else if (
     dim &&
     (quantity.test(shaped) || list.test(shaped)) &&
@@ -233,7 +245,8 @@ export function readFact(
   } else if (
     quantity.test(shaped) &&
     (ticketTerm.test(shaped) || actionStates || continuation) &&
-    (timeQuestion.test(shaped) || continuation || (namedStatus && actionStates))
+    (timeQuestion.test(shaped) || continuation || (namedStatus && actionStates) ||
+      (ticketCount.test(shaped) && !dim && !/(?:по|между)\s+\p{L}/u.test(measure)))
   ) {
     operation = "count";
     dimension = "ticket";
@@ -256,7 +269,7 @@ export function readFact(
     };
   }
   if (
-    /изменял|менял|переход|поменял|побывал|перешл|денег|выручк|ущерб|клиент(?:ов|ам)|пользователей|эскалаци|первопричин|прогноз|(?:кроме|исключая|не считать|не считая|без учета|за исключением)\s|(?:не |без )просроч/u.test(
+    /изменял|менял|переход|поменял|побывал|перешл|денег|выручк|ущерб|клиент(?:ов|ам)|пользователей|эскал|географ|регион|геолокац|первопричин|прогноз|(?:кроме|исключая|не считать|не считая|без учета|за исключением)\s|(?:не |без )просроч/u.test(
       shaped,
     ) ||
     /(?:по|для|из|в|у|к)\s+(?:команд[ыеу]|продукт[аеу]|сервис[аеу])\s+(?!E\d+(?!\d)|(?:с|без|и|где)\s)[\p{L}\d_-]+/u.test(
@@ -272,7 +285,7 @@ export function readFact(
     };
   }
   const ascending =
-    /реже|редк(?:ий|ая|ое)|меньше всего|быстр|коротк|минимальн|наименьш/u.test(
+    /реже|редк(?:ий|ая|ое)|меньше (?:всего|всех|остальных)|быстр|коротк|миним(?:ум|альн)|наимен(?:ьш|ее)/u.test(
       shaped,
     ) ||
     (continuation &&

@@ -30,7 +30,7 @@ import {
   makeAnswer,
   readGuide,
 } from "./canvasGuide.ts";
-import { validVisual, readVisual, withVisual } from "./canvasVisuals.ts";
+import { explicitPresentation, inferredPresentation, validVisual, readVisual, withVisual } from "./canvasVisuals.ts";
 import { spaces, type Incident } from "../../packages/domain/index.ts";
 import {
   safeOperationalWord,
@@ -44,7 +44,7 @@ import {
   type DialogueTurn,
 } from "./canvasDialogue.ts";
 
-import { mightAskFact, periodIn, periodQuestion, readFact, validFact, validFactView } from "./canvasFactPlan.ts";
+import { mightAskFact, periodIn, periodQuestion, queueCount, readFact, validFact, validFactView } from "./canvasFactPlan.ts";
 
 export const initialIntent: CanvasIntent = {
   groupBy: "symptom",
@@ -727,13 +727,16 @@ export async function planCanvas(
   const decision = await planQuestion(question, rows, ns, previous, client, history);
   const fact = decision.intent.fact;
   if (!fact && !decision.textOnly && !decision.answer && decision.mode !== "unsupported" &&
-      (display === "list" || display === "table") && /дол[яиюе]|распределени/iu.test(question) &&
+      (display === "list" || display === "table") && /дол[яиюе]|распредел|часть|процент/iu.test(question) &&
       decision.intent.groupBy !== "ticket") {
     // Keep the queue's own grouping, including entries whose team is missing.
     return { ...decision, intent: { ...decision.intent, ...groupDisplay(display) } };
   }
-  if (!fact || !supportsFactDisplay(fact.operation, display)) return decision;
-  return { ...decision, intent: { ...decision.intent, fact: { ...fact, display } } };
+  if (!fact) return decision;
+  const preferred = supportsFactDisplay(fact.operation, display) ? display :
+    fact.display ?? (fact.operation === "distinct" ? "list" :
+      fact.operation === "duration" ? "table" : fact.operation === "frequency" ? "bars" : undefined);
+  return preferred ? { ...decision, intent: { ...decision.intent, fact: { ...fact, display: preferred } } } : decision;
 }
 
 async function planQuestion(
@@ -755,11 +758,15 @@ async function planQuestion(
       return { ...unsupported(initialIntent, plan.problem), conversation: { title: "Уточните вопрос", text: plan.problem }, textOnly: true };
     if (plan) {
       const inherit = plan.continuation || /среди них|из них|по ним|таких|этих/iu.test(question);
-      const local = localReading(source.shaped, source.mentioned, inherit ? previous : undefined);
-      const filters: CanvasFilters = { ...(inherit ? previous?.filters : {}), ...local.filters };
+      const local = localReading(source.shaped, source.mentioned, previous);
+      const filters: CanvasFilters = { ...local.base.filters };
+      if (!inherit && local.base.automaticStates) delete filters.states;
+      Object.assign(filters, local.filters);
       for (const key of local.clear) delete filters[key];
       if (plan.ids) filters.ids = plan.ids;
       if (plan.states) filters.states = plan.states;
+      if (plan.fact.operation === "count" && plan.fact.period === "snapshot" && !filters.states &&
+          !filters.ids && !previous?.fact && queueCount.test(question.trim())) filters.states = [0, 2, 20];
       if (previous?.filters.states && filters.states && /(?:из|среди) них|по ним|таких|этих/iu.test(question)) {
         filters.states = filters.states.filter(state => previous.filters.states!.includes(state));
       }
@@ -1060,6 +1067,10 @@ async function planData(
       local.base,
       "Такое название или номер не удалось сопоставить с источником. Укажите точное название продукта, команды или номер заявки.",
     );
+  const semanticView = inferredPresentation(first) && !detectedInsights.length &&
+    !parts.length && !guideHint && !periodQuestion(source.shaped);
+  if (semanticView && (!client || !explicitPresentation(first)))
+    return { intent: localIntent, mode: "snapshot", provider: "Поля ITSM" };
   const safeTokens = source.shaped.match(/\bE\d+\b|[\p{L}\p{N}_-]+/gu) ?? [];
   const safeShape = safeTokens
     .map((word) => {
@@ -1225,6 +1236,8 @@ async function planData(
   if (needsPeriod && !p.fact) return fallback("Требуется план расчёта.");
   const conversation = readConversation(p.conversation);
   if (p.conversation !== undefined && !conversation) return malformed();
+  if (semanticView && (conversation || p.fact || p.guide || p.insightIds))
+    return { intent: localIntent, mode: "snapshot", provider: "Поля ITSM" };
   if (conversation) {
     if (p.guide !== undefined || p.supported === false) return malformed();
     const asksForCount =

@@ -490,3 +490,115 @@ test("groups and dates compose with product and priority; unknown restrictions n
   assert.equal(unknown.mode, "unsupported");
   assert.equal(unknown.groups.length, 0);
 });
+
+test("a first-turn workload question ranks teams, names every tied leader and accepts an explicit table", async () => {
+  const rows = ["А", "Б", "В", "Г", "Д", "Е", "Ж"].flatMap((letter, index) =>
+    Array.from({ length: index === 6 ? 1 : 2 }, (_, n) =>
+      row("T-" + index + "-" + n, 0, "2026-01-01T00:00:00Z", { assignedGroupName: "Отдел " + letter })));
+  const source = { namespace: "demo", revision: 1, rows: new Map(rows.map(r => [r.id, r])) };
+  const service = new CanvasService();
+  for (const q of ["у какой команды больше всего заявок", "Какая команда сильнее всего загружена?",
+    "На какую команду приходится наибольшее количество обращений?"]) {
+    const result = await service.read(source, "me", q);
+    assert.equal(result.intent.groupBy, "team", q);
+    assert.equal(result.intent.fact?.display, "bars", q);
+    assert.deepEqual(result.groups.map(g => g.count), [2, 2, 2, 2, 2, 2, 1]);
+    for (const label of ["А", "Б", "В", "Г", "Д", "Е"])
+      assert.ok(result.fact!.headline.includes("Отдел " + label), label);
+    assert.doesNotMatch(result.fact!.headline, /Отдел Ж/);
+  }
+  const asTable = await service.read(source, "me", "Какая команда сильнее всего загружена? Ответь таблицей");
+  assert.equal(asTable.intent.fact?.display, "table");
+  assert.equal(asTable.groups[0].count, 2);
+});
+
+test("commonality requests graph verified matches and require specific ticket IDs", async () => {
+  const { source, service } = setup();
+  for (const q of ["Что общего у двух инцидентов INC-1 и INC-2?", "Чем похожи INC-1 и INC-2?",
+    "Что объединяет заявки INC-1 и INC-2?"]) {
+    const r = await service.read(source, "me", q);
+    assert.deepEqual(r.fact?.nodes?.map(n => n.id), ["INC-1", "INC-2"], q);
+    assert.ok(r.fact!.edges!.some(e => e.kind === "reference" && e.evidence.some(s => s.includes("relatedIncidentIds"))));
+    assert.ok(r.fact!.edges!.some(e => e.kind === "similarity" && e.evidence.some(s => s.includes("Кабинет"))));
+  }
+  for (const q of ["Что общего у двух инцидентов?", "Чем похожи эти заявки?", "Что объединяет INC-1 и другой инцидент?"]) {
+    const r = await service.read(source, "me", q);
+    assert.equal(r.selection, "", q);
+    assert.match(r.summary, /номер.*двух|два.*номер/iu);
+  }
+  const missing = await service.read(source, "me", "Что общего у INC-1 и INC-999?");
+  assert.deepEqual(missing.fact?.nodes?.map(n => n.found), [true, false]);
+  assert.deepEqual(missing.fact?.edges, []);
+  const prior = { groupBy: "ticket" as const, layout: "list" as const, filters: { ids: ["INC-1", "INC-2"] } };
+  const referred = await service.read(source, "me", "Что у них общего?", prior);
+  assert.deepEqual(referred.fact?.nodes?.map(n => n.id), prior.filters.ids);
+  const absent = await service.read(source, "me", "Что у них общего?");
+  assert.match(absent.summary, /номер.*двух/iu);
+});
+
+test("ticket lists, distribution of shares, resolution rankings and scalar counts choose a first-turn canvas", async () => {
+  const { source } = setup();
+  const service = new CanvasService();
+  const tickets = await service.read(source, "me", "Какие заявки сейчас открыты?");
+  assert.equal(tickets.intent.presentation, "register");
+  assert.deepEqual(tickets.tickets.map(t => t.id).sort(), ["INC-1", "INC-5", "INC-7"]);
+  for (const q of ["Как распределены заявки между командами?", "Какая часть обращений приходится на каждую команду?", "Какова доля каждой команды?"]) {
+    const shares = await service.read(source, "me", q);
+    assert.equal(shares.intent.presentation, "orbit", q);
+    assert.equal(shares.intent.groupBy, "team");
+    assert.equal(shares.total, 3);
+  }
+  const names = await service.read(source, "me", "Перечисли команды, у которых есть заявки");
+  assert.equal(names.intent.fact?.display, "list");
+  assert.equal((await service.read(source, "me", "Какие команды есть?")).intent.fact?.display, "list");
+  const duration = await service.read(source, "me", "Какую заявку закрывали дольше всего?");
+  assert.equal(duration.intent.fact?.operation, "duration");
+  assert.equal(duration.intent.fact?.display, "table");
+  const count = await service.read(source, "me", "Сколько открытых заявок?");
+  assert.equal(count.intent.fact?.operation, "count");
+  assert.equal(count.total, 3);
+  assert.deepEqual(count.groups, []);
+});
+
+test("semantic workload rankings preserve active product and priority filters and pin a later change of form", async () => {
+  const { source, service } = setup();
+  const current = { groupBy: "product" as const, layout: "groups" as const, filters: { products: ["Кабинет"], priorities: [4] } };
+  const rank = await service.read(source, "me", "У какой команды больше всего заявок?", current);
+  assert.deepEqual(rank.intent.filters, current.filters);
+  const table = await service.read({ ...source, revision: 10, rows: new Map() }, "me", "Теперь таблицей", rank.intent, rank.turnToken);
+  assert.equal(table.intent.fact?.display, "table");
+  assert.equal(table.selection, rank.selection);
+  assert.deepEqual(table.groups, rank.groups);
+  const closed = await service.read(source, "me", "У какой команды больше всего закрытых заявок?");
+  assert.equal(closed.intent.fact?.operation, "frequency");
+  assert.deepEqual(closed.intent.filters.states, [10]);
+  const bars = await service.read(source, "me", "У какой команды больше всего заявок? Покажи полосами в процентах.");
+  assert.equal(bars.intent.fact?.display, "bars");
+});
+
+test("semantic forms are independent of prose-only model answers, with an explicit medium taking precedence over shares", async () => {
+  const { source, service } = setup();
+  for (const [question, display] of [
+    ["Как распределены заявки между командами?", "orbit"],
+    ["Как распределены заявки между командами? Покажи таблицей", "compare"],
+    ["Покажи доли команд полосами", "bars"],
+    ["Какие заявки сейчас открыты?", "register"],
+  ]) {
+    const result = await service.read(source, "me", question);
+    assert.ok(result.selection, question);
+    assert.equal(result.conversation, undefined, question);
+    assert.equal(result.intent.presentation, display, question);
+  }
+});
+
+test("scalar counts keep the default queue for current workload and never count a different population", async () => {
+  const { source, service } = setup();
+  const queue = await service.read(source, "me", "Сколько сейчас заявок?");
+  assert.equal(queue.intent.fact?.operation, "count");
+  assert.equal(queue.total, 3);
+  const byTeam = await service.read(source, "me", "Сколько заявок у команды Сеть?");
+  assert.equal(byTeam.intent.fact?.operation, "count");
+  assert.equal(byTeam.total, 1);
+  const unsupported = await service.read(source, "me", "Сколько заявок в регионе Марс?");
+  assert.equal(unsupported.selection, "");
+});

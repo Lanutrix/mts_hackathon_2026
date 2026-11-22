@@ -359,9 +359,7 @@ export function describeFact(
       const first = groups[0],
         ties = first ? groups.filter((g) => g.count === first.count) : [];
       headline = first
-        ? ties
-            .slice(0, 5)
-            .map((g) => g.label)
+        ? ties.map((g) => g.label)
             .join(", ") +
           " — " +
           first.count +
