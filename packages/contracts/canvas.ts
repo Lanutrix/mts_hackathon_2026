@@ -41,6 +41,9 @@ export interface CanvasView {
   weightBy?: CanvasWeight;
 }
 export interface CanvasIntent extends CanvasView {
+  brief?: true;
+  briefRank?: CanvasIntent;
+  commentDraft?: "deadline" | "progress" | "impact";
   shiftAdvice?: true;
   rankFocus?: { place: number | "last" | "shown"; output: "position" | "count" | "share" | "tickets" };
   fact?: import("./canvasFacts.ts").FactPlan;

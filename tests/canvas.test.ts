@@ -110,6 +110,51 @@ async function setup(publicDemo = true) {
     },
   };
 }
+test("canvas question diagnostics record only the delivered result shape", async (t) => {
+  const { app, ask, headers, stores, respond } = await setup();
+  t.after(() => app.close());
+  const journal = t.mock.method(console, "info", () => {});
+
+  const ranked = (await ask("У какой команды больше всего заявок?")).json<CanvasResult>();
+  assert.ok(ranked.selection);
+  await ask("Составь короткую сводку по открытым заявкам для передачи смены");
+  const tickets = await app.inject({
+    url: "/api/canvas/tickets?ns=workspace&selection=" + ranked.selection, headers: headers(),
+  });
+  assert.equal(tickets.statusCode, 200);
+  const refresh = await app.inject({
+    method: "POST", url: "/api/canvas?ns=workspace", headers: headers(),
+    payload: { refresh: true, context: ranked.intent },
+  });
+  assert.equal(refresh.statusCode, 200);
+  assert.equal((await ask("")).statusCode, 400);
+
+  respond({ conversation: { title: "Стихотворение", text: "Сиреневый вечер над городом тих." } });
+  const poem = (await ask("Сочини двустишие. PRIVATE-PERSON")).json<CanvasResult>();
+  assert.match(poem.conversation!.text, /Сиреневый/);
+  stores.get("workspace")!.rows.clear();
+  const empty = (await ask("У какой команды больше всего заявок?")).json<CanvasResult>();
+  assert.ok(empty.fact);
+  assert.equal(empty.total, 0);
+  const shift = (await ask("С чего начать смену?")).json<CanvasResult>();
+  assert.equal(shift.total, 0);
+  assert.equal(shift.selection, "");
+  const clarification = (await ask("А кто на втором месте?")).json<CanvasResult>();
+  assert.equal(clarification.mode, "unsupported");
+
+  const lines = journal.mock.calls.map(call => call.arguments);
+  assert.doesNotMatch(JSON.stringify(lines), /PRIVATE|Сиреневый|Сочини|координатор|workspace/i);
+  assert.deepEqual(lines.map(([line]) => JSON.parse(line)), [
+    { event: "canvas.answer", mode: "snapshot", kind: "fact", selection: "nonempty" },
+    { event: "canvas.answer", mode: "snapshot", kind: "brief", selection: "nonempty" },
+    { event: "canvas.answer", mode: "model", kind: "prose", selection: "none" },
+    { event: "canvas.answer", mode: "snapshot", kind: "fact", selection: "empty" },
+    { event: "canvas.answer", mode: "snapshot", kind: "prose", selection: "empty" },
+    { event: "canvas.answer", mode: "unsupported", kind: "prose", selection: "none" },
+  ]);
+  assert.ok(lines.every(args => args.length === 1));
+});
+
 test("canvas counts all open source IDs, pages stable selections and validates model plans", async () => {
   const { app, ask, headers, stores, prompts, respond } = await setup();
   try {

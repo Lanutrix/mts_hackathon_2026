@@ -21,9 +21,11 @@ import {
   type Incident,
 } from "../../packages/domain/index.ts";
 import { facet, urgent } from "../../packages/domain/triage.ts";
+import { commentText, type CommentTopic } from "./dispatchSuggestions.ts";
 import { initialIntent, planCanvas } from "./canvasPlan.ts";
 import { buildAnswerInsights } from "./answerInsights.ts";
 import { shiftAnswer, shiftIntent, shiftQuestion } from "./canvasShift.ts";
+import { briefAnswer, briefRequest, planBrief } from "./canvasBrief.ts";
 import { describeFact, prepareFact } from "./canvasFacts.ts";
 import { makeAnswer } from "./canvasGuide.ts";
 import {
@@ -163,29 +165,44 @@ interface PinnedSelection {
   all: CanvasTicket[];
   members: Map<string, CanvasTicket[]>;
 }
+interface TurnState {
+  displaySelection?: string;
+  rankingSelection?: string;
+  rankPlace?: RankFocus["place"];
+  pendingRelationIds?: string[];
+  offered?: { question: string; context: CanvasIntent };
+  pendingComment?: CommentTopic;
+}
+interface StoredTurn extends TurnState {
+  namespace: string;
+  actor: string;
+  run?: string;
+  expires: number;
+  history: DialogueTurn[];
+}
+function acceptsOffer(question: string) {
+  const text = question.toLocaleLowerCase("ru").replace(/[,.!?…]/gu, " ").replace(/\s+/gu, " ").trim();
+  return /^(?:(?:да|ок(?:ей)?|конечно|хорошо|согласен|согласна)(?: (?:сделай(?: это)?|давай|покажи|продолжай))?|давай|сделай это)(?: пожалуйста)?$/u.test(text);
+}
+function commentTopic(question: string): CommentTopic | undefined {
+  if (/(?:^|[,\s])как (?:мне |нам |самому |самой )?(?:написать|составить|подготовить|отправить|добавить|оставить)/iu.test(question) ||
+      /(?:не (?:пиши|составляй)|стихотворени|четверостиши|сочини шутку)/iu.test(question) ||
+      !/комментари|коммент(?:\s|$)|черновик.{0,20}(?:сообщени|ответа)/iu.test(question) ||
+      !/напиш|написать|состав|подготов|сформулир|придум|наброс|черновик|сгенерир|предложи/iu.test(question)) return;
+  return /срок|просроч|дедлайн/iu.test(question) ? "deadline" :
+    /влияни|затронут|масштаб/iu.test(question) ? "impact" : "progress";
+}
+
 export class CanvasService {
   private readonly pinned = new Map<string, PinnedSelection>();
-  private readonly turns = new Map<
-    string,
-    {
-      namespace: string;
-      actor: string;
-      run?: string;
-      expires: number;
-      history: DialogueTurn[];
-      displaySelection?: string;
-      rankingSelection?: string;
-      rankPlace?: RankFocus["place"];
-      pendingRelationIds?: string[];
-    }
-  >();
+  private readonly turns = new Map<string, StoredTurn>();
   constructor(private readonly client?: VseLlm) {}
   private remember(
     source: CanvasSource,
     actor: string,
     history: DialogueTurn[],
     turn?: DialogueTurn,
-    state: { displaySelection?: string; pendingRelationIds?: string[]; rankingSelection?: string; rankPlace?: RankFocus["place"] } = {},
+    state: TurnState = {},
   ) {
     const now = Date.now();
     for (const [key, entry] of this.turns)
@@ -376,36 +393,66 @@ export class CanvasService {
     this.pinned.get(selection)!.displayResult = result;
     return result;
   }
+  private currentTurn(source: CanvasSource, actor: string, token?: string) {
+    const turn = token ? this.turns.get(token) : undefined;
+    return turn && turn.actor === actor && turn.namespace === source.namespace &&
+      turn.run === source.simulation?.runId && turn.expires > Date.now() ? turn : undefined;
+  }
+  private textResult(source: CanvasSource, title: string, text: string): CanvasResult {
+    return { namespace: source.namespace, revision: source.revision, asOf: new Date().toISOString(),
+      sourceTotal: 0, provider: "Поля ITSM", mode: "unsupported", title, summary: text,
+      intent: initialIntent, conversation: { title, text }, selection: "", total: 0,
+      metrics: [], blocks: [], groups: [], tickets: [], suggestions };
+  }
   async read(
-    source: CanvasSource,
-    actor: string,
-    question?: string,
-    context?: CanvasIntent,
-    turnToken?: string,
+    source: CanvasSource, actor: string, question?: string, context?: CanvasIntent, turnToken?: string,
+  ): Promise<CanvasResult> {
+    if (question && acceptsOffer(question)) {
+      const offer = this.currentTurn(source, actor, turnToken)?.offered;
+      if (!offer) return this.textResult(source, "Уточните запрос",
+        "Какой результат нужен? Например, список просроченных заявок или сравнение команд.");
+      question = offer.question;
+      context = offer.context;
+    }
+    const result = await this.evaluate(source, actor, question, context, turnToken);
+    const next = result.conversation?.followUp;
+    const stored = this.currentTurn(source, actor, result.turnToken);
+    if (next || stored?.offered) {
+      // A historic reply stays clickable even after newer branches of the conversation.
+      return { ...result, turnToken: this.remember(source, actor, stored?.history ?? [], undefined, {
+        displaySelection: stored?.displaySelection, rankingSelection: stored?.rankingSelection,
+        rankPlace: stored?.rankPlace, pendingRelationIds: stored?.pendingRelationIds, pendingComment: stored?.pendingComment,
+        offered: next ? { question: next, context: result.intent } : undefined,
+      }) };
+    }
+    return result;
+  }
+  private async evaluate(
+    source: CanvasSource, actor: string, question?: string, context?: CanvasIntent, turnToken?: string,
   ): Promise<CanvasResult> {
     const { namespace, revision } = source;
     const now = Date.now();
-    const prior = turnToken && this.turns.get(turnToken);
-    const activeTurn = prior && prior.namespace === namespace && prior.actor === actor &&
-      prior.run === source.simulation?.runId && prior.expires > now ? prior : undefined;
+    const activeTurn = this.currentTurn(source, actor, turnToken);
     const history = activeTurn?.history ?? [];
     const displayed = activeTurn?.displaySelection ? this.pinned.get(activeTurn.displaySelection) : undefined;
     const focused = displayed && displayed.expires > now ? displayed : undefined;
     const advice = focused?.shift;
+    const brief = question ? briefRequest(question) : context?.brief ? "write" : undefined;
     const shift = question ? shiftQuestion(question, !!advice) : context?.shiftAdvice ? "recommend" : undefined;
     const rankedSelection = activeTurn?.rankingSelection ?? activeTurn?.displaySelection;
     const rankedProjection = rankedSelection ? this.pinned.get(rankedSelection) : undefined;
     const ranking = rankedProjection && rankedProjection.expires > now && isGroupRanking(rankedProjection.displayResult?.intent)
       ? rankedProjection.displayResult : undefined;
     let rankMemberIds: Set<string> | undefined;
-    if (shift === "recommend" && context?.rankFocus) {
-      const { shiftAdvice: _advice, ...rankContext } = context;
-      const members = focused &&
+    const rankScope = brief === "write" && context?.briefRank ? context.briefRank : context;
+    if ((shift === "recommend" || brief === "write") && rankScope?.rankFocus) {
+      const { shiftAdvice: _advice, brief: _brief, briefRank: _scope, ...rankContext } = rankScope;
+      const members = !context?.briefRank && focused &&
         (focused.displayResult?.intent.rankFocus || focused.shift?.result.intent.rankFocus)
         ? focused : this.pinned.get((await this.read(source, actor, undefined, rankContext)).selection);
       rankMemberIds = new Set(members?.all.map(ticket => ticket.id));
     }
-    if (!question && context?.rankFocus && !shift) {
+    if (!question && context?.rankFocus && !shift && !brief) {
       const base = await this.read(source, actor, undefined, rankingIntent(context));
       const projection = this.pinned.get(base.selection);
       if (projection) projection.displayResult = base;
@@ -414,10 +461,13 @@ export class CanvasService {
     const rankRequest = question && readRankRequest(question, !!activeTurn?.rankPlace);
     if (rankRequest && (ranking || rankRequest.place || isGroupRanking(context) || context?.rankFocus || !context))
       return this.rankReply(source, actor, history, rankRequest, ranking, activeTurn?.rankPlace);
-    if (context?.rankFocus && !shift) context = ranking?.intent ?? rankingIntent(context);
-    if (question && context?.shiftAdvice) {
+    if (context?.rankFocus && !shift && !brief) context = ranking?.intent ?? rankingIntent(context);
+    if (question && (context?.shiftAdvice || context?.brief || context?.commentDraft)) {
       context = { ...context };
       delete context.shiftAdvice;
+      delete context.commentDraft;
+      delete context.brief;
+      if (!brief) delete context.briefRank;
     }
     if (question && activeTurn?.displaySelection) {
       const pinned = this.pinned.get(activeTurn.displaySelection);
@@ -457,6 +507,33 @@ export class CanvasService {
       byId.set(r.id, r);
     }
     const rows = [...byId.values()];
+    const pendingComment = activeTurn?.pendingComment;
+    const idReply = question?.trim().match(/^(?:(?:номер|заявка|инцидент)\s+)?#?([\p{L}\p{N}_-]*\d[\p{L}\p{N}_-]*)[.!]?$/iu);
+    const topic = question ? commentTopic(question) ?? (idReply && pendingComment) : context?.commentDraft;
+    if (topic) {
+      const words = question?.toLocaleLowerCase("ru").match(/[\p{L}\p{N}_-]+/gu) ?? [];
+      const ids = new Set(words.filter(word => /\d/u.test(word)));
+      const matches = rows.filter(row => ids.has(row.id.toLocaleLowerCase("ru")));
+      const explicitId = !!idReply || [...ids].some(word => /[a-zа-я_-]/iu.test(word) || /^\d{4,}$/u.test(word));
+      const focusedId = focused?.all.length === 1 ? focused.all[0].id : advice?.result.tickets[0]?.id;
+      const row = !question ? byId.get(context?.filters.ids?.[0] ?? "") : matches.length === 1 ? matches[0] :
+        !explicitId && !matches.length && focusedId ? byId.get(focusedId) : undefined;
+      if (!row) {
+        const text = matches.length > 1 ? "Для какой заявки нужен комментарий? Пришлите один номер." :
+          explicitId || !question ? "Такой заявки нет в текущем источнике. Уточните номер." : "Пришлите номер заявки для черновика комментария.";
+        return { ...this.textResult(source, "Номер заявки", text), sourceTotal: rows.length,
+          turnToken: this.remember(source, actor, history, undefined, { pendingComment: topic }) };
+      }
+      const message = commentText(row, topic, now);
+      const items = [ticket(row, now)];
+      const selection = this.pin(source, actor, items, new Map());
+      return { ...this.textResult(source, "Черновик комментария", row.id + ". " + message),
+        mode: "snapshot", sourceTotal: rows.length, selection, tickets: items, total: 1,
+        intent: { groupBy: "ticket", layout: "list", presentation: "spotlight", filters: { ids: [row.id] }, commentDraft: topic },
+        turnToken: this.remember(source, actor, history, undefined, { displaySelection: selection }),
+      };
+    }
+
     let missingAdvice: string | undefined;
     if (shift === "why") {
       const lead = advice && byId.get(advice.result.tickets[0].id);
@@ -487,6 +564,8 @@ export class CanvasService {
           conversation: { title: "Нужна рекомендация", text: missingAdvice, followUp: "С какой заявки начать?" } }
       : shift === "recommend"
       ? { intent: shiftIntent(context), mode: "snapshot", provider: "Поля ITSM" }
+      : question && brief
+      ? planBrief(question, brief, rows, context)
       : question
       ? await planCanvas(
           question,
@@ -572,7 +651,8 @@ export class CanvasService {
       if (pinned && explanation) pinned.shift = { result, explanation };
       return result;
     }
-    const matches = prepared?.rows ?? scoped.sort(urgent);
+    let matches = prepared?.rows ?? scoped.sort(urgent);
+    if (intent.briefRank && rankMemberIds) matches = matches.filter(row => rankMemberIds!.has(row.id));
     const tickets = matches.map((r) => ticket(r, now));
     const primary = this.block(
       source,
@@ -588,7 +668,7 @@ export class CanvasService {
       tickets,
       now,
     );
-    if (intent.fact && prepared) {
+    if (intent.fact && prepared && !intent.brief) {
       if (intent.fact.ascending && intent.fact.operation === "frequency")
         primary.groups.sort((a,b) => a.count - b.count || collator.compare(a.label,b.label));
       const limit = intent.fact.limit;
@@ -618,6 +698,13 @@ export class CanvasService {
       (t) => deadlineStatus(t.deadline, now) === "soon",
     ).length;
     const scope = describe(intent.filters);
+    const briefText = intent.brief ? briefAnswer(matches, now, describe({
+      ...intent.filters,
+      states: openStates.every(s => intent.filters.states?.includes(s)) && intent.filters.states?.length === openStates.length
+        ? undefined : intent.filters.states,
+    }), prepared && intent.fact?.period !== "snapshot"
+      ? (intent.fact?.dateField || intent.fact?.operation === "duration" ? "По дате завершения — " : "По дате регистрации — ") + prepared.range
+      : undefined, overdue, escalated) : undefined;
     const title =
       scope && intent.layout === "list" ? "Заявки · " + scope : primary.title;
     let summary = scope
@@ -646,7 +733,7 @@ export class CanvasService {
         ".";
     const result: CanvasResult = {
       ...base,
-      ...(question
+      ...(question || briefText
         ? {
             turnToken: this.remember(source, actor, history, {
               question: memoryQuestion ?? "Покажи срез заявок",
@@ -666,7 +753,8 @@ export class CanvasService {
           }
         : {}),
       title,
-      summary,
+      summary: briefText?.text ?? summary,
+      ...(briefText ? { conversation: briefText } : {}),
       total,
       metrics: [
         { key: "total", label: "Заявки", value: total },
@@ -681,7 +769,7 @@ export class CanvasService {
       blocks,
     };
     const pinned = this.pinned.get(primary.selection);
-    if (pinned && result.turnToken && !result.conversation && canRedrawGroups(intent)) pinned.displayResult = result;
+    if (pinned && result.turnToken && (intent.brief || !result.conversation && canRedrawGroups(intent))) pinned.displayResult = result;
     return result;
   }
 }

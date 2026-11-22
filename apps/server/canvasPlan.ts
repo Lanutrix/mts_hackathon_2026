@@ -1,5 +1,6 @@
 import { canRedrawGroups, formatOnly, groupDisplay, requestedFactDisplay, supportsFactDisplay } from "./factDisplay.ts";
 import { isDeepStrictEqual } from "node:util";
+import { delegatesOrPromises, requestsInstructions, requestsProse, requestsRows, requestsTicketChange, withoutPoliteRequest } from "./canvasAction.ts";
 import {
   canvasDimensions,
   canvasWeights,
@@ -121,7 +122,7 @@ function validInsightIds(v: unknown): v is AnswerInsightId[] {
     new Set(v).size === v.length
   );
 }
-function validFilters(value: unknown): value is CanvasFilters {
+export function validFilters(value: unknown): value is CanvasFilters {
   if (!record(value) || !keys(value, filterFields)) return false;
   for (const [key, filter] of Object.entries(value)) {
     if (key === "deadline" || key === "escalation") {
@@ -214,7 +215,18 @@ export function validContext(v: unknown): v is CanvasIntent {
       "automaticStates",
       "insightIds",
       "shiftAdvice",
+      "commentDraft",
+      "brief",
+      "briefRank",
     ]) &&
+    (v.commentDraft === undefined ||
+      (member(v.commentDraft, ["deadline", "progress", "impact"] as const) &&
+        !v.brief && !v.shiftAdvice && !v.fact && v.groupBy === "ticket" && v.presentation === "spotlight" &&
+        v.layout === "list" && record(v.filters) && Array.isArray(v.filters.ids) && v.filters.ids.length === 1)) &&
+    (v.brief === undefined || (v.brief === true && !v.topic && !v.shiftAdvice)) &&
+    (v.briefRank === undefined || (v.brief === true && record(v.briefRank) &&
+      !!v.briefRank.rankFocus && !v.briefRank.shiftAdvice && !v.briefRank.brief &&
+      v.briefRank.briefRank === undefined && validContext(v.briefRank))) &&
     (v.shiftAdvice === undefined ||
       (v.shiftAdvice === true && v.presentation === "spotlight" && v.layout === "list")) &&
     (v.automaticStates === undefined ||
@@ -292,7 +304,7 @@ function exceptionOperand(text: string): "next" | "unknown" | undefined {
   return "unknown";
 }
 
-function sourceMentions(
+export function sourceMentions(
   question: string,
   rows: Incident[],
   previous?: CanvasIntent,
@@ -501,7 +513,7 @@ function clearedFields(text: string, previous?: CanvasIntent) {
 const fullQueueCommand =
   /^(?:(?:а|теперь|снова|покажи|верни|открой|выведи|пожалуйста)\s+)*(?:все (?:заявки|тикеты|инциденты)|всю очередь)[?!.\s]*$/iu;
 
-function localReading(
+export function localReading(
   text: string,
   mentioned: CanvasFilters,
   previous?: CanvasIntent,
@@ -694,7 +706,7 @@ const instructions = [
     ". median-load и mean-load — размер групп. median-overdue — число просрочек на группу. Статистика берётся из всего среза; интерес к доле или числу просрочек сам по себе не отбирает только просроченные заявки.",
   "В беседе верни только conversation, без groupBy, layout, supported и без повторения previous/localHints. Для свободного разговора не нужен холст с данными. При сознательном совмещении пояснения с аналитическим представлением добавь showData:true. Заполняй followUp только короткой готовой просьбой пользователя, например «Напиши ещё одно хокку» или «Покажи просроченные заявки». Не пиши «Хочешь…?» и не называй несуществующих элементов интерфейса.",
 ].join("\n");
-const planVersion = "canvas-plan-8";
+const planVersion = "canvas-plan-9";
 const unsupportedText =
   "Для этого вопроса данных текущего среза недостаточно. Можно сопоставить заявки по симптомам, срокам, приоритетам, командам и продуктам.";
 type Decision = Pick<
@@ -711,6 +723,10 @@ const unsupported = (
   intent: CanvasIntent,
   notice = unsupportedText,
 ): Decision => ({ intent, mode: "unsupported", provider: "Поля ITSM", notice });
+
+function actionClarification(intent: CanvasIntent, text = "Какой результат нужен по заявкам: список, сравнение команд или расчёт конкретного показателя?"): Decision {
+  return { ...unsupported(intent, text), textOnly: true, conversation: { title: "Уточните задачу", text } };
+}
 
 export async function planCanvas(
   question: string,
@@ -763,7 +779,9 @@ async function planQuestion(
 ): Promise<Decision> {
   if (fullQueueCommand.test(question.trim()))
     return { intent: { ...initialIntent, filters: {} }, mode: "snapshot", provider: "Поля ITSM" };
-  if (pendingRelationIds || mightAskFact(question, previous)) {
+  if (requestsTicketChange(question))
+    return actionClarification(previous ?? initialIntent, "Холст читает заявки из ITSM. Изменить запись можно в исходной системе. Какие заявки вывести для проверки?");
+  if (pendingRelationIds || (!requestsProse(question) && mightAskFact(question, previous))) {
     const source = sourceMentions(question, rows, previous);
     const idReply = pendingRelationIds && onlyTicketIds(source.shaped,
       source.entities.filter(e => e.field === "ids").map(e => e.ref)) ? pendingRelationIds : undefined;
@@ -796,7 +814,7 @@ async function planQuestion(
         layout: plan.dimension === "ticket" ? "list" : "comparison", filters, fact: plan.fact } };
     }
   }
-  const reading = readGuide(question, previous);
+  const reading = readGuide(withoutPoliteRequest(question), previous);
   const priorData = previous && { ...previous };
   if (priorData) {
     delete priorData.fact;
@@ -855,7 +873,12 @@ async function planQuestion(
     history,
     reading,
   );
-  if (result.mode !== "unsupported") return result;
+  if (requestsInstructions(question) && !result.conversation && !result.answer) {
+    const topic = reading?.topic ?? "assistant";
+    return { intent: { ...(priorData ?? initialIntent), topic, focus: "steps", guideOnly: true },
+      answer: makeAnswer(topic, "steps"), mode: "knowledge", provider: "Справка Среза" };
+  }
+  if (result.mode !== "unsupported" || result.textOnly) return result;
   const fallback = {
     ...result,
     conversation: {
@@ -894,7 +917,8 @@ async function planQuestion(
   )
     return fallback;
   const conversation = readConversation(response.json.conversation);
-  if (!conversation || /\d/u.test(conversation.title + conversation.text))
+  if (!conversation || /\d/u.test(conversation.title + conversation.text) ||
+      (!requestsProse(question) && delegatesOrPromises(conversation.text)))
     return fallback;
   return {
     intent: result.intent,
@@ -1085,7 +1109,8 @@ async function planData(
       local.base,
       "Такое название или номер не удалось сопоставить с источником. Укажите точное название продукта, команды или номер заявки.",
     );
-  const semanticView = inferredPresentation(first) && !detectedInsights.length &&
+  const proseRequested = !!guideHint || requestsProse(question);
+  const semanticView = !proseRequested && inferredPresentation(first) && !detectedInsights.length &&
     !parts.length && !guideHint && !periodQuestion(source.shaped);
   if (semanticView && (!client || !explicitPresentation(first)))
     return { intent: localIntent, mode: "snapshot", provider: "Поля ITSM" };
@@ -1175,6 +1200,11 @@ async function planData(
     !!visual.presentation ||
     detectedInsights.length > 0 ||
     !!local.weightBy;
+  const localAction = !proseRequested && !needsPeriod && (
+    local.reset || changesSelection || detectedInsights.length > 0 || !!local.weightBy ||
+    (Object.keys(local.filters).length > 0 && requestsRows.test(source.shaped)) ||
+    (explicitData && local.recognized)
+  );
   const packet = {
     ...(availableInsights.length ? { availableInsights } : {}),
     question: safeQuestion,
@@ -1215,12 +1245,25 @@ async function planData(
     entities: source.entities.map(({ field, ref }) => ({ field, ref })),
     previous: source.previous,
   };
-  const reply = await client.json(planVersion, instructions, packet, 9000);
+  let version = planVersion;
+  let reply = await client.json(version, instructions, packet, 9000);
   if ("error" in reply) return fallback(reply.error);
+  const firstReply = reply.json;
+  const prose = record(firstReply) && readConversation(firstReply.conversation);
+  const analyticQuestion = needsPeriod || needsSourceMetrics || local.recognized || mightAskFact(question, previous);
+  const needsRepair = !proseRequested && !localAction && prose &&
+    (analyticQuestion || delegatesOrPromises(prose.text)) &&
+    (keys(firstReply, ["conversation", "supported", "showData"]) || firstReply.showData === false);
+  if (needsRepair) {
+    client.rejectJson(version, packet);
+    version = "canvas-action-repair-1";
+    reply = await client.json(version, instructions + "\nДля этой просьбы требуется проверяемый расчёт. Верни только конкретную операцию, измерение или фильтр. Если их нельзя определить или требуется запись в ITSM, верни {\"supported\":false}.", packet, 6500);
+    if ("error" in reply) return actionClarification(local.base);
+  }
   const p = reply.json;
   const malformed = () => {
-    client.rejectJson(planVersion, packet);
-    return fallback("План VseLLM не прошёл проверку.");
+    client.rejectJson(version, packet);
+    return needsRepair ? actionClarification(local.base) : fallback("План VseLLM не прошёл проверку.");
   };
   if (
     !record(p) ||
@@ -1248,43 +1291,31 @@ async function planData(
     (p.insightIds !== undefined && !validInsightIds(p.insightIds))
   )
     return malformed();
+  if (needsRepair && (p.conversation || p.guide || p.supported === false ||
+      !(p.fact || p.groupBy || p.presentation || (Array.isArray(p.insightIds) && p.insightIds.length) ||
+        (record(p.filters) && Object.keys(p.filters).length)))) return malformed();
   if (p.fact !== undefined && (!validFact(p.fact) || !keys(p, ["supported","fact","groupBy","filters"]) ||
       (p.fact.limit !== undefined && p.fact.limit !== requestedLimit(source.shaped)) ||
       (periodIn(source.shaped) && p.fact.period !== periodIn(source.shaped)) || p.supported === false))
     return malformed();
-  if (needsPeriod && !p.fact) return fallback("Требуется план расчёта.");
+  if (needsPeriod && !p.fact)
+    return needsRepair ? actionClarification(local.base) : fallback("Требуется план расчёта.");
   const conversation = readConversation(p.conversation);
   if (p.conversation !== undefined && !conversation) return malformed();
   if (semanticView && (conversation || p.fact || p.guide || p.insightIds))
     return { intent: localIntent, mode: "snapshot", provider: "Поля ITSM" };
   if (conversation) {
     if (p.guide !== undefined || p.supported === false) return malformed();
-    const asksForCount =
-      /сколько|число|количество/u.test(source.shaped) &&
-      /заяв|тикет|инцидент|просроч/u.test(source.shaped);
-    const asksForView =
-      explicitData &&
-      /покажи|построй|выведи|сгруппируй|сравни|разбей|отобрази/u.test(
-        source.shaped,
-      );
     const proseOnly = keys(p, ["conversation", "supported", "showData"]);
-    const requiresSelection = asksForCount || asksForView || changesSelection || detectedInsights.length > 0;
-    if (requiresSelection && (proseOnly || p.showData === false)) {
-      if (asksForCount || /\d/u.test(conversation.text + conversation.title))
-        return { intent: localIntent, mode: "fallback", provider: "Поля ITSM" };
-      return {
-        intent: localIntent,
-        mode: "model",
-        provider: "VseLLM",
-        model: client.model,
-        conversation,
-        memoryQuestion: safeQuestion,
-      };
-    }
+    const proposedData = p.groupBy !== undefined && p.groupBy !== initialIntent.groupBy ||
+      p.presentation !== undefined || !!p.insightIds?.length || (record(p.filters) && Object.keys(p.filters).length > 0);
+    if (localAction && (proseOnly || p.showData === false))
+      return { intent: localIntent, mode: "fallback", provider: "Поля ITSM" };
     if (
-      proseOnly ||
+      proseRequested || proseOnly ||
       p.showData === false ||
-      (!explicitData && p.showData !== true)
+      (!localAction && !explicitData && p.showData !== true &&
+        !(proposedData && (analyticQuestion || delegatesOrPromises(conversation.text))))
     )
       return {
         intent: local.base,
@@ -1487,7 +1518,7 @@ async function planData(
       };
   return {
     intent: withVisual(intent, requested),
-    ...(conversation ? { conversation, memoryQuestion: safeQuestion } : {}),
+    ...(conversation && !delegatesOrPromises(conversation.text) ? { conversation, memoryQuestion: safeQuestion } : {}),
     mode: "model",
     provider: "VseLLM",
     model: client.model,

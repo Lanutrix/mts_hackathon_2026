@@ -183,6 +183,7 @@ export function readFact(
   mentioned: CanvasFilters,
   previous?: CanvasIntent,
   pendingRelationIds?: string[],
+  requestedOperation?: "count",
 ): Reading | undefined {
   const original = normalized(question);
   if (/что такое|что означает|что значит|объясни понятие|почему|зачем/u.test(original))
@@ -219,7 +220,10 @@ export function readFact(
   let operation: FactPlan["operation"] | undefined;
   let dimension: CanvasDimension = dim ?? "ticket";
   let ids: string[] | undefined;
-  if (
+  if (requestedOperation === "count") {
+    operation = "count";
+    dimension = "ticket";
+  } else if (
     pendingRelationIds !== undefined || (graph.test(shaped) || commonality.test(shaped)) &&
     (mentioned.ids?.length ||
       ((relation.test(shaped) || commonality.test(shaped)) && (ticketTerm.test(shaped) || referredTickets.test(shaped))) ||

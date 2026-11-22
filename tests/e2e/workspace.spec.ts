@@ -908,3 +908,21 @@ test("a list and a comparison table retain the groups and proportions of the ord
     table.getByRole("row").filter({ hasText: group.label }),
   ).toContainText(label);
 });
+
+test("an action request renders its records and typed consent opens the offered explanation", async ({ page }) => {
+  const initial = await enter(page);
+  const overdue = initial.metrics.find(metric => metric.key === "overdue")!.value;
+  const list = await ask(page, "Собери просроченные заявки в список");
+  expect(list.total).toBe(overdue);
+  await expect(page.getByTestId("ticket-register").getByRole("link").first()).toContainText(list.tickets[0].id);
+  await page.getByRole("button", { name: /^Открыть заявки/ }).click();
+  await expect(page.getByRole("dialog").getByRole("link").first()).toContainText(list.tickets[0].id);
+  await page.keyboard.press("Escape");
+  const advice = await ask(page, "С чего начать смену?");
+  const explanation = await ask(page, "Да, сделай");
+  expect(explanation.selection).toBe(advice.selection);
+  const answer = page.getByTestId("conversation-answer");
+  await expect(answer).toContainText("На момент выбора");
+  await answer.getByRole("link", { name: advice.tickets[0].id }).click();
+  await expect(page).toHaveURL(new RegExp("/incident/" + advice.tickets[0].id + "$"));
+});

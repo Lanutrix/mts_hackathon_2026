@@ -27,6 +27,7 @@ import { liveStep } from "../../packages/domain/liveStep.ts";
 import { refineLiveStep } from "./liveGuidance.ts";
 import { analyzeSelection } from "./operationalAnalysis.ts";
 import { CanvasService } from "./canvas.ts";
+import type { CanvasResult } from "../../packages/contracts/canvas.ts";
 import { validContext } from "./canvasPlan.ts";
 import { registerDispatch } from "./dispatch.ts";
 import { registerPush, type PushOptions } from "./push.ts";
@@ -50,6 +51,20 @@ export interface AppOptions {
   jurySimulation?: SimulationOptions;
   push?: PushOptions;
 }
+
+function logCanvasAnswer(result: CanvasResult) {
+  // An empty shift recommendation has no paging token even though it checked the queue.
+  const checkedRows = !!result.selection || (result.mode === "snapshot" && result.intent.shiftAdvice);
+  const selection = checkedRows ? (result.total > 0 ? "nonempty" : "empty") : "none";
+  let kind = "notice";
+  if (result.intent.brief && result.selection && result.conversation) kind = "brief";
+  else if (result.conversation) kind = "prose";
+  else if (result.answer) kind = "guide";
+  else if (result.fact) kind = "fact";
+  else if (result.selection) kind = "view";
+  console.info(JSON.stringify({ event: "canvas.answer", mode: result.mode, kind, selection }));
+}
+
 export async function createApp(o: AppOptions) {
   const app = Fastify({
     logger: false,
@@ -322,14 +337,16 @@ export async function createApp(o: AppOptions) {
               "Введите вопрос длиной до 500 символов или обновите существующий срез.",
           });
       const source = await readStoreFor(req, reply);
-      if (source)
-        return canvas.read(
-          source,
-          identity(req)!.username,
-          body.question.trim(),
-          body.context,
-          body.turnToken,
-        );
+      if (!source) return;
+      const result = await canvas.read(
+        source,
+        identity(req)!.username,
+        body.question.trim(),
+        body.context,
+        body.turnToken,
+      );
+      logCanvasAnswer(result);
+      return result;
     },
   );
   app.get("/api/canvas/tickets", async (req, reply) => {

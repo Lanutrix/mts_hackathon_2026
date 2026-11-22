@@ -14,17 +14,7 @@ export interface DispatchSuggestions {
 const planVersion = "assignment-guidance-1";
 const instruction = `Ты помогаешь дежурному предложить команду назначения и черновики комментария для существующего инцидента. Вход содержит коды команд и число других инцидентов того же продукта, симптома, обоих. Предпочитай совпадение обоих признаков. currentTeam — текущее назначение, chosenTeam — выбор координатора для комментария. Сигнал followUp означает устранение последствий после решения. Дай JSON {"teams":["T1"],"comments":["scope","progress"]}. Выбери до трёх разных кодов из candidates и два разных уместных действия из actions. Если кандидатов нет, teams пуст. Не назначай команду, не называй людей и не добавляй полей.`;
 
-export async function dispatchSuggestions(
-  incident: Incident,
-  catalog: { teams: DispatchTeam[] },
-  snapshot: string,
-  chosen: string | undefined,
-  client?: VseLlm,
-  now = Date.now(),
-): Promise<DispatchSuggestions> {
-  const matches = catalog.teams.filter((t) => t.both || t.product || t.symptom);
-  const specialists = matches.filter((t) => t.name !== TEAM);
-  const candidates = (specialists.length ? specialists : matches).slice(0, 6);
+function commentOptions(incident: Incident, now: number) {
   const due = deadlineStatus(incident.dates.deadline, now);
   const investigating = incident.stateId === 20;
   const product = spaces(incident.raw.productName);
@@ -74,6 +64,36 @@ export async function dispatchSuggestions(
       text: "Уточните результат исследования причин и какие наблюдения следует добавить в карточку инцидента.",
     },
   };
+  return { options, due, investigating };
+}
+
+export type CommentTopic = NonNullable<import("../../packages/contracts/canvas.ts").CanvasIntent["commentDraft"]>;
+
+export function commentText(incident: Incident, topic: CommentTopic, now: number) {
+  if (incident.stateId === 7 || incident.stateId === 10) {
+    const followUp = {
+      deadline: "Просьба подтвердить фактическое время решения и соблюдение срока.",
+      impact: "Просьба подтвердить, какие операции были затронуты и восстановлены.",
+      progress: "Просьба зафиксировать результат работ и подтвердить восстановление.",
+    };
+    return "Статус заявки — «" + incident.stateLabel + "». " + followUp[topic];
+  }
+  const { options, due } = commentOptions(incident, now);
+  return options[topic === "deadline" && due === "unset" ? "clarify" : topic].text;
+}
+
+export async function dispatchSuggestions(
+  incident: Incident,
+  catalog: { teams: DispatchTeam[] },
+  snapshot: string,
+  chosen: string | undefined,
+  client?: VseLlm,
+  now = Date.now(),
+): Promise<DispatchSuggestions> {
+  const matches = catalog.teams.filter((t) => t.both || t.product || t.symptom);
+  const specialists = matches.filter((t) => t.name !== TEAM);
+  const candidates = (specialists.length ? specialists : matches).slice(0, 6);
+  const { options, due, investigating } = commentOptions(incident, now);
   type Action = keyof typeof options;
   const available: Action[] = [
     ...(investigating ? ["research" as const] : []),
