@@ -177,6 +177,28 @@ test("duration cohorts use real completion within rolling year, allow earlier re
   assert.equal(empty.total, 0);
   assert.match(empty.summary, /нет|недостаточно/iu);
 });
+test("resolution leaders include source problem names, missing subjects and every tied winner", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { source, service } = setup();
+  source.rows.clear();
+  for (let i = 1; i <= 12; i++) {
+    const r = row("INC-" + i, 7, "2026-01-01T00:00:00Z", {
+      header: i === 2 ? "  " : "Сбой узла " + i,
+      completionDate: "2026-01-02T00:00:00Z",
+    });
+    source.rows.set(r.id, r);
+  }
+  const result = await service.read(
+    source,
+    "me",
+    "Назови самую долгорешаемую проблему за год",
+  );
+  assert.match(result.fact!.headline, /Сбой узла 1(?!\d)/);
+  assert.equal(result.fact!.durations!.length, 12);
+  assert.equal(result.fact!.durations![1].header, null);
+  assert.equal(result.fact!.durations!.at(-1)?.header, "Сбой узла 12");
+});
+
 test("graph distinguishes source reference, matching attributes, and absent IDs; flags do not create edges", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now });
   const { source, service } = setup();

@@ -153,8 +153,11 @@ test("source answers choose a team directory, ranked durations and an inspectabl
   await register.getByRole("button").first().click();
   await expect(page.getByRole("dialog").getByRole("link").first()).toBeVisible();
   await page.keyboard.press("Escape");
-  await ask(page, "назови за последний год самую долгорешаемую проблему");
-  await expect(page.getByRole("table").getByRole("link").first()).toBeVisible();
+  const ranked = await ask(page, "назови за последний год самую долгорешаемую проблему");
+  const first = ranked.fact!.durations![0];
+  const firstRow = page.getByRole("table").getByRole("row").nth(1);
+  await expect(firstRow.getByRole("link", { name: first.id })).toBeVisible();
+  await expect(firstRow).toContainText(String(rows.find(r => r.id === first.id)!.header));
   await ask(page, "Построй диаграмму связей между DEMO-42-00001 и DEMO-42-00004");
   const graph = page.locator(".fact-graph");
   await expect(graph.getByRole("link", { name: "DEMO-42-00001" })).toBeVisible();

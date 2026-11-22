@@ -95,6 +95,11 @@
   line-height: 1.28;
   font-size: clamp(0.75rem, 1.15vw, 1.08rem);
 }
+.fact-rank-subject {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
 .fact-rank caption {
   text-align: left;
   font-weight: 600;

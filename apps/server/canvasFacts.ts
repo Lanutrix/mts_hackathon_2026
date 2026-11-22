@@ -110,7 +110,16 @@ export function prepareFact(
         invalidStart++;
         continue;
       }
-      durations.push({ row: r, value: { id: r.id, start, end, ms } });
+      durations.push({
+        row: r,
+        value: {
+          id: r.id,
+          header: spaces(r.raw.header) || null,
+          start,
+          end,
+          ms,
+        },
+      });
     }
     durations.sort(
       (a, b) =>
@@ -296,7 +305,10 @@ export function describeFact(
     const lead = durations[0],
       ties = lead ? durations.filter((v) => v.ms === lead.ms) : [];
     headline = lead
-      ? lead.id +
+      ? (lead.header ?? "Тема не указана") +
+        " (" +
+        lead.id +
+        ")" +
         " · " +
         formatFactDuration(lead.ms) +
         (ties.length > 1
@@ -307,7 +319,7 @@ export function describeFact(
       "По дате завершения (completionDate). " +
       range +
       " Длительность от submitDate до completionDate, статусы «Завершён» и «Закрыт».";
-    fact.durations = durations.slice(0, 10);
+    fact.durations = durations.slice(0, Math.max(10, ties.length));
     fact.notes.push(
       "Подходящих пар дат: " +
         n +

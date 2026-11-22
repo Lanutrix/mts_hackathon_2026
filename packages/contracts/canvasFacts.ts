@@ -23,6 +23,7 @@ export interface FactPlan {
 }
 export interface DurationEvidence {
   id: string;
+  header: string | null;
   start: string;
   end: string;
   ms: number;

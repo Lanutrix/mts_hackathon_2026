@@ -126,8 +126,9 @@ export default function FactBoard({
   const fact = result.fact!,
     groups = result.groups;
   const [requested, setPage] = useState(0);
-  const perPage = 8,
-    pages = Math.ceil(groups.length / perPage),
+  const durations = fact.durations ?? [];
+  const perPage = durations.length ? 10 : 8,
+    pages = Math.ceil((durations.length || groups.length) / perPage),
     page = Math.max(0, Math.min(requested, pages - 1));
   const maximum = Math.max(1, groups[0]?.count ?? 0, groups.at(-1)?.count ?? 0);
   return (
@@ -178,41 +179,54 @@ export default function FactBoard({
           />
         </div>
       )}
-      {!!fact.durations?.length && (
-        <table className="fact-rank">
-          <caption>
-            Длительность решения · {fact.durations.length} из{" "}
-            {formatCount(result.total)}
-          </caption>
-          <thead>
-            <tr>
-              <th>Заявка</th>
-              <th>Длительность</th>
-              <th>Регистрация, МСК</th>
-              <th>Завершение, МСК</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fact.durations.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <SourceId id={row.id} {...navigation} />
-                </td>
-                <td>{formatFactDuration(row.ms)}</td>
-                <td>
-                  <time dateTime={row.start}>
-                    {fmt.format(new Date(row.start))}
-                  </time>
-                </td>
-                <td>
-                  <time dateTime={row.end}>
-                    {fmt.format(new Date(row.end))}
-                  </time>
-                </td>
+      {durations.length > 0 && (
+        <div>
+          <table className="fact-rank">
+            <caption>
+              Длительность решения · {durations.length} из{" "}
+              {formatCount(result.total)}
+            </caption>
+            <thead>
+              <tr>
+                <th>Заявка</th>
+                <th>Длительность</th>
+                <th>Регистрация, МСК</th>
+                <th>Завершение, МСК</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {durations
+                .slice(page * perPage, (page + 1) * perPage)
+                .map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <SourceId id={row.id} {...navigation} />
+                      <span className="fact-rank-subject">
+                        {row.header ?? "Тема не указана"}
+                      </span>
+                    </td>
+                    <td>{formatFactDuration(row.ms)}</td>
+                    <td>
+                      <time dateTime={row.start}>
+                        {fmt.format(new Date(row.start))}
+                      </time>
+                    </td>
+                    <td>
+                      <time dateTime={row.end}>
+                        {fmt.format(new Date(row.end))}
+                      </time>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          <PageControls
+            page={page}
+            pages={pages}
+            goto={setPage}
+            label="Страницы рейтинга"
+          />
+        </div>
       )}
       {fact.nodes && <RelationDiagram fact={fact} {...navigation} />}
       {fact.notes.map((text) => (
