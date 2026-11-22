@@ -181,7 +181,7 @@ test("natural questions open a team ranking and an evidence graph without a form
   await expect(page.locator(".cx-stage")).toContainText("номера");
   await expect(page.locator(".fact-graph")).toHaveCount(0);
   const ids = ["DEMO-42-00001", "DEMO-42-00004"];
-  await ask(page, "Что общего у двух инцидентов " + ids.join(" и ") + "?");
+  await ask(page, ids.join(" и "));
   const graph = page.locator(".fact-graph");
   for (const id of ids) await expect(graph.getByRole("link", { name: id })).toBeVisible();
   await expect(graph.locator(".fact-edge").first()).toContainText(/ссылка|совпадение/iu);

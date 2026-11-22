@@ -167,6 +167,7 @@ export class CanvasService {
       expires: number;
       history: DialogueTurn[];
       displaySelection?: string;
+      pendingRelationIds?: string[];
     }
   >();
   constructor(private readonly client?: VseLlm) {}
@@ -174,8 +175,8 @@ export class CanvasService {
     source: CanvasSource,
     actor: string,
     history: DialogueTurn[],
-    turn: DialogueTurn,
-    displaySelection?: string,
+    turn?: DialogueTurn,
+    state: { displaySelection?: string; pendingRelationIds?: string[] } = {},
   ) {
     const now = Date.now();
     for (const [key, entry] of this.turns)
@@ -188,8 +189,8 @@ export class CanvasService {
       actor,
       run: source.simulation?.runId,
       expires: now + 15 * 60_000,
-      history: [...history.slice(-2), turn],
-      displaySelection,
+      history: turn ? [...history.slice(-2), turn] : history,
+      ...state,
     });
     return token;
   }
@@ -378,6 +379,7 @@ export class CanvasService {
           context,
           this.client,
           history,
+          activeTurn?.pendingRelationIds,
         )
       : {
           intent: context ?? starter,
@@ -395,7 +397,7 @@ export class CanvasService {
             : undefined,
         };
     const { intent } = decision;
-    const { textOnly, memoryQuestion, ...publicDecision } = decision;
+    const { textOnly, memoryQuestion, pendingRelationIds, ...publicDecision } = decision;
     const sourceTotal = rows.length;
     const base = {
       namespace,
@@ -412,6 +414,9 @@ export class CanvasService {
     )
       return {
         ...base,
+        ...(pendingRelationIds ? {
+          turnToken: this.remember(source, actor, history, undefined, { pendingRelationIds }),
+        } : {}),
         ...(memoryQuestion && decision.conversation
           ? {
               turnToken: this.remember(source, actor, history, {
@@ -462,7 +467,7 @@ export class CanvasService {
         tickets: primary.tickets, selection: primary.selection, blocks: [],
         turnToken: this.remember(source, actor, history, {
           question: "Расчёт по полям ITSM", answer: "Результат доступен в предыдущем срезе."
-        }, primary.selection) };
+        }, { displaySelection: primary.selection }) };
       const pinned = this.pinned.get(primary.selection);
       if (pinned) pinned.displayResult = result;
       return result;
@@ -525,7 +530,7 @@ export class CanvasService {
               ]
                 .filter(Boolean)
                 .join(" "),
-            }, primary.selection),
+            }, { displaySelection: primary.selection }),
           }
         : {}),
       title,

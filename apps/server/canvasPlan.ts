@@ -44,7 +44,7 @@ import {
   type DialogueTurn,
 } from "./canvasDialogue.ts";
 
-import { mightAskFact, periodIn, periodQuestion, queueCount, readFact, validFact, validFactView } from "./canvasFactPlan.ts";
+import { mightAskFact, onlyTicketIds, periodIn, periodQuestion, queueCount, readFact, validFact, validFactView } from "./canvasFactPlan.ts";
 
 export const initialIntent: CanvasIntent = {
   groupBy: "symptom",
@@ -694,7 +694,7 @@ type Decision = Pick<
   | "notice"
   | "answer"
   | "conversation"
-> & { textOnly?: boolean; memoryQuestion?: string };
+> & { textOnly?: boolean; memoryQuestion?: string; pendingRelationIds?: string[] };
 const unsupported = (
   intent: CanvasIntent,
   notice = unsupportedText,
@@ -707,6 +707,7 @@ export async function planCanvas(
   previous?: CanvasIntent,
   client?: VseLlm,
   history: DialogueTurn[] = [],
+  pendingRelationIds?: string[],
 ): Promise<Decision> {
   const display = requestedFactDisplay(question);
   if (previous?.fact && formatOnly(question, display)) {
@@ -724,7 +725,7 @@ export async function planCanvas(
   if (previous && display && canRedrawGroups(previous) && formatOnly(question, display)) {
     return { mode: "snapshot", provider: "Поля ITSM", intent: { ...previous, ...groupDisplay(display) } };
   }
-  const decision = await planQuestion(question, rows, ns, previous, client, history);
+  const decision = await planQuestion(question, rows, ns, previous, client, history, pendingRelationIds);
   const fact = decision.intent.fact;
   if (!fact && !decision.textOnly && !decision.answer && decision.mode !== "unsupported" &&
       (display === "list" || display === "table") && /дол[яиюе]|распредел|часть|процент/iu.test(question) &&
@@ -746,16 +747,21 @@ async function planQuestion(
   previous?: CanvasIntent,
   client?: VseLlm,
   history: DialogueTurn[] = [],
+  pendingRelationIds?: string[],
 ): Promise<Decision> {
   if (fullQueueCommand.test(question.trim()))
     return { intent: { ...initialIntent, filters: {} }, mode: "snapshot", provider: "Поля ITSM" };
-  if (mightAskFact(question, previous)) {
+  if (pendingRelationIds || mightAskFact(question, previous)) {
     const source = sourceMentions(question, rows, previous);
+    const idReply = pendingRelationIds && onlyTicketIds(source.shaped,
+      source.entities.filter(e => e.field === "ids").map(e => e.ref)) ? pendingRelationIds : undefined;
     const plan = source.unknownExcludedTeam
       ? { problem: "Уточните названия всех команд для исключения. Часть перечисления не удалось сопоставить с командами в источнике." }
-      : readFact(question, source.shaped, source.mentioned, previous);
+      : readFact(question, source.shaped, source.mentioned, previous, idReply);
     if (plan && "problem" in plan)
-      return { ...unsupported(initialIntent, plan.problem), conversation: { title: "Уточните вопрос", text: plan.problem }, textOnly: true };
+      return { ...unsupported(plan.pendingRelationIds && previous ? previous : initialIntent, plan.problem),
+        pendingRelationIds: plan.pendingRelationIds,
+        conversation: { title: "Уточните вопрос", text: plan.problem }, textOnly: true };
     if (plan) {
       const inherit = plan.continuation || /среди них|из них|по ним|таких|этих/iu.test(question);
       const local = localReading(source.shaped, source.mentioned, previous);

@@ -72,6 +72,14 @@ const namedId =
   /(?<![\p{L}\p{N}_])(?:[a-zа-я][a-zа-я0-9]*(?:-[a-zа-я0-9]+)+|(?:inc|инц)\d+|\d{5,})(?![\p{L}\p{N}_-])/giu;
 const normalized = (s: string) =>
   s.normalize("NFKC").toLocaleLowerCase("ru").replaceAll("ё", "е");
+
+export function onlyTicketIds(shaped: string, idAliases: string[]) {
+  const remainder = shaped
+    .replace(/\bE\d+\b/gu, ref => idAliases.includes(ref) ? " " : ref)
+    .replace(namedId, id => /\d/u.test(id) ? " " : id);
+  return remainder !== shaped && /^[\s,;.№#]*(?:и[\s,;.№#]+)*$/u.test(remainder);
+}
+
 export function periodIn(s: string): FactPeriod | undefined {
   if (/сегодня|сегодняш/u.test(s)) return "today";
   if (/вчера/u.test(s)) return "yesterday";
@@ -157,12 +165,13 @@ type Reading =
       states?: number[];
       continuation: boolean;
     }
-  | { problem: string };
+  | { problem: string; pendingRelationIds?: string[] };
 export function readFact(
   question: string,
   shaped: string,
   mentioned: CanvasFilters,
   previous?: CanvasIntent,
+  pendingRelationIds?: string[],
 ): Reading | undefined {
   const original = normalized(question);
   if (/что такое|что означает|что значит|объясни понятие|почему|зачем/u.test(original))
@@ -195,12 +204,12 @@ export function readFact(
   let dimension: CanvasDimension = dim ?? "ticket";
   let ids: string[] | undefined;
   if (
-    (graph.test(shaped) || commonality.test(shaped)) &&
+    pendingRelationIds !== undefined || (graph.test(shaped) || commonality.test(shaped)) &&
     (mentioned.ids?.length ||
       ((relation.test(shaped) || commonality.test(shaped)) && (ticketTerm.test(shaped) || referredTickets.test(shaped))) ||
       /(?:inc|demo|sim)[-\d]/iu.test(shaped))
   ) {
-    const cited = [...(mentioned.ids ?? [])];
+    const cited = [...new Set([...(pendingRelationIds ?? []), ...(mentioned.ids ?? [])])];
     for (const match of question.matchAll(namedId)) {
       const id = match[0];
       if (
@@ -213,7 +222,9 @@ export function readFact(
     if (!ids || ids.length < 2)
       return {
         problem:
-          "Укажите номера как минимум двух заявок, чтобы построить схему связей.",
+          ids?.length ? "Укажите номер второй заявки, чтобы построить схему связей двух инцидентов." :
+            "Укажите номера как минимум двух заявок, чтобы построить схему связей.",
+        pendingRelationIds: ids ?? [],
       };
     operation = "relations";
     dimension = "ticket";

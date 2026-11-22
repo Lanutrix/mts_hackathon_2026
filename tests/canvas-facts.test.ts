@@ -602,3 +602,46 @@ test("scalar counts keep the default queue for current workload and never count 
   const unsupported = await service.read(source, "me", "Сколько заявок в регионе Марс?");
   assert.equal(unsupported.selection, "");
 });
+
+test("a clarification accepts just the requested IDs, including a second ID on a later turn", async () => {
+  const { source } = setup();
+  const service = new CanvasService();
+  const scope = { groupBy: "product" as const, layout: "groups" as const, filters: { products: ["Кабинет"] } };
+  for (const [question, answer] of [
+    ["Что общего у двух инцидентов?", "INC-1 и INC-2"],
+    ["Что общего у INC-1 и другого инцидента?", "INC-2"],
+  ]) {
+    const prompt = await service.read(source, "me", question, scope);
+    assert.ok(prompt.turnToken, question);
+    const graph = await service.read(source, "me", answer, prompt.intent, prompt.turnToken);
+    assert.deepEqual(graph.fact?.nodes?.map(n => n.id), ["INC-1", "INC-2"]);
+    assert.ok(graph.fact?.edges?.some(e => e.kind === "reference"));
+    assert.deepEqual(graph.intent.filters.products, ["Кабинет"]);
+  }
+  const first = await service.read(source, "me", "Что общего у двух инцидентов?");
+  const one = await service.read(source, "me", "INC-1", first.intent, first.turnToken);
+  assert.ok(one.turnToken);
+  assert.equal(one.selection, "");
+  const done = await service.read(source, "me", "INC-2", one.intent, one.turnToken);
+  assert.deepEqual(done.fact?.nodes?.map(n => n.id), ["INC-1", "INC-2"]);
+});
+
+test("pending ID replies respect actor, source, simulation run, expiry and changes of subject", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { source } = setup();
+  const simulated = { ...source, simulation: { runId: "run-a" } };
+  const service = new CanvasService();
+  const prompt = await service.read(simulated, "me", "Что общего у двух инцидентов?");
+  assert.ok(prompt.turnToken);
+  const answer = "INC-1 и INC-2";
+  for (const result of [
+    await service.read(simulated, "me", answer),
+    await service.read(simulated, "other", answer, prompt.intent, prompt.turnToken),
+    await service.read({ ...simulated, namespace: "other" }, "me", answer, prompt.intent, prompt.turnToken),
+    await service.read({ ...simulated, simulation: {runId: "run-b"} }, "me", answer, prompt.intent, prompt.turnToken),
+    await service.read(simulated, "me", "Перечисли INC-1 и INC-2", prompt.intent, prompt.turnToken),
+  ]) assert.notEqual(result.intent.fact?.operation, "relations");
+  t.mock.timers.tick(16 * 60_000);
+  const expired = await service.read(simulated, "me", answer, prompt.intent, prompt.turnToken);
+  assert.notEqual(expired.intent.fact?.operation, "relations");
+});
