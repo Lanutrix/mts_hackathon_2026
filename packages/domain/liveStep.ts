@@ -61,6 +61,7 @@ export function liveFacts(row: Incident, now: number, group: GroupLoad) {
     isNeedUp: typeof row.raw.isNeedUp === "boolean" ? row.raw.isNeedUp : null,
     signals: row.groups.map(g => signals[g]).sort().join(", "),
     "group.count": volume(group.count), "group.soon": volume(group.soon), "group.overdue": volume(group.overdue),
+    "group.allOverdue": group.count > 0 && group.overdue === group.count,
   };
 }
 

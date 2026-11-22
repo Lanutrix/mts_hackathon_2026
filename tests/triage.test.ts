@@ -120,7 +120,7 @@ function guidanceClient(reply: object | ((packet: any) => object), grounded = tr
 
 test("live advice publishes original prose tied to changing ticket and queue facts, deduplicating concurrent reads", async () => {
   const packets: any[] = [];
-  const slow = { observation: "У этой заявки наивысший приоритет и прошёл срок решения. В группе уже две просроченные заявки.", action: "Уточните у исполнителя, когда появится обновлённая оценка срока.", refs: ["deadline", "priorityId", "group.overdue"] };
+  const slow = { observation: "У этой заявки наивысший приоритет и прошёл срок решения, а в группе уже две просроченные заявки.", action: "Уточните у исполнителя, когда появится обновлённая оценка срока.", refs: ["deadline", "priorityId", "group.overdue"] };
   const clear = { observation: "У заявки есть запас по сроку решения.", action: "Сверьте с командой время следующего сообщения о ходе работ.", refs: ["deadline", "assignedGroupName"] };
   const client = guidanceClient(p => p.facts["group.overdue"] === 2 ? slow : clear, true, packets);
   for (const [deadline, expected] of [[-1, slow], [30, clear]] as const) {
@@ -211,6 +211,50 @@ test("six different live situations can complete generation and review without u
     assert.equal(result.mode, count <= 6 ? "model" : "local", "group size " + count);
   }
   assert.ok("json" in await client.json("interactive", "test", { text: "test" }, 1000));
+});
+
+test("a rejected paragraph receives one targeted revision and only a separately verified revision is published", async () => {
+  const row = ticket(0), group = buildTriage([row], "priority", 1, now).cases[0];
+  const wrong = {observation: "В группе все заявки назначены конкретным исполнителям.", action: "Уточните текущую оценку срока решения.", refs: ["deadline"]};
+  const fixed = {observation: "У заявки истёк срок решения.", action: "Уточните у команды ожидаемое время завершения работ.", refs: ["deadline"]};
+  const packets: any[] = [];
+  const client = guidanceClient(p => p.revisionRequest ? fixed : wrong, true, packets);
+  const read = () => refineLiveStep(client, group.step, row, group, now);
+  const advice = await read();
+  assert.equal(advice.text, fixed.observation + " " + fixed.action);
+  assert.deepEqual((await read()), advice);
+  assert.equal(packets.length, 3);
+  assert.match(packets[1].revisionRequest, /групп/iu);
+  assert.equal(packets[2].candidate.action, fixed.action);
+});
+
+test("the named coordinator team is a ticket fact; the queue has no aggregate status or assignee", async () => {
+  const row = ticket(1, {stateId:20, stateEnum:STATES[20].enum, state:STATES[20].label,
+    deadline:new Date(now+5*60_000).toISOString(), isNeedUp:false});
+  const group = buildTriage([row], "priority", 1, now).cases[0];
+  const genuine = {observation:"Срок решения истекает в течение 15 минут, заявка на исследовании в группе координаторов.",
+    action:"Уточните, когда ожидается завершение исследования.",refs:["deadline","stateId","assignedGroupName","reason","focus"]};
+  const ask = (answer: object) => refineLiveStep(guidanceClient(answer), group.step, row, group, now);
+  assert.equal((await ask(genuine)).mode, "model");
+  for (const observation of ["В группе одна заявка, все в работе.", "Эта заявка сейчас находится в работе.", "В группе нет просрочек, все в пределах сроков."])
+    assert.equal((await ask({...genuine, observation, refs:["deadline","stateId","group.count","group.overdue"]})).mode, "local", observation);
+});
+
+test("matching count bands do not prove equality of deadline counts; a change of actual equality updates the decision", async () => {
+  const row = ticket(0), base = buildTriage([row], "priority", 1, now).cases[0];
+  const ask = async (overdue: number, observation: string) => {
+    const group = { ...base, count:45, overdue, soon:0 };
+    const step = liveStep(row, now, group);
+    const client = guidanceClient({ observation, action:"Уточните у команды текущий прогноз завершения.", refs:["deadline","group.count","group.overdue"] });
+    const result = await refineLiveStep(client, step, row, group, now);
+    return { key:step.key, mode:result.mode };
+  };
+  for (const text of ["В группе от 30 до 99 заявок, из них столько же просроченных.", "В группе от 30 до 99 заявок, все с просроченным сроком."]) {
+    const partial = await ask(42,text), all = await ask(45,text);
+    assert.equal(partial.mode,"local");
+    assert.equal(all.mode,"model");
+    assert.notEqual(all.key,partial.key);
+  }
 });
 
 test("case pages pin all members to the same revision and locally analyze only the selected source", async () => {
