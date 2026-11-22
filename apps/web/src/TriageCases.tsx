@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CaseAnalysis, TriageCase } from "../../../packages/domain/triage";
-import type { LiveReason, LiveStep } from "../../../packages/domain/liveStep";
+import type { LiveStep } from "../../../packages/domain/liveStep";
 import Loader from "./Loader";
-import { Icon, Mark, type IconName } from "./Brand";
+import { Icon, Mark } from "./Brand";
 import { fieldName, TicketMentions } from "./IncidentSources";
 import { screenLink } from "./routes";
 
@@ -17,30 +17,7 @@ const dimensions = [
   ["team", "По команде"],
 ] as const;
 
-const reasonLabels: Record<LiveReason, { label: string; icon: IconName }> = {
-  missingSource: { label: "Источник", icon: "quality" },
-  overdue: { label: "Просрочка", icon: "clock" },
-  soon: { label: "Срок близко", icon: "clock" },
-  followUp: { label: "Последствия", icon: "escalation" },
-  missingDeadline: { label: "Без срока", icon: "clock" },
-  coordinator: { label: "Назначение", icon: "coordinators" },
-  research: { label: "Исследование", icon: "research" },
-  missingTeam: { label: "Без команды", icon: "team" },
-  progress: { label: "Ход работ", icon: "team" },
-};
-
 type Check = { record: TriageCase; step: LiveStep };
-
-function shiftChecks(cases: TriageCase[], primary: Check) {
-  const checks = [primary];
-  for (const record of cases) {
-    const { reason, ticketId } = record.step;
-    if (checks.some(({ step }) => step.reason === reason || step.ticketId === ticketId)) continue;
-    checks.push({ record, step: record.step });
-    if (checks.length === 3) break;
-  }
-  return checks;
-}
 
 function caseCriterion(record: TriageCase, dimension: string) {
   if (dimension === "symptom" || dimension === "symptomProduct") {
@@ -148,18 +125,11 @@ export default function TriageCases(props: Props) {
     Math.floor(offset / perPage) * perPage,
     Math.max(0, Math.floor((cases.length - 1) / perPage) * perPage),
   );
-  const primary = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
-  const primaryStep = (!chosen && props.liveFocus?.caseId === primary?.id ? props.liveFocus?.step : null) ?? primary?.step;
-  const checks = primary && primaryStep ? shiftChecks(chosen ? [] : cases, { record: primary, step: primaryStep }) : [];
-  const queue = JSON.stringify([props.query, primary?.id, primaryStep?.ticketId, primaryStep?.reason]);
-  const [selection, setSelection] = useState<{ queue: string; id: string; reason: LiveReason } | null>(null);
-  const active = (selection?.queue === queue && checks.find(({ step }) =>
-    step.ticketId === selection.id && step.reason === selection.reason)) || checks[0];
-  const focus = active?.record;
-  const step = active?.step;
+  const focus = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
+  const step = (!chosen && props.liveFocus?.caseId === focus?.id ? props.liveFocus?.step : null) ?? focus?.step;
   const band = focus?.responseRank === undefined ? undefined : responseBands[focus.responseRank];
   const inspected = inspection?.query === props.query ? cases.find(item => item.id === inspection.record.id) : undefined;
-  const inspectedStep = inspected && (inspected.id === primary?.id ? primaryStep : inspected.step);
+  const inspectedStep = inspected && (inspected.id === focus?.id ? step : inspected.step);
   const pick = (id: string) => {
     setParam("case", id);
   };
@@ -269,8 +239,7 @@ export default function TriageCases(props: Props) {
         )}
       </div>
       {props.ready && focus && step && (
-        <LiveAdvice {...props} record={focus} step={step} checks={checks}
-          selectCheck={next => setSelection({ queue, id: next.ticketId, reason: next.reason })}
+        <LiveAdvice key={JSON.stringify([props.query, focus.id, step.key])} {...props} record={focus} step={step}
           inspect={advice => setInspection({ record: focus, step, query: props.query, advice, dimension })}
           groupAction={band && !chosen && focus.count > 1 ?
             <button type="button" className="response-open" onClick={() => pick(focus.id)}>
@@ -290,92 +259,111 @@ export default function TriageCases(props: Props) {
   );
 }
 
-type Advice = { key: string; action: string; mode: "local" | "model"; model?: string; retryAfterMs?: number };
+type Advice = { key: string; action: string; mode: "model"; text: string; model: string };
+type LocalAdvice = { key: string; mode: "local"; reason?: "unconfigured" | "unavailable" | "unverified"; retryAfterMs?: number };
+type AdviceState = { status: "pending" } | { status: "failed"; message: string } | { status: "ready"; advice: Advice };
 
 function LiveAdvice(props: Props & Check & {
-  checks: Check[];
-  selectCheck: (step: LiveStep) => void;
   inspect: (advice: Advice | null) => void;
   groupAction: React.ReactNode;
 }) {
   const {record, step, query, ns, runId, revision, csrf, canAnalyze, modelGuidance, open} = props;
-  const band = record.responseRank === undefined ? undefined : responseBands[record.responseRank];
-  const scope = JSON.stringify([ns, runId, query, record.id, step.key]);
-  const lastRefinement = useRef({ reason: "", at: 0 });
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<AdviceState>({status: "pending"});
+  const [online, setOnline] = useState(() => navigator.onLine);
   const latestRequest = useRef("");
   latestRequest.current = caseRequest(record, query, ns, revision, true);
-  const [reply, setReply] = useState<{ scope: string; advice: Advice } | null>(null);
+  const retryAt = useRef(0);
   useEffect(() => {
-    if (!canAnalyze || !modelGuidance) return;
-    const controller = new AbortController();
+    const sync = () => {
+      retryAt.current = 0;
+      setState({status: "pending"});
+      setOnline(navigator.onLine);
+    };
+    window.addEventListener("offline", sync);
+    window.addEventListener("online", sync);
+    return () => { window.removeEventListener("offline", sync); window.removeEventListener("online", sync); };
+  }, []);
+  const enabled = online && canAnalyze && (modelGuidance || attempt > 0);
+  useEffect(() => {
+    if (!enabled) return;
+    let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
-    const reason = step.ticketId + "/" + step.reason;
-    const refine = async (canRetry: boolean) => {
-      lastRefinement.current = { reason, at: Date.now() };
+    const controller = new AbortController();
+    const request = async (allowRetry: boolean) => {
+      if (disposed) return;
+      setState({status: "pending"});
+      const deadline = AbortSignal.timeout(35_000);
+      const signal = AbortSignal.any([controller.signal, deadline]);
       try {
         const response = await fetch(latestRequest.current, {
-          method: "POST", signal: controller.signal,
+          method: "POST", signal,
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf ?? "" },
           body: JSON.stringify({ purpose: "liveStep", decisionKey: step.key, ticketId: step.ticketId, runId }),
         });
+        if (disposed) return;
         if (!response.ok) {
-          if (!controller.signal.aborted && canRetry && response.status === 429)
-            timer = setTimeout(() => void refine(false), 60_000);
+          const stale = response.status === 409;
+          setState({status: "failed", message: stale ? "Данные заявки изменились." :
+            response.status === 429 ? "Помощник обрабатывает другие запросы." : "Сервис ИИ не ответил."});
+          if (allowRetry && (stale || response.status === 429)) {
+            const delay = stale ? 1200 : Number(response.headers.get("retry-after") || 60) * 1000;
+            retryAt.current = Date.now() + delay;
+            timer = setTimeout(() => void request(false), delay);
+          }
           return;
         }
-        const advice: Advice = await response.json();
-        if (controller.signal.aborted || advice.key !== step.key) return;
-        if (advice.mode === "model") setReply({ scope, advice });
-        else if (canRetry && advice.retryAfterMs)
-          timer = setTimeout(() => void refine(false), advice.retryAfterMs);
+        const result: Advice | LocalAdvice = await response.json();
+        if (disposed) return;
+        if (result.key === step.key && result.mode === "model" && result.text?.trim()) {
+          setState({status: "ready", advice: result});
+          return;
+        }
+        const local = result.mode === "local" && result.key === step.key ? result : null;
+        setState({status: "failed", message: local?.reason === "unconfigured" ? "Сервис ИИ не подключён." :
+          local?.reason === "unavailable" ? "Сервис ИИ сейчас недоступен." : "Не удалось подтвердить ответ ИИ по данным заявки."});
+        if (local?.retryAfterMs) {
+          retryAt.current = Date.now() + local.retryAfterMs;
+          if (allowRetry) timer = setTimeout(() => void request(false), local.retryAfterMs);
+        }
       } catch {
-        // The field-based step remains available when the provider or network is offline.
+        if (!disposed) setState({status: "failed", message: deadline.aborted ?
+          "Истекло время ожидания ответа ИИ." : "Не удалось связаться с сервисом ИИ."});
       }
     };
-    const wait = lastRefinement.current.reason === reason ? 12_000 - (Date.now() - lastRefinement.current.at) : 0;
-    timer = setTimeout(() => void refine(true), Math.max(450, wait));
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [scope, csrf, canAnalyze, modelGuidance, step.key, step.ticketId, step.reason, runId]);
-  const refined = canAnalyze && modelGuidance && reply?.scope === scope ? reply.advice : null;
-  const priority = band?.key === "criticalDeadline" || band?.key === "critical" ? "Наивысший приоритет. " : "";
+    timer = setTimeout(() => void request(true), Math.max(350, retryAt.current - Date.now()));
+    return () => { disposed = true; clearTimeout(timer); controller.abort(); };
+  }, [enabled, attempt, csrf, runId, step.key, step.ticketId]);
+  const result: AdviceState = enabled ? state : {status: "failed", message: !online ?
+    "Нет подключения к сети." : canAnalyze ? "Сервис ИИ не подключён." : "Совет ИИ доступен координатору."};
+  const advice = result.status === "ready" ? result.advice : null;
   return (
-    <section className="live-advice" aria-labelledby="live-advice-title" data-testid="live-guidance" data-origin={refined ? "model" : "local"}>
+    <section className="live-advice" aria-labelledby="live-advice-title" data-testid="live-guidance"
+      data-origin={advice ? "model" : result.status}>
       <div className="advice-head">
-        <h3 id="live-advice-title"><Mark />{refined ? "Совет ИИ" : "Помощник смены"}</h3>
+        <h3 id="live-advice-title"><Mark />Совет ИИ</h3>
         <button type="button" className="case-analyze" onClick={event => {
           event.currentTarget.focus({preventScroll: true});
-          props.inspect(refined);
+          props.inspect(advice);
         }}>Подробнее</button>
       </div>
-      {props.checks.length > 1 && (
-        <div className="advice-checks" role="group" aria-label="Подсказки смены">
-          {props.checks.map(({ step: option }) => (
-            <button type="button" key={option.reason} aria-pressed={option === step}
-              onClick={() => props.selectCheck(option)}>
-              <Icon name={reasonLabels[option.reason].icon} size={15} />
-              {reasonLabels[option.reason].label}
-            </button>
-          ))}
-        </div>
-      )}
-      <div aria-live="polite" aria-atomic="true">
-        <p className="advice-action" data-testid="guidance-action">{refined?.action ?? step.action}</p>
-        <p className="advice-basis" data-testid="guidance-basis">
-          <Icon name={reasonLabels[step.reason].icon} size={15} />
-          <span><span className="sr-only">Основание. </span>{priority}{step.basis}</span>
-        </p>
-      </div>
-      <div className="advice-links">
+      {result.status === "pending" ? <Loader label="Готовим совет по заявке…" /> :
+        result.status === "failed" ? <div className="advice-status">
+          <span role="status">{result.message}</span>
+          {canAnalyze && <button type="button" onClick={() => {
+            setOnline(navigator.onLine); setState({status: "pending"}); setAttempt(n => n + 1);
+          }}>Повторить</button>}
+        </div> : <p className="advice-action" data-testid="guidance-action" aria-live="polite">{result.advice.text}</p>}
+      <div className="advice-source">
+        <span>{step.ticketId}</span>
         <a className="case-source" href={screenLink("/incident/" + encodeURIComponent(step.ticketId), ns)}
           aria-label={"Открыть заявку " + step.ticketId} onClick={event => {
             if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
             event.preventDefault();
             open(step.ticketId);
-          }}>
-          <span>{step.ticketId}</span><span aria-hidden="true">↗</span>
-        </a>
-        {props.groupAction}
+          }}>Открыть заявку</a>
       </div>
+      {props.groupAction}
     </section>
   );
 }

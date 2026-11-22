@@ -41,7 +41,7 @@
   --cx-border:color-mix(in srgb,var(--tone) 60%,var(--cx-bg));
   --cx-edge:color-mix(in srgb,var(--cx-surface) 88%,var(--tone));
   transition:width .46s cubic-bezier(.22,.75,.19,1),height .46s cubic-bezier(.22,.75,.19,1),filter .18s;
-  animation:cx-place .42s var(--delay,0ms) cubic-bezier(.24,.76,.3,1) backwards;transform-origin:bottom left;
+  transform-origin:bottom left;
 }
 .cx-square-ink svg {display:block;width:100%;height:100%;}
 .cx-key {display:flex;align-items:center;flex-wrap:wrap;gap:3px 13px;min-width:0;font-family:"Golos Text",sans-serif;font-size:.69rem;}
@@ -80,7 +80,7 @@
 .cx-compare tbody th {font-size:clamp(.78rem,1vw,1rem);}
 .cx-compare th button {display:block;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;max-width:100%;width:100%;height:36px;}
 .cx-compare td span {font:500 clamp(.82rem,1.3vw,1.3rem)/1.3 var(--cx-mono);}
-.cx-compare td i {height:3px;display:block;background:var(--tone);margin:3px 0 0 auto;animation:cx-bar .34s ease-out both;transform-origin:right center;}
+.cx-compare td i {height:3px;display:block;background:var(--tone);margin:3px 0 0 auto;}
 .cx-compare .cx-pager {padding-top:3px;}
 .cx-ticket-link {display:grid;height:54px;min-height:0;flex:none;grid-template-columns:minmax(0,1fr) minmax(0,.6fr);grid-template-rows:1fr 1.3fr;gap:0 10px;align-content:center;align-items:center;text-decoration:none;color:var(--cx-ink);border-bottom:1px solid var(--cx-line);padding:5px 0;}
 .cx-ticket-link>span,.cx-ticket-link strong {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;line-height:1.3;}
@@ -191,8 +191,6 @@
 .cx-answer a {color:var(--cx-ink);}
 .cx .cx-transcript-view {margin-top:5px;min-height:28px;}
 .cx .cx-new {align-self:flex-start;min-height:34px;}
-@keyframes cx-place {from{opacity:.3;transform:translateY(7px) scale(.94);}to{opacity:1;transform:none;}}
-@keyframes cx-bar {from{transform:scaleX(.06);}to{transform:none;}}
 @keyframes cx-drawer {from{opacity:.65;transform:translateX(20px);}to{opacity:1;transform:none;}}
 @media(max-width:660px) {
   .cx-stage{gap:12px;}

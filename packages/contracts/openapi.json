@@ -1112,7 +1112,14 @@
         ]}}}},
         "description": "Фильтры и источник совпадают с запросом очереди. В учебных источниках разбор доступен вошедшим наблюдателям при включённой демонстрации. Для рабочих источников нужна роль coordinator или demo-admin. Запрос требует CSRF.",
         "responses": {
-          "200":{"description":"Разбор группы с источниками или текущий шаг {key, action, mode, model?} для purpose=liveStep"},
+          "200":{
+            "description":"Разбор группы или совет по текущему состоянию заявки. Для purpose=liveStep поле text содержит проверенное наблюдение и предложенное моделью действие. При недоступности совета клиент использует reason для сообщения о состоянии.",
+            "content":{"application/json":{"schema":{"oneOf":[
+              {"type":"object","required":["summary","evidence","inputRevision","inputHash"],"properties":{"summary":{"type":"array","items":{"type":"string"}},"evidence":{"type":"array","items":{"type":"object"}},"inputRevision":{"type":"integer"},"inputHash":{"type":"string"}}},
+              {"type":"object","required":["key","mode","model","text","action"],"properties":{"key":{"type":"string"},"mode":{"const":"model"},"model":{"type":"string"},"text":{"type":"string"},"action":{"type":"string"}}},
+              {"type":"object","required":["key","mode","reason","action"],"properties":{"key":{"type":"string"},"mode":{"const":"local"},"reason":{"enum":["unconfigured","unavailable","unverified"]},"action":{"type":"string","description":"Проверка по локальному правилу"},"retryAfterMs":{"type":"integer","minimum":0}}}
+            ]}}}
+          },
           "401":{"description":"Требуется вход"},
           "403":{"description":"Недостаточно прав или неверный источник запроса"},
           "409":{"description":"Версия недоступна или хэш выборки не совпал"},

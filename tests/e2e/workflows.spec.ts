@@ -477,7 +477,7 @@ test("cases rank the filtered queue, explain the source tickets and fit the view
     "data-testid",
     "card-" + detail.items[0].id,
   );
-  await expect(page.getByTestId("live-guidance").locator(".case-source")).toContainText(c.step.ticketId);
+  await expect(page.getByTestId("live-guidance").getByRole("link", {name: "Открыть заявку " + c.step.ticketId})).toBeVisible();
   await page.goto("/simulation");
   await expect(rows.first()).toBeVisible();
   await page.locator(".case-analyze").click();

@@ -1,4 +1,5 @@
 import { Icon, type IconName } from "./Brand";
+import { revealCanvas } from "./canvasMotion";
 import {
   useEffect,
   useLayoutEffect,
@@ -368,7 +369,14 @@ function WorkspaceScreen({
   const screen = useRef<HTMLElement>(null);
   const turn = chat.turns[chat.active];
   const result = turn?.result;
+  const pendingReveal = useRef<CanvasResult | null>(null);
   const last = chat.turns.at(-1)?.result;
+
+  useLayoutEffect(() => {
+    if (!result || pendingReveal.current !== result || !stage.ref.current) return;
+    pendingReveal.current = null;
+    return revealCanvas(stage.ref.current);
+  }, [result, stage.ref]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -445,6 +453,7 @@ function WorkspaceScreen({
         },
       );
       if (controller.signal.aborted || json.namespace !== ns) return;
+      if (question || operation !== "ask") pendingReveal.current = json;
       setChat((previous) => {
         if (refresh && previous.turns[requestedTurn]) {
           const turns = previous.turns.map((entry, i) =>

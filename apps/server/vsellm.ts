@@ -25,6 +25,7 @@ interface Reading {
 }
 type Result = { reading: Reading } | { error: string };
 type JsonReply = { json: unknown } | { error: string };
+type RequestPriority = "interactive" | "background" | "background-review";
 const failure = (message: string) => ({ error: "VseLLM: " + message });
 const isLine = (s: unknown): s is string =>
   typeof s === "string" &&
@@ -93,7 +94,7 @@ export class VseLlm {
     string,
     { expires: number; result: JsonReply }
   >();
-  private started: { at: number; background: boolean }[] = [];
+  private started: { at: number; priority: RequestPriority }[] = [];
   private backgroundPending = 0;
   constructor(
     private readonly key: string,
@@ -118,7 +119,7 @@ export class VseLlm {
     system: string,
     packet: object,
     timeout: number,
-    priority: "interactive" | "background" = "interactive",
+    priority: RequestPriority = "interactive",
   ): Promise<JsonReply> {
     const id = hash([this.model, version, packet]);
     const now = Date.now();
@@ -128,15 +129,16 @@ export class VseLlm {
     if (running) return running;
     this.started = this.started.filter(({ at }) => at > now - 86_400_000);
     const recent = this.started.filter(({ at }) => at > now - 60_000);
-    const background = priority === "background";
+    const background = priority !== "interactive";
     if (this.pending.size >= 3 || this.started.length >= 500 || recent.length >= 18)
       return failure("достигнут лимит запросов.");
-    // A busy live feed must leave capacity for a coordinator typing a question.
+    // Generation and its evidence check can each use six slots per minute.
+    // Both share one in-flight slot, leaving capacity for interactive requests.
     if (background && (this.backgroundPending >= 1 ||
-      recent.filter((call) => call.background).length >= 6 ||
-      this.started.filter((call) => call.background).length >= 180))
+      recent.filter((call) => call.priority === priority).length >= 6 ||
+      this.started.filter((call) => call.priority === priority).length >= 180))
       return failure("достигнут лимит фоновых обновлений.");
-    this.started.push({ at: now, background });
+    this.started.push({ at: now, priority });
     if (background) this.backgroundPending++;
     const job = this.complete(system, packet, timeout);
     this.pending.set(id, job);

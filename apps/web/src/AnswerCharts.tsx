@@ -140,6 +140,7 @@ export function Orbit({ all, groups, start, weight, choose }: GroupMarks) {
                   {...el("share-arc")}
                   key={g.key}
                   d={sectorStroke(offset, offset + part)}
+                  pathLength={1}
                   fill="none"
                   stroke="var(--tone)"
                   style={hue(start + i)}

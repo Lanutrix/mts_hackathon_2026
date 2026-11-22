@@ -11,7 +11,7 @@ import { buildTriage, filterDashboard } from "../packages/domain/triage.ts";
 import { createApp } from "../apps/server/api.ts";
 import { AnalysisService } from "../apps/server/analysis.ts";
 import { analyzeCase } from "../apps/server/caseAnalysis.ts";
-import { liveChecks } from "../packages/domain/liveStep.ts";
+import { liveStep } from "../packages/domain/liveStep.ts";
 import { refineLiveStep } from "../apps/server/liveGuidance.ts";
 import { VseLlm } from "../apps/server/vsellm.ts";
 import { Auth } from "../apps/server/auth.ts";
@@ -108,41 +108,109 @@ test("live guidance follows the ticket deadline through both boundaries without 
   assert.equal(at(Date.parse(deadline) + 1).cases[0].step.reason, "missingSource");
 });
 
-test("live AI renders distinct grounded manual checks and rejects invented facts and unrelated references", async () => {
-  const row = ticket(0);
-  const group = buildTriage([row], "priority", 1, now).cases[0];
-  for (const [action, ref, expected] of [
-    ["Уточните у команды новый срок решения.", "deadline", "model"],
-    ["Уточните у координатора причину задержки срока решения в карточке заявки.", "deadline", "model"],
-    ["Спросите, когда исполнитель сообщит новый срок.", "deadline", "model"],
-    ["Уточните срок восстановления после пожара.", "deadline", "local"],
-    ["Уточните у команды новый срок решения.", "unverifiedCause", "local"],
-    ["Назначьте заявку другой команде.", "deadline", "local"],
-  ]) {
-    const reply = { action, ref, choice: 2 };
-    const client = new VseLlm("key", "test-model", async () =>
-      Response.json({choices: [{message: {content: JSON.stringify(reply)}}]}));
-    const result = await refineLiveStep(client, group.step, row, group, now);
-    assert.equal(result.mode, expected);
-    assert.equal(result.action, expected === "model" ? action : group.step.action);
+
+function guidanceClient(reply: object | ((packet: any) => object), grounded = true, packets: any[] = []) {
+  return new VseLlm("test", "test-model", async (_url, options) => {
+    const packet = JSON.parse(JSON.parse(String(options!.body)).messages[1].content);
+    packets.push(packet);
+    const content = packet.candidate ? { grounded, manual: true } : typeof reply === "function" ? reply(packet) : reply;
+    return Response.json({ choices: [{ message: { content: JSON.stringify(content) } }] });
+  });
+}
+
+test("live advice publishes original prose tied to changing ticket and queue facts, deduplicating concurrent reads", async () => {
+  const packets: any[] = [];
+  const slow = { observation: "У этой заявки наивысший приоритет и прошёл срок решения. В группе уже две просроченные заявки.", action: "Уточните у исполнителя, когда появится обновлённая оценка срока.", refs: ["deadline", "priorityId", "group.overdue"] };
+  const clear = { observation: "У заявки есть запас по сроку решения.", action: "Сверьте с командой время следующего сообщения о ходе работ.", refs: ["deadline", "assignedGroupName"] };
+  const client = guidanceClient(p => p.facts["group.overdue"] === 2 ? slow : clear, true, packets);
+  for (const [deadline, expected] of [[-1, slow], [30, clear]] as const) {
+    const rows = [0, 1].map(n => ticket(n, { deadline: new Date(now + deadline*60_000).toISOString(),
+      isNeedUp: false, assignedGroupName: "Секретная команда", assignedEmployee: "Иван Иванов",
+      header: "Секретный заголовок", description: "Секретные персональные сведения." }));
+    const group = buildTriage(rows, "priority", 1, now).cases[0];
+    const read = () => refineLiveStep(client, group.step, rows[0], group, now);
+    const [result, twin] = await Promise.all([read(), read()]);
+    assert.equal(result.mode, "model");
+    assert.equal(result.text, expected.observation + " " + expected.action);
+    assert.equal(result.action, expected.action);
+    assert.deepEqual(twin, result);
   }
+  assert.equal(packets.length, 4);
+  const transport = JSON.stringify(packets);
+  assert.doesNotMatch(transport, /Секрет|Иванов|T-0|T-1|preferredCheck|checks|starts|words/iu);
 });
 
-test("live model can explicitly rank a grounded check when its free wording is unusable", async () => {
+test("absent generation, unsupported evidence and provider-only choice never count as generated advice", async () => {
   const row = ticket(0);
   const group = buildTriage([row], "priority", 1, now).cases[0];
-  const replies = [
-    { ref: "deadline", preferredCheck: "B", action: "Фантазия модели" },
-    { ref: "unverified", preferredCheck: "B", action: "Фантазия модели" },
-  ];
-  for (const reply of replies) {
-    const client = new VseLlm("key", "test-model", async () =>
-      Response.json({ choices: [{ message: { content: JSON.stringify(reply) } }] }));
-    const result = await refineLiveStep(client, group.step, row, group, now);
-    assert.equal(result.mode, reply.ref === "deadline" ? "model" : "local");
-    assert.doesNotMatch(result.action, /Фантазия/);
-    if (result.mode === "model") assert.equal(result.action, liveChecks[group.step.reason][1]);
+  const actual = { observation: "У заявки прошёл срок решения.", action: "Уточните у команды ожидаемый срок.", refs: ["deadline"] };
+  for (const [reply, grounded] of [
+    [{ choice: 2 }, true], [{ ref: "deadline", preferredCheck: "B" }, true],
+    [{ ...actual, refs: ["rootCause"] }, true],
+    [{ ...actual, observation: "Затронуты 48 серверов." }, true],
+    [{ ...actual, action: "Закройте заявку и отправьте письмо." }, true],
+    [{ ...actual, observation: "Ни одна заявка в группе не назначена конкретному исполнителю." }, true],
+    [{ ...actual, action: "Проверьте наличие исполнителя и при необходимости обновите эту информацию." }, true],
+    [{ ...actual, action: "Проверьте, можно ли назначить срок решения для этой заявки." }, true],
+    [{ ...actual, action: "Уточните, требуется ли устранение последствий для этой заявки." }, true],
+    [{ ...actual, observation: "Причина задержки — пожар в дата-центре." }, false],
+  ] as const) {
+    const result = await refineLiveStep(guidanceClient(reply, grounded), group.step, row, group, now);
+    assert.equal(result.mode, "local", JSON.stringify(reply));
+    assert.equal(result.text, undefined);
+    assert.equal(result.reason, "unverified");
   }
+  const offline = await refineLiveStep(undefined, group.step, row, group, now);
+  assert.equal(offline.reason, "unconfigured");
+  assert.equal(offline.text, undefined);
+  // The provider may repeat the focus alias alongside its field name.
+  assert.equal((await refineLiveStep(guidanceClient({ ...actual, refs: ["deadline", "focus"] }), group.step, row, group, now)).mode, "model");
+});
+
+test("live situation identity follows facts used in the prose and ignores unrelated snapshot changes", () => {
+  const row = ticket(0, { assignedGroupName: "Сеть" });
+  const group = { count: 3, overdue: 1, soon: 1 };
+  const key = liveStep(row, now, group).key;
+  assert.equal(liveStep({ ...row, revision: 9 }, now, group).key, key);
+  assert.notEqual(liveStep({ ...row, groups: ["critical", "coordinators"] }, now, group).key, key);
+  const surge = {count: 801, soon: 110, overdue: 35};
+  assert.equal(liveStep(row, now, surge).key, liveStep(row, now, {count: 802, soon: 112, overdue: 33}).key);
+  assert.notEqual(liveStep(row, now, surge).key, liveStep(row, now, {...surge, overdue: 100}).key);
+  assert.notEqual(liveStep(row, now, group).key, liveStep(row, now, {...group, count: 4}).key);
+  const changedDeadline = ticket(0, { assignedGroupName: "Сеть", deadline: new Date(now - 120_000).toISOString() });
+  assert.equal(liveStep(row, now, surge).key, liveStep(changedDeadline, now, surge).key);
+});
+
+test("a fluctuating large group shares a safe range and cannot publish the lower bound as an exact count", async () => {
+  const row = ticket(0), base = buildTriage([row], "priority", 1, now).cases[0];
+  const packets: any[] = [];
+  const answer = { observation: "В группе не менее 800 заявок. У этой заявки прошёл срок решения.",
+    action: "Уточните, когда команда рассчитывает завершить работы.", refs: ["deadline", "group.count"] };
+  const client = guidanceClient(answer, true, packets);
+  for (const count of [801, 802]) {
+    const group = { ...base, count };
+    const read = await refineLiveStep(client, liveStep(row, now, group), row, group, now);
+    assert.equal(read.mode, "model");
+  }
+  assert.equal(packets.length, 2);
+  assert.doesNotMatch(JSON.stringify(packets), /801|802/u);
+  const group = { ...base, count: 802 };
+  const bad = guidanceClient({ ...answer, observation: "В группе ровно 800 заявок." });
+  assert.equal((await refineLiveStep(bad, liveStep(row, now, group), row, group, now)).mode, "local");
+});
+
+test("six different live situations can complete generation and review without using the interactive reserve", async () => {
+  const row = ticket(0);
+  const group = buildTriage([row], "priority", 1, now).cases[0];
+  const client = guidanceClient({
+    observation: "Срок решения заявки прошёл.", action: "Уточните у команды актуальный срок решения.", refs: ["deadline"],
+  });
+  for (let count = 1; count <= 7; count++) {
+    const next = { ...group, count };
+    const result = await refineLiveStep(client, liveStep(row, now, next), row, next, now);
+    assert.equal(result.mode, count <= 6 ? "model" : "local", "group size " + count);
+  }
+  assert.ok("json" in await client.json("interactive", "test", { text: "test" }, 1000));
 });
 
 test("case pages pin all members to the same revision and locally analyze only the selected source", async () => {

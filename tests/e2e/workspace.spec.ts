@@ -992,3 +992,110 @@ test("prompt buttons execute distinct follow-ups from the displayed turn", async
   await expect(page.getByRole("heading", { name: "Черновик комментария" })).toBeVisible();
   expect(initial.total).toBeGreaterThan(1);
 });
+
+async function observeCanvasMotion(page: Page) {
+  return page.evaluateHandle(() => {
+    const stage = document.getElementById("cx-stage")!;
+    const events: { id: string; node: string; delay: number; start: Keyframe; end: Keyframe }[] = [];
+    const seen = new WeakSet<Animation>();
+    const observer = new MutationObserver(() => {
+      for (const animation of stage.getAnimations({ subtree: true })) {
+        if (seen.has(animation) || !animation.id.startsWith("canvas-enter-")) continue;
+        seen.add(animation);
+        const effect = animation.effect as KeyframeEffect;
+        const frames = effect.getKeyframes();
+        events.push({ id: animation.id, node: effect.target?.tagName ?? "", delay: Number(effect.getTiming().delay),
+          start: frames[0], end: frames[frames.length - 1] });
+      }
+    });
+    observer.observe(stage, { attributes: true, characterData: true, childList: true, subtree: true });
+    return { events };
+  });
+}
+
+test("new canvas answers reveal their text, chart geometry, timeline and graph in reading order", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await enter(page);
+  const recording = await observeCanvasMotion(page);
+  const samples = async (question: string) => {
+    await recording.evaluate(log => { log.events.length = 0; });
+    await ask(page, question);
+    return recording.evaluate(log => log.events);
+  };
+  let events = await samples("Какой продукт встречается чаще всего?");
+  expect(events.some(e => e.id === "canvas-enter-heading" && Number(e.start.opacity) < Number(e.end.opacity))).toBe(true);
+  expect(events.some(e => e.id === "canvas-enter-measure" && e.start.clipPath !== e.end.clipPath)).toBe(true);
+  await expect.poll(() => page.locator("#cx-stage").evaluate(el => el.getAnimations({ subtree: true }).length),
+    { timeout: 1800 }).toBe(0);
+  events = await samples("Покажи это кольцевой диаграммой");
+  expect(events.some(e => e.id === "canvas-enter-arc" && e.node.toLowerCase() === "path" &&
+    e.start.strokeDashoffset !== e.end.strokeDashoffset)).toBe(true);
+  events = await samples("Покажи последние три инцидента");
+  const rows = events.filter(e => e.id === "canvas-enter-row" && e.node === "LI");
+  expect(rows).toHaveLength(3);
+  expect(rows[0].delay).toBeLessThan(rows[1].delay);
+  expect(rows[1].delay).toBeLessThan(rows[2].delay);
+  events = await samples("Сколько сейчас просроченных заявок?");
+  expect(events.some(e => e.id === "canvas-enter-slice" && e.node.toLowerCase() === "path")).toBe(true);
+  events = await samples("Что общего у DEMO-42-00001 и DEMO-42-00004?");
+  expect(events.filter(e => e.id === "canvas-enter-node").length).toBeGreaterThanOrEqual(2);
+  expect(events.some(e => e.id === "canvas-enter-link")).toBe(true);
+  events = await samples("С какой заявки начать?");
+  expect(events.some(e => e.id === "canvas-enter-prose" && e.node === "P")).toBe(true);
+});
+
+test("only accepted fresh responses start motion; reduced motion presents the complete final frame", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await enter(page);
+  const recording = await observeCanvasMotion(page);
+  const q = "Покажи последние три инцидента";
+  await ask(page, q);
+  const headings = () => recording.evaluate(log => log.events.filter(e => e.id === "canvas-enter-heading").length);
+  expect(await headings()).toBe(1);
+  const input = page.getByRole("textbox", { name: "Вопрос об инцидентах" });
+  await input.fill("Черновик");
+  await page.setViewportSize({ width: 820, height: 730 });
+  expect(await headings()).toBe(1);
+  await ask(page, q);
+  expect(await headings()).toBe(2);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const running = () => page.locator("#cx-stage").evaluate(stage => stage.getAnimations({ subtree: true }).length);
+  await expect.poll(running).toBe(0);
+  const count = await recording.evaluate(log => log.events.length);
+  await ask(page, q);
+  await expect(page.locator(".fact-arrivals > li")).toHaveCount(3);
+  expect(await recording.evaluate(log => log.events.length)).toBe(count);
+  expect(await running()).toBe(0);
+  expect(await page.locator(".fact-value").evaluate(el => getComputedStyle(el).opacity)).toBe("1");
+});
+
+test("a cancelled request never animates its late response and empty results still reveal their message", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const initial = await enter(page);
+  const recording = await observeCanvasMotion(page);
+  let started!: () => void, release!: () => void;
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  fault = { path: "/api/canvas", method: "POST", respond: async reply => {
+    started();
+    await hold;
+    reply.send({ ...initial, title: "Устаревший ответ" });
+  } };
+  const input = page.getByRole("textbox", { name: "Вопрос об инцидентах" });
+  try {
+    await input.fill("Первый запрос");
+    await input.press("Enter");
+    await waiting;
+    await page.getByRole("button", { name: "Остановить запрос" }).click();
+    await ask(page, "Покажи последние три инцидента");
+  } finally { release(); }
+  await expect(page.locator(".fact-arrivals > li")).toHaveCount(3);
+  expect(await recording.evaluate(log => log.events.filter(e => e.id === "canvas-enter-heading").length)).toBe(1);
+  const loaded = page.waitForResponse(r => new URL(r.url()).pathname === "/api/canvas" && r.request().method() === "GET");
+  await page.goto(origin + "/workspace?ns=original");
+  await loaded;
+  await expect(page.locator(".cx-empty h3")).toBeVisible();
+  const empty = await observeCanvasMotion(page);
+  await ask(page, "Покажи открытые заявки списком");
+  expect(await empty.evaluate(log => log.events.some(e => e.id === "canvas-enter-prose" && e.node === "H3"))).toBe(true);
+});

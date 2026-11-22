@@ -55,22 +55,6 @@
   place-items: center stretch;
   min-height: 0;
 }
-.ar-chart-inner,
-.ar-guide-body,
-.ar-brief-main,
-.ar-spot {
-  animation: ar-arrive 0.48s cubic-bezier(0.16, 0.7, 0.22, 1) both;
-}
-@keyframes ar-arrive {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 .ar-chart .cx-pager,
 .ar-guide .cx-pager,
 .ar-brief .cx-pager,
@@ -143,7 +127,6 @@
   top: -1px;
   background: var(--tone);
   transform-origin: left center;
-  animation: ar-line 0.58s both;
 }
 .ar-lollipop > i > i {
   position: absolute;
@@ -153,14 +136,6 @@
   height: 7px;
   border-radius: 50%;
   background: var(--tone);
-}
-@keyframes ar-line {
-  from {
-    transform: scaleX(0.04);
-  }
-  to {
-    transform: scaleX(1);
-  }
 }
 .ar-orbit {
   display: grid;
@@ -689,15 +664,6 @@
   }
   .ar-fact-value {
     font-size: 1.2rem;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ar-chart-inner,
-  .ar-guide-body,
-  .ar-brief-main,
-  .ar-spot,
-  .ar-lollipop > i {
-    animation: none;
   }
 }
 

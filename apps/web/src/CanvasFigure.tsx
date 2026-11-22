@@ -251,7 +251,6 @@ function Squares({ result, choose }: Pick<FigureProps, "result" | "choose">) {
                 width: rect.width,
                 height: rect.side + rect.caption,
                 "--side": rect.side + "px",
-                "--delay": i * 28 + "ms",
               } as CSSProperties
             }
           >
