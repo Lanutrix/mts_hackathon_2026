@@ -1,3 +1,4 @@
+import Select from "./Select";
 import React, {
   useCallback,
   useEffect,
@@ -32,6 +33,7 @@ import { groups } from "./liveFeed";
 import { ProductBrand, MtsCaseBrand, Icon, type IconName } from "./Brand";
 import "./ops.css";
 import "./ticket.css";
+import { analysisSource, analysisText } from "./analysisLabels";
 import type { Incident } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
 const IncidentIntake = React.lazy(() => import("./IncidentIntake").then(m => ({ default: m.IncidentIntake })));
@@ -281,10 +283,12 @@ function App({ initialRoute }: { initialRoute: URL }) {
       );
     const target = screenPath(new URL(path, location.origin).pathname);
     const fromLive = screenPath(previous) === "/live" && target.startsWith("/incident/");
+    const fromJournal = screenPath(previous) === "/notifications" && target.startsWith("/incident/");
     const restoredPage = target === "/live" && path === history.state?.liveOrigin
       ? history.state?.livePage : undefined;
     history.pushState(fromLive
       ? { liveOrigin: location.pathname + location.search, livePage: history.state?.livePage }
+      : fromJournal ? { journalOrigin: location.pathname + location.search }
       : fromCanvas ? { fromCanvas: true } : restoredPage ? { livePage: restoredPage } : null, "", path);
     const next = readRoute();
     setRoute(next);
@@ -457,7 +461,8 @@ function Dashboard({
           "/notifications?ns=" +
             encodeURIComponent(ns) +
             "&offset=" +
-            (params.get("offset") ?? 0),
+            (params.get("offset") ?? 0) +
+            (params.has("revision") ? "&revision=" + encodeURIComponent(params.get("revision")!) : ""),
         );
       else if (path === "/quality" || path === "/history")
         e = await read(
@@ -663,10 +668,36 @@ function Dashboard({
       setError((e as Error).message);
     }
   };
+  const visibleCases = new Map<string, string>(
+    (data?.events ?? []).filter((note: {caseId?: string}) => note.caseId)
+      .map((note: {key: string; caseId: string}) => [note.key, note.caseId]),
+  );
   const wave = path === "/live" && data?.filterQuery === query && signals.length >= 4
-    ? data.triage?.groupBy === "response" ? data.triage.cases[0]
-      : data.triage?.cases.find((item: {id: string; count: number}) => item.count > 1 && item.id === data.triage.liveFocus?.caseId)
+    ? data.triage?.cases.find((item: {id: string}) =>
+        signals.filter(signal => visibleCases.get(signal.key) === item.id).length >= 4)
     : undefined;
+  const dismissWave = () => setSignals(items => items.filter(note => visibleCases.get(note.key) !== wave?.id));
+  const openNotification = async (note: IncidentSignal & {read?: boolean}) => {
+    if (write && !note.read) {
+      try {
+        await post("/notifications/read", {key: note.key, revision: note.revision});
+      } catch (e) {
+        setError((e as Error).message);
+        return;
+      }
+    }
+    if (training && signals[0] === note) dismiss();
+    setSignals(items => items.filter(item => item.key !== note.key || item.revision > note.revision));
+    open(note.id);
+  };
+  const journalPage = (offset: number) => {
+    const p = new URLSearchParams();
+    if (offset) {
+      p.set("offset", String(offset));
+      p.set("revision", String(extra.revision));
+    }
+    go(link("/notifications" + (p.size ? "?" + p : "")));
+  };
   const sourceProblem =
     error ||
     data?.status.state === "error" ||
@@ -843,18 +874,15 @@ function Dashboard({
           }
           pendingCount={signals.length}
           wave={wave ? { label: wave.label, count: wave.count } : undefined}
-          onDismiss={wave ? () => setSignals([]) : dismiss}
+          onDismiss={wave ? dismissWave : dismiss}
           onOpen={() => {
             if (wave) {
-              setSignals([]);
+              dismissWave();
               updateParam("case", wave.id);
               return;
             }
             const current = signals[0];
-            if (current) {
-              dismiss();
-              open(current.id);
-            }
+            if (current) void openNotification(current);
           }}
           onJournal={() => go(link("/notifications"))}
         />
@@ -947,6 +975,7 @@ function Dashboard({
               <Detail
                 key={extra.incident.key}
                 liveBack={liveReturnHref(ns)}
+                journalBack={history.state?.journalOrigin}
                 canvasBack={
                   history.state?.fromCanvas === true
                     ? link("/workspace")
@@ -987,6 +1016,13 @@ function Dashboard({
           ) : path === "/notifications" ? (
             <section className="content">
               <h1>Уведомления</h1>
+              {extra && <div className="journal-summary">
+                <span>{write ? "Непрочитанных: " + extra.unread + " · " : ""}Всего событий: {extra.total}</span>
+                {write && extra.unread > 0 && <button type="button" onClick={() => void call(async () => {
+                  await post("/notifications/read", {throughRevision:extra.revision});
+                  setSignals(items => items.filter(item => item.revision > extra.revision));
+                })}>Прочитать все</button>}
+              </div>}
               {extra?.items?.length ? (
                 extra.items.map((n: any) => (
                   <article
@@ -1005,7 +1041,7 @@ function Dashboard({
                       <button
                         tabIndex={0}
                         className="link"
-                        onClick={() => open(n.id)}
+                        onClick={() => void openNotification(n)}
                       >
                         {n.header && <span>{n.header} · </span>}
                         <span>{n.id}</span>
@@ -1016,9 +1052,9 @@ function Dashboard({
                       <details className="event-facts">
                         <summary>На момент сигнала</summary>
                         <p>
-                          {n.snapshot.state} · {n.snapshot.team}
+                          {n.snapshot.state || "Статус не указан"} · {n.snapshot.team || "Команда не указана"}
                         </p>
-                        <p>{n.snapshot.description}</p>
+                        {n.snapshot.description && <p>{n.snapshot.description}</p>}
                         {n.snapshot.deadline && (
                           <p>Срок {formatDate(n.snapshot.deadline, zone)}</p>
                         )}
@@ -1029,12 +1065,10 @@ function Dashboard({
                         tabIndex={0}
                         disabled={n.read}
                         onClick={() =>
-                          void call(() =>
-                            post("/notifications/read", {
-                              key: n.key,
-                              revision: n.revision,
-                            }),
-                          )
+                          void call(async () => {
+                            await post("/notifications/read", {key: n.key, revision: n.revision});
+                            setSignals(items => items.filter(item => item.key !== n.key || item.revision > n.revision));
+                          })
                         }
                       >
                         {n.read ? "Прочитано" : "Отметить прочитанным"}
@@ -1053,10 +1087,7 @@ function Dashboard({
                   tabIndex={0}
                   disabled={!Number(params.get("offset"))}
                   onClick={() =>
-                    updateParam(
-                      "offset",
-                      String(Math.max(0, Number(params.get("offset")) - 200)),
-                    )
+                    journalPage(Math.max(0, Number(params.get("offset")) - 200))
                   }
                 >
                   Предыдущие
@@ -1065,7 +1096,7 @@ function Dashboard({
                   tabIndex={0}
                   disabled={extra?.nextOffset == null}
                   onClick={() =>
-                    updateParam("offset", String(extra.nextOffset))
+                    journalPage(extra.nextOffset)
                   }
                 >
                   Следующие
@@ -1227,6 +1258,7 @@ function fieldCaption(field: string) {
 }
 function Detail({
   canvasBack,
+  journalBack,
   liveBack,
   item,
   dispatch,
@@ -1240,6 +1272,7 @@ function Detail({
 }: {
   item: any;
   canvasBack?: string;
+  journalBack?: string;
   liveBack: string;
   dispatch: React.ReactNode;
   zone: string;
@@ -1272,11 +1305,11 @@ function Detail({
       <div className="ticket-columns">
         <div className="ticket-story" role="region" aria-label="Карточка инцидента" tabIndex={0}>
           {!canvasBack && !mock && (
-            <a className="canvas-back" href={liveBack} onClick={event => {
+            <a className="canvas-back" href={journalBack || liveBack} onClick={event => {
               if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
               event.preventDefault();
-              onNavigate(liveBack);
-            }}><span aria-hidden="true">←</span> Вернуться в эфир</a>
+              onNavigate(journalBack || liveBack);
+            }}><span aria-hidden="true">←</span> {journalBack ? "Вернуться в журнал" : "Вернуться в эфир"}</a>
           )}
           {canvasBack && (
             <a
@@ -1425,9 +1458,9 @@ function Detail({
                       <li key={n}>{s}</li>
                     ))}
                   </ul>
-                  {analysis.error && <p role="status">{analysis.error}</p>}
+                  {analysis.error && <p role="status">{analysisText(analysis.error)}</p>}
                   <details>
-                    <summary>Основания и модель</summary>
+                    <summary>Основания разбора</summary>
                     {analysis.evidence.map((e, n) => (
                       <p key={n}>
                         {e.claim + 1}.{" "}
@@ -1438,7 +1471,7 @@ function Detail({
                       <p key={n}>{s}</p>
                     ))}
                     <small>
-                      {analysis.provider} · {analysis.model}
+                      {analysisSource(analysis.provider)}
                     </small>
                   </details>
                 </div>
@@ -1588,14 +1621,14 @@ function Preferences({
     >
       <label>
         Часовой пояс
-        <select
+        <Select
           aria-label="Часовой пояс"
           value={p.zone}
           onChange={(e) => setP({ ...p, zone: e.target.value })}
         >
           <option value="Europe/Moscow">Москва (UTC+3)</option>
           <option value="UTC">UTC</option>
-        </select>
+        </Select>
       </label>
       <label className="check">
         <input

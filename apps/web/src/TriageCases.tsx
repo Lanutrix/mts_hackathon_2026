@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CaseAnalysis, TriageCase } from "../../../packages/domain/triage";
 import type { LiveStep } from "../../../packages/domain/liveStep";
 import Loader from "./Loader";
+import { analysisSource, analysisText } from "./analysisLabels";
 import { Icon, Mark } from "./Brand";
 import { fieldName, TicketMentions } from "./IncidentSources";
 import { screenLink } from "./routes";
@@ -121,7 +122,7 @@ export default function TriageCases(props: Props) {
       <div className="case-groups-heading">
         <h2>Группы инцидентов</h2>
         {dimension === "semantic" && <small>{modeled === 0 ? "По описаниям" :
-          modeled === cases.length ? "VseLLM" : "VseLLM и локальный разбор"}</small>}
+          modeled === cases.length ? "По смыслу заявок" : "По смыслу и совпадениям"}</small>}
       </div>
       <div className="case-group-options" role="group" aria-label="Выбрать группу">
         <button type="button" aria-pressed={!chosen} onClick={() => pick("")}>
@@ -235,15 +236,8 @@ function LiveAdvice(props: Props & Check & {
     "Нет подключения к сети." : canAnalyze ? "Сервис ИИ не подключён." : "Совет ИИ доступен координатору."};
   const advice = result.status === "ready" ? result.advice : null;
   return (
-    <section className="live-advice" aria-labelledby="live-advice-title" data-testid="live-guidance"
+    <section className="live-advice" aria-label="Совет ИИ" data-testid="live-guidance"
       data-origin={advice ? "model" : result.status}>
-      <div className="advice-head">
-        <h3 id="live-advice-title"><Mark />Совет ИИ</h3>
-        <button type="button" className="case-analyze" onClick={event => {
-          event.currentTarget.focus({preventScroll: true});
-          props.inspect(advice);
-        }}>Подробнее <span aria-hidden="true">↗</span></button>
-      </div>
       <p className="advice-group"><Icon name={record.icon ?? "relation"} size={15} />{record.label}</p>
       {result.status === "pending" ? <Loader label="Готовим совет по заявке…" /> :
         result.status === "failed" ? <div className="advice-status">
@@ -262,6 +256,10 @@ function LiveAdvice(props: Props & Check & {
           }}>Открыть заявку</a>
       </div>
       {props.groupAction}
+      <button type="button" className="case-analyze" aria-haspopup="dialog" onClick={event => {
+        event.currentTarget.focus({preventScroll: true});
+        props.inspect(advice);
+      }}>Подробнее <span aria-hidden="true">↗</span></button>
     </section>
   );
 }
@@ -356,7 +354,6 @@ function CaseDialog({
           <h3><Icon name="research" size={18} />{advice ? "Совет ИИ" : "Первая проверка"}</h3>
           <p>{advice?.text ?? step.action}</p>
           <button type="button" className="case-source" onClick={() => { close(); open(step.ticketId); }}>{step.ticketId} ↗</button>
-          {advice && <small className="case-advice-origin">VseLLM · {advice.model}</small>}
         </section>
       {!themes.length && <CaseExample
         record={record}
@@ -380,7 +377,7 @@ function CaseDialog({
             </div>
           ))}
           <small>Общую причину нужно проверить по истории и журналам этих заявок.</small>
-          {result?.semantic && <p><small>VseLLM сопоставила дополнительные описания в выборке из {result.semantic.sampled} заявок.</small></p>}
+          {result?.semantic && <p><small>Сопоставлены описания заявок в выборке: {result.semantic.sampled}.</small></p>}
         </section>
       )}
       {canAnalyze && requested !== scope && (
@@ -417,7 +414,7 @@ function CaseDialog({
               />
             </p>
           ))}
-          {result.mode === "fallback" && result.error && <p>{result.error}</p>}
+          {result.mode === "fallback" && result.error && <p>{analysisText(result.error)}</p>}
         </section>
       )}
       {!!evidence.length && (
@@ -445,7 +442,7 @@ function CaseDialog({
       {result && (
         <details className="case-method">
           <summary>Как получен разбор</summary>
-          <p>{[result.provider, result.model].filter(Boolean).join(" · ")}</p>
+          <p>{analysisSource(result.provider)}</p>
           {result.sampled > 0 && (
             <p>
               В выборке {result.sampled} из {record.count} инцидентов.

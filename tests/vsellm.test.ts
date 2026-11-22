@@ -232,7 +232,7 @@ test("private cases return only source-backed references and reject invented cit
     failValidation();
     const result2 = await service.analyze(row, () => row, [], "workspace");
     assert.equal(result2.mode, "fallback");
-    assert.match(result2.error ?? "", /VseLLM/);
+    assert.match(result2.error ?? "", /Сервис ИИ/);
     assert.doesNotMatch(
       JSON.stringify(result2),
       /T99|У заявки высший приоритет/,
@@ -265,4 +265,65 @@ test("automatic recommendations share cached calls and leave capacity for conver
   assert.ok("json" in await live(1));
   assert.ok("json" in await model.json("dialogue", "answer", { question: "another" }, 5000));
   assert.equal(calls, 8);
+});
+
+test("deadline shortcuts select current tickets in the requested time window and distinguish invalid dates", async () => {
+  const { analyzeSelection } = await import("../apps/server/operationalAnalysis.ts");
+  const now = Date.now();
+  const ticket = (id: string, deadline: unknown, stateId = 0, stateEnum = "Assigned") =>
+    normalize({ ...row.raw, id, deadline, stateId, stateEnum }, "workspace");
+  const past = new Date(now - 60_000).toISOString();
+  const items = [ticket("late", past), ticket("soon", new Date(now + 5 * 60_000).toISOString()),
+    ticket("later", new Date(now + 3600_000).toISOString()), ticket("done", past, 7, "Resolved"),
+    ticket("broken", "вчера"), {...ticket("absent", past), sourcePresent: false}];
+  const ask = async (q: string, selected = items) => (await analyzeSelection(selected, r => r, "workspace", q, "UTC")).overview.join(" ");
+  assert.match(await ask("Какие заявки просрочены?"), /late/);
+  assert.doesNotMatch(await ask("Какие заявки просрочены?"), /soon|later|done|absent|broken/);
+  assert.match(await ask("У каких инцидентов приближается срок решения?"), /soon/);
+  assert.doesNotMatch(await ask("У каких инцидентов приближается срок решения?"), /late|done|absent|broken/);
+  assert.match(await ask("Какие заявки просрочены?", [items[2]]), /нет/iu);
+  assert.match(await ask("Сроки", [items[4]]), /некоррект|требует сверки/iu);
+});
+
+test("a real field reference does not verify an invented ticket cause or unsupported escalation in a proposed action", async () => {
+  const { VseLlm } = await import("../apps/server/vsellm.ts");
+  for (const [answer, nextCheck] of [
+    ["Причина сбоя — повреждение базы данных.", "Сверьте журнал."],
+    ["У заявки наивысший приоритет.", "Подтвердите выполненную эскалацию."],
+    ["Заявка закрыта.", "Сверьте запись."],
+    ["У заявки низкий приоритет.", "Сверьте запись."],
+    ["Затронуто 15 пользователей.", "Уточните масштаб."],
+  ]) {
+    const client = new VseLlm("test", "test", async () => Response.json({choices: [{message: {content: JSON.stringify({
+      answer, nextCheck, refs: ["T1.priorityId", "T1.stateId"],
+    })}}]}));
+    const service = new AnalysisService(db, undefined, 100, undefined, client);
+    const result = await service.analyze(row, () => row, [], "workspace", "Объясни риск");
+    assert.equal(result.mode, "fallback", answer + " " + nextCheck);
+    assert.ok(!result.summary.includes(answer));
+  }
+});
+
+test("a missing or conflicted ticket is identified before interpreting fields, and a disappearance invalidates a reading in flight", async () => {
+  const { VseLlm } = await import("../apps/server/vsellm.ts");
+  const { analyzeSelection } = await import("../apps/server/operationalAnalysis.ts");
+  const missing = {...row,sourcePresent:false};
+  const invalid = normalize({...row.raw, stateEnum:"Closed"}, "workspace");
+  let asked = 0;
+  const model = new VseLlm("test","test",async () => {
+    asked++;
+    return Response.json({choices:[{message:{content:JSON.stringify({answer:"У заявки высший приоритет.",
+      nextCheck:"Сверьте сведения.",refs:["T1.priorityId"]})}}]});
+  });
+  const service = new AnalysisService(db,undefined,200,undefined,model);
+  for (const r of [missing,invalid]) {
+    const result = await service.analyze(r,()=>r,[],"workspace","Объясни риск");
+    assert.equal(result.mode,"fallback");
+    assert.match([result.error,...result.uncertainties].join(" "),/последн.*выгрузк|требуют сверки/iu);
+  }
+  assert.equal(asked,0);
+  const result = await service.analyze(row,()=>missing,[],"workspace","Объясни риск");
+  assert.equal(result.stale,true);
+  const selection = await analyzeSelection([row],()=>missing,"workspace","Объясни риск","UTC",model);
+  assert.equal(selection.stale,true);
 });

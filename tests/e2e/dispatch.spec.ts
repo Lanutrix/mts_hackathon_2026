@@ -123,7 +123,9 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     await laterMember.focus();
     await page.keyboard.press("Space");
     await expect(laterMember).toBeChecked();
-    await team.selectOption("Архив");
+    await team.press("Enter");
+    await page.getByRole("listbox", {name: "Команда назначения"})
+      .getByRole("option", {name: "Архив"}).click();
     await expect(review).toBeEnabled();
     await expect(search).toHaveCount(0);
     await panel.getByRole("radio", { name: /Вся команда/ }).check();

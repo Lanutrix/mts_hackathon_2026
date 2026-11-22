@@ -199,7 +199,7 @@ function structuredAnswer(
         " · " +
         (row.team || "Команда не указана") +
         " · " +
-        (spaces(row.raw.assignedEmployee) || "Исполнитель не указан"),
+        (spaces(row.raw.assignedEmployee) || spaces(row.raw.assignedEmployeeLogin) || "Исполнитель не указан"),
     );
   if (!quickDeadlines.test(q)) return;
   const fmt = new Intl.DateTimeFormat("ru-RU", {
@@ -207,7 +207,13 @@ function structuredAnswer(
     dateStyle: "medium",
     timeStyle: "short",
   });
-  return [...rows]
+  const requested = q.includes("просрочены") ? "overdue" : q.includes("приближается") ? "soon" : null;
+  const selected = requested ? rows.filter(row => row.sourcePresent && !row.quarantined &&
+    [0, 2, 20].includes(row.stateId!) && deadlineStatus(row.dates.deadline, now) === requested) : rows;
+  if (requested && !selected.length) return [requested === "soon"
+    ? "Среди выбранных актуальных заявок нет подтверждённых сроков в ближайшие 15 минут."
+    : "Среди выбранных актуальных заявок нет подтверждённых просроченных сроков."];
+  return [...selected]
     .sort((a, b) =>
       (a.dates.deadline ?? "9999").localeCompare(b.dates.deadline ?? "9999"),
     )
@@ -217,12 +223,13 @@ function structuredAnswer(
         row.id +
         " · " +
         (d
-          ? (Date.parse(d) < now ? "Срок прошёл " : "Срок ") +
+          ? (Date.parse(d) < now && row.sourcePresent && !row.quarantined && [0, 2, 20].includes(row.stateId!) ? "Срок прошёл " : "Срок ") +
             fmt.format(Date.parse(d)) +
             " (" +
             zone +
             ")"
-          : "Срок не задан")
+          : row.issues.some(issue => issue.field === "deadline" && issue.code === "invalid-date")
+            ? "Срок требует сверки: некорректная дата в источнике" : "Срок не задан")
       );
     });
 }
@@ -354,11 +361,11 @@ export async function operationalReading(
   if ("error" in result) return { error: result.error } as const;
   // A shared observation or queue attribute cannot establish a common cause.
   // This packet has no confirmed causal relationship or duplicate reference.
-  if (group && [result.reading.answer, result.reading.nextCheck].some(line =>
+  if ([result.reading.answer, result.reading.nextCheck].some(line =>
     line.toLowerCase().split(/[.!?;]|,\s*(?:но|однако)\s+/u).some(part =>
       /причин|вызван|из-за|обусловлен|дубликат|являются дублями|один и тот же сбой/u.test(part) &&
       !/не (?:подтвержден|подтвержд[её]н|установлен|выяснен|извест|доказан)|неизвест|нельзя (?:установить|подтвердить|считать)|требу\p{L}* (?:провер|подтвержден)|уточните|проверьте|выясните/u.test(part)))) {
-    return { error: "Общая причина требует отдельного подтверждения." } as const;
+    return { error: "Причина или связь заявок требует отдельного подтверждения." } as const;
   }
   const evidence = result.reading.refs.map((ref) => sources.get(ref)!);
   const ids = sample.map((row) => row.id);
@@ -374,13 +381,23 @@ export async function operationalReading(
   } as const;
 }
 
+function evidenceIssue(row: Incident) {
+  if (!row.sourcePresent) return "Заявка отсутствует в последней выгрузке. Показаны последние полученные поля.";
+  if (row.quarantined) return "Поля заявки требуют сверки в источнике.";
+  return "";
+}
+
+export function evidenceChanged(row: Incident, current: Incident | undefined) {
+  return !current || row.hash !== current.hash || row.sourcePresent !== current.sourcePresent || row.quarantined !== current.quarantined;
+}
+
 function fieldAnalysis(row: Incident): Analysis {
   return {
     summary: [
       row.priorityLabel + " приоритет. Статус — " + row.stateLabel + ".",
     ],
     evidence: [{ claim: 0, fields: ["priorityId", "stateId"] }],
-    uncertainties: [uncertainty],
+    uncertainties: [evidenceIssue(row), uncertainty].filter(Boolean),
     suggestedTeams: [],
     model: "",
     provider: "Поля ITSM",
@@ -407,12 +424,13 @@ export async function analyzeSelection(
       items: [],
       mode: "fields" as const,
       provider: "Поля ITSM",
-      stale: false,
+      stale: rows.some(row => evidenceChanged(row, current(row))),
     };
-  const result = client
+  const issue = rows.map(evidenceIssue).find(Boolean);
+  const result = issue ? {error: issue} : client
     ? await operationalReading(client, rows, namespace, question)
-    : { error: "VseLLM не настроен." };
-  const stale = rows.some((r) => current(r)?.hash !== r.hash);
+    : { error: "Сервис ИИ не подключён." };
+  const stale = rows.some((r) => evidenceChanged(r, current(r)));
   if ("error" in result)
     return {
       overview: [result.error, "Ниже приведены поля выбранных заявок."],
@@ -420,7 +438,7 @@ export async function analyzeSelection(
         id: row.id,
         analysis: {
           ...fieldAnalysis(row),
-          stale: current(row)?.hash !== row.hash,
+          stale: evidenceChanged(row, current(row)),
         },
       })),
       mode: "fallback" as const,
@@ -431,7 +449,7 @@ export async function analyzeSelection(
   const overview = [...result.summary, "Основания — " + cited.join(", ") + "."];
   const items = rows.map((row) => {
     const analysis = fieldAnalysis(row);
-    analysis.stale = current(row)?.hash !== row.hash;
+    analysis.stale = evidenceChanged(row, current(row));
     const evidence = result.evidence.filter((e) => e.id === row.id);
     if (evidence.length) {
       analysis.summary = evidence.map((e) => e.value);
@@ -475,8 +493,10 @@ export async function analyzeOperationalTicket(
     ];
     return base;
   }
+  const issue = evidenceIssue(row);
+  if (issue) return {...base, error: issue};
   if (!client)
-    return { ...base, error: "VseLLM не настроен. Показаны поля заявки." };
+    return { ...base, error: "Сервис ИИ не подключён. Показаны поля заявки." };
   const result = await operationalReading(
     client,
     [row],
@@ -485,7 +505,7 @@ export async function analyzeOperationalTicket(
     undefined,
     changed,
   );
-  base.stale = current()?.hash !== row.hash;
+  base.stale = evidenceChanged(row, current());
   if ("error" in result) return { ...base, error: result.error };
   return {
     ...base,

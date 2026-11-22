@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { hash, type Incident } from "../../packages/domain/index.ts";
 import type { DB } from "./db.ts";
-import { analyzeOperationalTicket } from "./operationalAnalysis.ts";
+import { analyzeOperationalTicket, evidenceChanged } from "./operationalAnalysis.ts";
 import type { VseLlm } from "./vsellm.ts";
 export const MODEL =
   "Xenova/multilingual-e5-small@761b726dd34fb83930e26aab4e9ac3899aa1fa78/q8";
@@ -147,7 +147,7 @@ export class AnalysisService {
     namespace = "",
     question = "",
   ): Promise<Analysis> {
-    if (this.remote || question.trim())
+    if (this.remote || question.trim() || !incident.sourcePresent || incident.quarantined)
       return analyzeOperationalTicket(
         this.remote,
         incident,
@@ -173,7 +173,7 @@ export class AnalysisService {
       return {
         ...cached,
         inputRevision: incident.revision,
-        stale: current()?.hash !== incident.hash,
+        stale: evidenceChanged(incident, current()),
       };
     const summary = [
       `${relevant.product || "Продукт не указан"}. ${relevant.header || "Заголовок не указан"}`,
@@ -254,7 +254,7 @@ export class AnalysisService {
       }
       base.mode = "model";
       base.dimensions = result.dimensions;
-      base.stale = current()?.hash !== incident.hash;
+      base.stale = evidenceChanged(incident, current());
       await this.db.query(
         "INSERT INTO ai_cache(cache_key,doc) VALUES($1,$2) ON CONFLICT(cache_key) DO NOTHING",
         [key, JSON.stringify(base)],
@@ -273,7 +273,7 @@ export class AnalysisService {
         .catch(() => {});
       return {
         ...base,
-        stale: current()?.hash !== incident.hash,
+        stale: evidenceChanged(incident, current()),
         error: (e as Error).message + "; показана сводка полей без ИИ.",
       };
     } finally {

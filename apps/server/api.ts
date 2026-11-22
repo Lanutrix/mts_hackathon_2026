@@ -18,6 +18,7 @@ import { Auth, type Role } from "./auth.ts";
 import { Store, FileSource } from "../worker/ingestion.ts";
 import { Demo, atomicWrite } from "./demo.ts";
 import { appendIncidents, IntakeError } from "./intake.ts";
+import { intakeByteLimit } from "../../packages/contracts/intake.ts";
 import {
   registerJurySimulation,
   type SimulationOptions,
@@ -563,9 +564,13 @@ export async function createApp(o: AppOptions) {
       };
     }
     const eligible = new Map<string, Incident>();
-    for (const tickets of members.values())
-      for (const ticket of tickets)
-        if (ticket.sourcePresent) eligible.set(ticket.id, ticket);
+    const caseByKey = new Map<string, string>();
+    for (const [caseId, tickets] of members)
+      for (const ticket of tickets) {
+        if (!ticket.sourcePresent) continue;
+        eligible.set(ticket.id, ticket);
+        caseByKey.set(ticket.key, caseId);
+      }
     const tracking =
       ("simulation" in s ? eligible.get(s.simulation.currentId) : undefined) ??
       notifications.map((n) => eligible.get(n.id)).find(Boolean);
@@ -610,7 +615,7 @@ export async function createApp(o: AppOptions) {
         warnings: all.filter((r) => r.issues.length).length,
         missing: all.filter((r) => !r.sourcePresent).length,
       },
-      events: notifications.slice(0, 20),
+      events: notifications.slice(0, 20).map(note => ({...note, caseId: caseByKey.get(note.key) ?? null})),
       recent: notifications
         .filter(
           (n) =>
@@ -779,20 +784,19 @@ export async function createApp(o: AppOptions) {
   app.get("/api/notifications", async (req, reply) => {
     const s = await readStoreFor(req, reply);
     if (!s) return;
-    const revision = s.revision,
-      offset = Math.max(0, Math.floor(Number((req.query as any).offset) || 0));
-    const items = await s.notifications(
-      identity(req)?.username ?? "",
-      0,
-      revision,
-      offset,
-    );
-    return {
-      revision,
-      offset,
-      items,
-      nextOffset: items.length === 200 ? offset + 200 : null,
-    };
+    const q = req.query as Record<string, string>;
+    const revision = q.revision === undefined ? s.revision : Number(q.revision);
+    const offset = Number(q.offset ?? 0);
+    if (!Number.isSafeInteger(revision) || revision < 0 || !Number.isSafeInteger(offset) || offset < 0)
+      return reply.code(400).send({message: "Некорректная страница журнала."});
+    if (revision > s.revision)
+      return reply.code(409).send({message: "Источник был сброшен. Откройте первую страницу журнала."});
+    const username = identity(req)!.username;
+    const [items, counts] = await Promise.all([
+      s.notifications(username, 0, revision, offset, true),
+      s.notificationCounts(username, revision),
+    ]);
+    return { revision, offset, items, ...counts, nextOffset: offset + items.length < counts.total ? offset + 200 : null };
   });
   app.post("/api/notifications/read", async (req, reply) => {
     const u = requireRole(req, reply, ["coordinator", "demo-admin"]);
@@ -800,9 +804,14 @@ export async function createApp(o: AppOptions) {
     const s = storeFor(req, reply);
     if (!s) return;
     const b = req.body as any;
-    if (!Number.isInteger(b?.revision) || typeof b?.key !== "string")
-      return reply.code(400).send({ message: "Некорректная отметка" });
-    await s.markRead(u.username, b.revision, b.key);
+    if (Number.isSafeInteger(b?.throughRevision) && b.throughRevision >= 0 && b.throughRevision <= s.revision && b.key === undefined) {
+      await s.markReadThrough(u.username, b.throughRevision);
+    } else {
+      if (!Number.isSafeInteger(b?.revision) || b.revision < 1 || b.revision > s.revision || typeof b?.key !== "string" || b.throughRevision !== undefined)
+        return reply.code(400).send({ message: "Некорректная отметка" });
+      if (!await s.markRead(u.username, b.revision, b.key))
+        return reply.code(404).send({message: "Событие отсутствует в этом журнале."});
+    }
     return { ok: true };
   });
   app.get("/api/preferences", async (req, reply) => {
@@ -847,7 +856,7 @@ export async function createApp(o: AppOptions) {
     );
     return doc;
   });
-  app.post("/api/intake", { bodyLimit: 20 * 1024 * 1024 }, async (req, reply) => {
+  app.post("/api/intake", { bodyLimit: intakeByteLimit }, async (req, reply) => {
     const user = requireRole(req, reply, ["demo-admin"]);
     if (!user) return;
     const store = storeFor(req, reply);

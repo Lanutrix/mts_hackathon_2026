@@ -113,7 +113,7 @@ test("grouped averages, the smallest and largest durations and partial ID matche
 test("an explicitly overall count covers all statuses, while current queue and requested team retain their meaning", async t => {
   t.mock.timers.enable({ apis: ["Date"], now });
   const service = new CanvasService(), source = snapshot();
-  for (const question of ["Общее число инцидентов", "Общее количество заявок", "Сколько всего инцидентов?", "Количество инцидентов во всех статусах"]) {
+  for (const question of ["Общее число инцидентов", "Общее количество заявок", "Сколько всего инцидентов?", "Количество инцидентов во всех статусах", "Сколько заявок во всей выгрузке, включая завершённые и закрытые?", "Сколько инцидентов во всей выгрузке?"]) {
     const r = await service.read(source, "me", question);
     assert.equal(r.intent.fact?.operation, "count", question);
     assert.equal(r.total, 9, question);

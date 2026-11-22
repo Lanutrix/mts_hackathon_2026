@@ -784,6 +784,10 @@ async function planQuestion(
     return actionClarification(previous ?? initialIntent, "Холст читает заявки из ITSM. Изменить запись можно в исходной системе. Какие заявки вывести для проверки?");
   if (pendingRelationIds || (!requestsProse(question) && mightAskFact(question, previous))) {
     const source = sourceMentions(question, rows, previous);
+    // An inclusive example in a whole-source count does not select just those statuses.
+    if (overallCount.test(question)) source.shaped = source.shaped.replace(
+      /(?:включая|в том числе)\s+(?:и\s+)?(?:закрыт|заверш[её]н|реш[её]н)\p{L}*(?:\s+(?:и|или)\s+(?:закрыт|заверш[её]н|реш[её]н)\p{L}*)*/giu, "",
+    );
     const idReply = pendingRelationIds && onlyTicketIds(source.shaped,
       source.entities.filter(e => e.field === "ids").map(e => e.ref)) ? pendingRelationIds : undefined;
     const plan = source.unknownExcludedTeam
@@ -897,7 +901,7 @@ async function planQuestion(
     },
     textOnly: true,
   };
-  if (!training || !client || periodQuestion(normalize(question)) || result.notice?.startsWith("VseLLM:"))
+  if (!training || !client || periodQuestion(normalize(question)) || result.notice?.startsWith("Сервис ИИ:"))
     return fallback;
   const source = sourceMentions(
     scrubRehearsalQuestion(question),
@@ -1150,7 +1154,7 @@ async function planData(
           notice: notice + " Срез собран по полям источника.",
         }
       : unsupported(local.base, notice + " " + unsupportedText);
-  if (!client) return fallback("VseLLM не настроен.");
+  if (!client) return fallback("Сервис ИИ не подключён.");
   // Private packets carry a closed vocabulary and typed aliases only; no
   // names, source IDs, raw ticket fields or private user text cross the boundary.
   // A short symptom phrase such as "ошибки входа" may resolve locally to
@@ -1269,7 +1273,7 @@ async function planData(
   const p = reply.json;
   const malformed = () => {
     client.rejectJson(version, packet);
-    return needsRepair ? actionClarification(local.base) : fallback("План VseLLM не прошёл проверку.");
+    return needsRepair ? actionClarification(local.base) : fallback("План разбора не прошёл проверку.");
   };
   if (
     !record(p) ||

@@ -110,6 +110,10 @@ test("technical intake accepts successive incidents and an atomic JSON batch in 
   await page.getByLabel("Срок решения (UTC)").fill("2026-11-21T10:00");
   await page.getByLabel("ID инцидента", { exact: true }).fill("INC-UI-1");
   await page.getByLabel("Тема", { exact: true }).fill("Платёж не проходит");
+  const priority = page.getByRole("combobox", {name: "Приоритет", exact: true});
+  await priority.press("Enter");
+  await page.getByRole("listbox", {name: "Приоритет"}).getByRole("option", {name: "Наивысший"}).click();
+  await expect(priority).toHaveValue("4");
   // WebKit's active service worker bypasses Playwright routing. Let the server
   // commit the real POST, then simulate the lost receipt at the fetch consumer.
   await page.evaluate(() => {
@@ -130,6 +134,9 @@ test("technical intake accepts successive incidents and an atomic JSON batch in 
   await expect(page.getByText("Уже в источнике 1", { exact: true })).toBeVisible();
   const first = page.getByRole("link", { name: "INC-UI-1", exact: true });
   await expect(first).toHaveAttribute("href", "/incident/INC-UI-1?ns=workspace");
+  await expect(priority).toHaveValue("2");
+  const stored = await (await page.request.get("/api/incident/INC-UI-1?ns=workspace")).json();
+  expect(stored.incident.priorityId).toBe(4);
   await expect(page.getByLabel("ID инцидента", { exact: true })).toHaveValue("");
   await page.getByLabel("ID инцидента", { exact: true }).fill("INC-UI-2");
   await page.getByLabel("Тема", { exact: true }).fill("Ошибка авторизации");
@@ -149,8 +156,25 @@ test("technical intake accepts successive incidents and an atomic JSON batch in 
   await page.getByLabel("Записи в формате JSON").fill(JSON.stringify([records[0], { ...records[1], header: "Конфликт" }]));
   await page.getByRole("button", { name: "Отправить JSON" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Запись 2" })).toContainText(String(records[1].id));
+  const attachments = page.getByLabel("Прикрепить JSON");
+  const send = page.getByRole("button", {name:"Отправить JSON"});
+  const sourceFile = (name: string, content: string) => ({name, mimeType:"application/json", buffer:Buffer.from(content)});
+  const attached = generate(3, 975).rows;
+  const objectFile = sourceFile("обращение.json", "\uFEFF" + JSON.stringify(attached[0]));
+  await attachments.setInputFiles([objectFile, sourceFile("сломанный.json", "{")]);
+  await send.click();
+  await expect(page.getByRole("alert")).toContainText("сломанный.json");
+  expect(await (await page.request.get("/api/export?ns=workspace")).json()).toHaveLength(4);
+  await attachments.setInputFiles([objectFile, sourceFile("пакет.json", JSON.stringify(attached.slice(1)))]);
+  await expect(page.getByRole("list",{name:"Прикреплённые файлы"})).toContainText("пакет.json");
+  await send.click();
+  await expect(page.getByText("Добавлено 3", {exact:true})).toBeVisible();
+  await send.click();
+  await expect(page.getByText("Уже в источнике 3", {exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Убрать файлы"}).click();
+  await expect(page.getByLabel("Записи в формате JSON")).toBeVisible();
   const exported = await (await page.request.get("/api/export?ns=workspace")).json();
-  expect(exported).toHaveLength(4);
+  expect(exported).toHaveLength(7);
   expect(exported[0]).toMatchObject({ submitDate: "2026-11-21T09:00:00.000Z", deadline: "2026-11-21T10:00:00.000Z" });
   expect(exported[1]).toMatchObject({ submitDate: "2026-11-21T11:00:00.000Z", completionDate: "2026-11-21T11:45:00.000Z", solution: "Вход восстановлен" });
   expect((await (await page.request.get("/api/export?ns=demo")).json()).length).toBe(120);
@@ -752,10 +776,12 @@ test("F18 F20 F23 F24 F33 F34 F35 authenticated settings/import/demo", async ({
   await expect(
     page.getByText("DEMO-SCENARIO", { exact: true }).first(),
   ).toBeVisible();
-  const unread = page
-    .getByRole("button", { name: "Отметить прочитанным" })
-    .first();
-  await unread.click();
+  const journalRow = page.locator("article.notification").filter({ hasText: "DEMO-SCENARIO" }).first();
+  await journalRow.getByText("На момент сигнала").click();
+  await expect(journalRow.locator("details")).toContainText(/Назначен|Выполняется|Завершён/);
+  await journalRow.getByRole("button", { name: /DEMO-SCENARIO/ }).click();
+  await expect(page.getByRole("link", {name: "Вернуться в журнал"})).toBeVisible();
+  await page.getByRole("link", {name: "Вернуться в журнал"}).click();
   await expect(
     page.getByRole("button", { name: "Прочитано", exact: true }).first(),
   ).toBeDisabled();

@@ -220,3 +220,5 @@ html:has(.incident-notice) {
     outline-color: Highlight;
   }
 }
+
+.journal-summary { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; margin-block: .75rem 1rem; }

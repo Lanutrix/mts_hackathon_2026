@@ -1,3 +1,5 @@
+import Select from "./Select";
+import { positionPopup } from "./popupPosition";
 import {
   useEffect,
   useLayoutEffect,
@@ -52,6 +54,12 @@ function SearchFilters({
   facets,
 }: SelectionProps & { defaultSort: string; facets: DashboardFacets }) {
   const panel = useRef<HTMLDetailsElement>(null);
+  const [open, setOpen] = useState(false);
+  useLayoutEffect(() => {
+    const trigger = panel.current?.querySelector("summary");
+    const popup = panel.current?.querySelector<HTMLElement>(".filter-pop");
+    if (open && trigger && popup) return positionPopup(popup, trigger, "end");
+  }, [open]);
   const filtered = !!(
     ["band", "priority", "product", "team", "symptom", "service"].some(key => params.get(key)) ||
     params.has("up") ||
@@ -87,7 +95,7 @@ function SearchFilters({
           onChange={(e) => setParam("q", e.target.value)}
         />
       </label>
-      <details className="feed-filter" ref={panel}>
+      <details className="feed-filter" ref={panel} onToggle={event => setOpen(event.currentTarget.open)}>
         <summary
           aria-label="Фильтры и сортировка"
           title="Фильтры и сортировка"
@@ -115,16 +123,16 @@ function SearchFilters({
             ["product", "Продукт", facets.product.map(name => [name,name])],
             ["team", "Команда", facets.team.map(name => [name,name])],
           ] as const).map(([key, title, options]) => <label key={key}>{title}
-            <select value={params.get(key) ?? ""} onChange={e => setParam(key, e.target.value)}>
+            <Select value={params.get(key) ?? ""} onChange={e => setParam(key, e.target.value)}>
               <option value="">Все</option>
               {params.has(key) && !options.some(([id]) => id === params.get(key)) &&
                 <option value={params.get(key)!}>{params.get(key)}</option>}
               {options.map(([id,label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
+            </Select>
           </label>)}
           <label>
             Сортировка
-            <select
+            <Select
               value={
                 params.get("sort") || defaultSort
               }
@@ -135,11 +143,11 @@ function SearchFilters({
               <option value="deadline">По сроку</option>
               <option value="registered">По регистрации</option>
               <option value="id">По номеру</option>
-            </select>
+            </Select>
           </label>
           <label>
             Тип сервиса
-            <select
+            <Select
               value={serviceFilterId(params.get("service") || "")}
               onChange={(e) => setParam("service", e.target.value)}
             >
@@ -147,7 +155,7 @@ function SearchFilters({
               <option value="10">Клиентский</option>
               <option value="20">Пользовательский</option>
               <option value="30">Технологический</option>
-            </select>
+            </Select>
           </label>
           <label className="check">
             <input
@@ -160,7 +168,7 @@ function SearchFilters({
           {sources.length > 1 && (
             <label>
               Источник
-              <select value={ns} onChange={(e) => switchSource(e.target.value)}>
+              <Select value={ns} onChange={(e) => switchSource(e.target.value)}>
                 {sources.map((s) => (
                   <option key={s} value={s}>
                     {s === "demo"
@@ -170,7 +178,7 @@ function SearchFilters({
                         : "Рабочая копия"}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           )}
         </div>

@@ -1,4 +1,5 @@
 import { Icon, type IconName } from "./Brand";
+import { analysisSource, analysisText } from "./analysisLabels";
 import { revealCanvas } from "./canvasMotion";
 import {
   useEffect,
@@ -177,7 +178,7 @@ function GenerationStatus() {
     Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
   return (
     <div className="cx-generation">
-      <Loader label="Готовлю ответ" />
+      <Loader label="Готовлю ответ" stage />
       <span className="cx-generation-trace" aria-hidden="true" />
       <span className="cx-generation-time" role="timer" aria-live="off">
         <svg
@@ -242,17 +243,17 @@ function ConversationLog({
               <span className="cx-assistant-icon">
                 <Icon name="layers" size={15} />
               </span>
-              <b>{result.provider}</b>
+              <b>{analysisSource(result.provider)}</b>
             </div>
             <p>
               <TicketMentions
-                text={result.summary}
+                text={analysisText(result.summary)}
                 ids={result.conversation?.sourceIds ?? result.tickets.map((t) => t.id)}
                 {...{ ns, open }}
               />
             </p>
             {result.notice && result.notice !== result.summary && (
-              <small>{result.notice}</small>
+              <small>{analysisText(result.notice)}</small>
             )}
             {turns.length > 1 && (result.mode !== "unsupported" || result.conversation) && (
               <button
@@ -545,13 +546,14 @@ function WorkspaceScreen({
     <section
       ref={screen}
       className="cx"
+      data-generating={!!busy}
       aria-labelledby="cx-title"
       data-source={ns}
     >
       <h1 id="cx-title" className="sr-only">
         Холст смены
       </h1>
-      <div className="cx-top" hidden={!stale && !result?.total && !conditions && !result?.fact && !answerSwitch}>
+      <div className="cx-top" inert={!!busy} hidden={!stale && !result?.total && !conditions && !result?.fact && !answerSwitch}>
         {result?.fact && !result.conversation && <span className="cx-topic"><Icon name={figureIcon(result)} size={18} />{result.title}</span>}
         {conditions && <span className="cx-conditions" role="group" aria-label="Условия отбора">{conditions}</span>}
         {answerSwitch && (
@@ -589,6 +591,7 @@ function WorkspaceScreen({
         data-stacked={stage.width < 660}
         data-first={visible[0]?.intent.layout}
         aria-busy={busy !== null}
+        inert={!!busy}
       >
         {visible.map((view, i) => (
           <section
@@ -656,8 +659,9 @@ function WorkspaceScreen({
           </div>
         )}
       </div>
-      <div className="cx-dock" data-generating={!!busy}>
-        {canAsk && result?.suggestions.length ? (
+      {busy && <GenerationStatus key={busy} />}
+      <div className="cx-dock">
+        {!busy && canAsk && result?.suggestions.length ? (
           <div className="cx-suggestions" role="group" aria-label="Варианты следующего вопроса">
             {result.suggestions.map(question => (
               <button key={question} type="button" disabled={busy !== null} onClick={() => void send(question)}>
@@ -676,9 +680,7 @@ function WorkspaceScreen({
                 Повторить запрос
               </button>
             </div>
-          ) : busy ? (
-            <GenerationStatus key={busy} />
-          ) : loadingSource ? (
+          ) : busy ? null : loadingSource ? (
             visible.length > 0 && <span role="status">Читаю источник…</span>
           ) : !canAsk ? (
             <span>Режим просмотра</span>
@@ -686,12 +688,12 @@ function WorkspaceScreen({
             <button
               type="button"
               className="cx-latest"
-              title={reply}
+              title={analysisText(reply)}
               onClick={() => setHistoryOpen(true)}
             >
               {result?.mode === "fallback" && last?.mode !== "unsupported"
                 ? "Ответ без ИИ · подробнее"
-                : reply}
+                : analysisText(reply)}
             </button>
           ) : null}
         </div>

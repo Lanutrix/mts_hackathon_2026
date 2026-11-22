@@ -251,7 +251,8 @@ export function registerPush(
         `INSERT INTO push_devices(device,username,endpoint_hash,subscription,namespace,version,since_revision,expires_at,next_at)
         VALUES ($1,$2,$3,$4,$5,$6,COALESCE((SELECT revision FROM watermarks WHERE namespace=$5),0),$7,0)
         ON CONFLICT(device) DO UPDATE SET endpoint_hash=excluded.endpoint_hash,subscription=excluded.subscription,namespace=excluded.namespace,
-          version=excluded.version,expires_at=excluded.expires_at,since_revision=CASE WHEN push_devices.namespace=excluded.namespace THEN push_devices.since_revision ELSE excluded.since_revision END`,
+          version=CASE WHEN push_devices.namespace=excluded.namespace AND push_devices.subscription=excluded.subscription
+            THEN push_devices.version ELSE excluded.version END,expires_at=excluded.expires_at,since_revision=CASE WHEN push_devices.namespace=excluded.namespace THEN push_devices.since_revision ELSE excluded.since_revision END`,
         [
           id,
           user.username,

@@ -1,3 +1,4 @@
+import Select from "./Select";
 import { useEffect, useState } from "react";
 import "./deviceNotifications.css";
 
@@ -303,7 +304,7 @@ export function DeviceNotifications({
       {device && (
         <label>
           Источник уведомлений
-          <select
+          <Select
             value={source}
             disabled={busy || !available()}
             onChange={(e) => setSource(e.target.value)}
@@ -313,7 +314,7 @@ export function DeviceNotifications({
                 {sourceNames[s] ?? s}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       )}
       {!available() && (

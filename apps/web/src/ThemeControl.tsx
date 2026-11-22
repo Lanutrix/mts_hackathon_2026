@@ -1,3 +1,4 @@
+import Select from "./Select";
 import { useSyncExternalStore } from "react";
 import { Icon } from "./Brand";
 
@@ -29,7 +30,7 @@ export function ThemeControl({ compact = false }: { compact?: boolean }) {
         size={19}
       />
       {!compact && <span>Тема оформления</span>}
-      <select
+      <Select
         aria-label="Тема оформления"
         value={mode}
         onChange={(event) =>
@@ -41,7 +42,7 @@ export function ThemeControl({ compact = false }: { compact?: boolean }) {
             {label}
           </option>
         ))}
-      </select>
+      </Select>
     </label>
   );
 }

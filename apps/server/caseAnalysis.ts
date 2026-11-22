@@ -194,7 +194,7 @@ export async function analyzeCase(
       ...base,
       summary: localSummary,
       evidence: c.evidence,
-      error: "VseLLM не настроен. Показаны поля кейса.",
+      error: "Сервис ИИ не подключён. Показаны поля кейса.",
     };
   if (sampleSize < c.count)
     base.uncertainties.push(

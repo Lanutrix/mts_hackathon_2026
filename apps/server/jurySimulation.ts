@@ -355,6 +355,10 @@ function accept(
         .map(entry => ({ key, at: entry.at, fromState: state(entry.before_doc), toState: state(entry.after_doc) }))
         .reverse());
     },
+    notificationCounts(_user: string, maxRevision: number) {
+      const total = events.filter(event => event.revision <= maxRevision).length;
+      return { total, unread: total };
+    },
     notifications(
       _user: string,
       after = 0,

@@ -23,8 +23,10 @@ test("live assistant presents generated prose with a Russian ticket link and rec
   const waiting = new Promise<void>(resolve => { release = resolve; });
   let tries = 0;
   const remote = new VseLlm("test", "test-model", async (_url, init) => {
+    const packet = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    if (!packet.focus) return Response.json({choices: [{message: {content: '{"groups":[]}'}}]});
     if (++tries === 1) { await waiting; return new Response(null, {status: 503}); }
-    if (JSON.parse(JSON.parse(String(init?.body)).messages[1].content).candidate)
+    if (packet.candidate)
       return Response.json({choices: [{message: {content: JSON.stringify({grounded: true, manual: true})}}]});
     return Response.json({ choices: [{message: {content: JSON.stringify({observation, action, refs: ["deadline"]})}}] });
   });
@@ -101,9 +103,10 @@ test("live recommendations follow real stream changes, reject late AI and expire
   const first = new Promise<void>((resolve) => { release = resolve; });
   const remote = new VseLlm("test", "test-model", async (_url, init) => {
     const content = JSON.parse(String(init?.body)).messages[1].content;
+    const input = JSON.parse(content);
+    if (!input.focus) return Response.json({choices: [{message: {content: '{"groups":[]}'}}]});
     packets.push(content);
     if (packets.length === 1) await first;
-    const input = JSON.parse(content);
     const outputs = {
       overdue: {observation: "Срок решения заявки уже прошёл.", action: "Уточните у команды, когда она сможет назвать новый срок.", refs: ["deadline"]},
       soon: {observation: "До срока решения осталось не более 15 минут.", action: "Уточните, успевает ли команда завершить работы.", refs: ["deadline"]},
@@ -135,7 +138,8 @@ test("live recommendations follow real stream changes, reject late AI and expire
     await expect(action).toHaveCount(0);
     release();
     await expect(card).toHaveAttribute("data-origin", "model", {timeout: 18_000});
-    await expect(card.getByRole("heading", {name: "Совет ИИ"})).toBeVisible();
+    await expect(card).toHaveAccessibleName("Совет ИИ");
+    await expect(card.getByText("Совет ИИ", {exact: true})).toHaveCount(0);
     await expect(action).toContainText("Уточните у команды, когда она сможет назвать новый срок.");
     const expiry = Date.now() + 4200;
     await store.ingest(JSON.stringify([{...row, deadline: new Date(expiry).toISOString()}]));

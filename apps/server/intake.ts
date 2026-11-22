@@ -4,7 +4,7 @@ import {
   parseSnapshot,
   type Incident,
 } from "../../packages/domain/index.ts";
-import type { IntakeReceipt } from "../../packages/contracts/intake.ts";
+import { intakeByteLimit, intakeRecordLimit, type IntakeReceipt } from "../../packages/contracts/intake.ts";
 import type { FileSource } from "../worker/ingestion.ts";
 import { atomicWrite } from "./demo.ts";
 
@@ -17,7 +17,6 @@ export class IntakeError extends Error {
   }
 }
 
-const maxBytes = 20 * 1024 * 1024;
 const staleSource = () =>
   new IntakeError(
     409,
@@ -26,7 +25,7 @@ const staleSource = () =>
 
 function validateRows(body: unknown, ns: string, publicDemo: boolean) {
   const input = Array.isArray(body) ? body : [body];
-  if (!input.length || input.length > 20_000)
+  if (!input.length || input.length > intakeRecordLimit)
     throw new IntakeError(400, "Передайте от 1 до 20 000 записей.");
   return input.map((raw, i) => {
     const label = `Запись ${i + 1}${typeof raw?.id === "string" ? " (" + raw.id + ")" : ""}`;
@@ -63,7 +62,7 @@ export async function appendIncidents(
   const input = validateRows(body, namespace, publicDemo);
   return source.exclusive(async () => {
     const stat = await lstat(path, { bigint: true });
-    if (!stat.isFile() || stat.size > BigInt(maxBytes))
+    if (!stat.isFile() || stat.size > BigInt(intakeByteLimit))
       throw new IntakeError(503, "Рабочий файл недоступен для приёма.");
     const before = await readFile(path, "utf8");
     const current = parseSnapshot(before, namespace);
@@ -105,7 +104,7 @@ export async function appendIncidents(
         (current.rows.length ? "," : "") +
         appended +
         before.slice(closingBracket);
-      if (Buffer.byteLength(text) > maxBytes)
+      if (Buffer.byteLength(text) > intakeByteLimit)
         throw new IntakeError(
           413,
           "После добавления размер источника превысит 20 МиБ.",

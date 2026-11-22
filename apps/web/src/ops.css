@@ -104,6 +104,10 @@
   margin: 0;
   padding: 6px;
   width: 200px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--case-paper);

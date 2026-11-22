@@ -888,19 +888,11 @@
   margin-block: .85rem .45rem;
   color: var(--wm-ink);
 }
-.advice-head, .advice-head h3, .advice-source, .advice-status {
+.advice-source, .advice-status {
   display: flex;
   align-items: center;
   gap: .45rem;
 }
-.advice-head { justify-content: space-between; }
-.advice-head h3 {
-  margin: 0;
-  font-size: .9rem;
-  line-height: 1.2;
-  font-weight: 600;
-}
-.advice-head .product-mark { flex: none; width: 23px; height: 23px; }
 .live-advice .case-analyze, .live-advice .response-open, .advice-status button, .advice-source .case-source {
   color: var(--wm-green);
   background: transparent;
@@ -980,11 +972,27 @@
 .case-group-options button[aria-pressed="true"] b { color: inherit; }
 .case-group-options button:focus-visible { outline-offset: -2px; }
 .case-lens .more-cases { border: 0; background: transparent; color: var(--wm-green); padding: .25rem .55rem; font: 600 .76rem/1.3 "Golos Text", sans-serif; }
-.live-advice .case-analyze { display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
-  flex: none; background: var(--wm-green); color: var(--wm-on-ink); padding: .45rem .75rem; min-height: 34px; border-radius: .55rem; font-size: .84rem; }
+.live-advice .case-analyze { display: flex; align-items: center; justify-content: center; gap: .5rem;
+  width: fit-content; margin: .4rem auto 0; background: var(--wm-green); color: var(--wm-on-ink);
+  padding: .45rem 1.1rem; min-height: 40px; border-radius: .55rem; font-size: .88rem; }
 .live-advice .case-analyze:hover { filter: brightness(1.08); text-decoration: none; }
 .advice-group { display: flex; align-items: center; gap: .35rem; margin: .35rem 0 .2rem; font-size: .79rem; font-weight: 550; }
-.broadcast .filter-pop { max-height: min(65dvh, 32rem); overflow-y: auto; }
+.broadcast .filter-pop {
+  position: fixed; inset: auto; grid-template-columns: minmax(0, 1fr);
+  width: min(20rem, calc(100vw - 16px)); max-height: min(34rem, var(--popup-space, 60dvh));
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  background: var(--wm-surface); border-color: var(--wm-control);
+  padding: .8rem 1rem; gap: .65rem;
+}
+.filter-pop label { min-width: 0; gap: .2rem; }
+.filter-pop select { width: 100%; }
+.filter-pop .check { gap: .6rem; min-height: 40px; }
+.filter-pop .check input { flex: none; }
+@media (max-width: 740px), (pointer: coarse) {
+  .feed-filter summary { width: 44px; height: 44px; }
+  .filter-pop select, .live-advice .case-analyze { min-height: 44px; }
+  .filter-pop select { font-size: 1rem; }
+}
 .case-dialog-header h2 svg { margin-inline-end: .55rem; color: var(--wm-violet); }
 
 .case-dialog {

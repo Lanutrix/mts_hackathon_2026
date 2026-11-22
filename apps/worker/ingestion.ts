@@ -232,6 +232,7 @@ export class Store extends EventEmitter {
     after = 0,
     maxRevision = this.revision,
     offset = 0,
+    journal = false,
   ) {
     return (
       await this.db.query(
@@ -239,6 +240,10 @@ export class Store extends EventEmitter {
                 e.after_doc->'raw'->>'header' AS header,
                 e.after_doc->'raw'->>'productName' AS product,
                 e.after_doc->'dates'->>'deadline' AS deadline
+                ${journal ? `, jsonb_build_object(
+                  'state', e.after_doc->>'stateLabel', 'team', e.after_doc->>'team',
+                  'description', left(e.after_doc->'raw'->>'description', 1200),
+                  'deadline', e.after_doc->'dates'->>'deadline') AS snapshot` : ""}
            FROM notifications n
            LEFT JOIN events e USING (namespace, revision, key)
            LEFT JOIN reads r ON r.namespace=n.namespace AND r.revision=n.revision AND r.key=n.key AND r.username=$2
@@ -248,10 +253,28 @@ export class Store extends EventEmitter {
       )
     ).rows;
   }
+  async notificationCounts(username: string, revision: number) {
+    const { rows } = await this.db.query(
+      `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE r.username IS NULL)::int AS unread
+       FROM notifications n LEFT JOIN reads r ON r.username=$1 AND r.namespace=n.namespace AND r.revision=n.revision AND r.key=n.key
+       WHERE n.namespace=$2 AND n.revision<=$3`, [username, this.namespace, revision],
+    );
+    return rows[0];
+  }
   async markRead(username: string, revision: number, key: string) {
-    await this.db.query(
-      `INSERT INTO reads(username,namespace,revision,key) SELECT $1,namespace,revision,key FROM notifications WHERE namespace=$2 AND revision=$3 AND key=$4 ON CONFLICT DO NOTHING`,
+    const { rows } = await this.db.query(
+      `WITH target AS (SELECT namespace,revision,key FROM notifications WHERE namespace=$2 AND revision=$3 AND key=$4),
+       recorded AS (INSERT INTO reads(username,namespace,revision,key) SELECT $1,namespace,revision,key FROM target ON CONFLICT DO NOTHING)
+       SELECT EXISTS(SELECT 1 FROM target) AS found`,
       [username, this.namespace, revision, key],
+    );
+    return rows[0].found === true;
+  }
+  async markReadThrough(username: string, revision: number) {
+    await this.db.query(
+      `INSERT INTO reads(username,namespace,revision,key)
+       SELECT $1,namespace,revision,key FROM notifications WHERE namespace=$2 AND revision<=$3 ON CONFLICT DO NOTHING`,
+      [username, this.namespace, revision],
     );
   }
   async reset() {

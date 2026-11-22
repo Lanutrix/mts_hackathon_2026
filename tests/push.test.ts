@@ -175,6 +175,9 @@ test("authenticated device subscriptions deliver accepted transitions, bound ret
     const config = (await app.inject({ url, headers: a })).json();
     assert.equal(config.namespace, "workspace");
     assert.ok(config.binding);
+    // Retrying the same enrolment must keep already delivered links usable.
+    assert.equal((await save(a,sub)).statusCode,200);
+    assert.equal((await app.inject({url,headers:a})).json().binding,config.binding);
     assert.ok(!JSON.stringify(config).includes("endpoint-a"));
     await app.close();
     app = await makeApp();

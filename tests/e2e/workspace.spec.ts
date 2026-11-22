@@ -447,7 +447,7 @@ test("a reader can inspect an empty private source without submitting model ques
   expect(writes).toEqual([]);
 });
 
-test("generation appears alongside the previous answer until the requested result arrives", async ({
+test("generation fills the canvas and keeps the conversation accessible until the requested result arrives", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -479,7 +479,14 @@ test("generation appears alongside the previous answer until the requested resul
   await input.press("Enter");
   try {
     await expect(status).toBeInViewport();
-    await expect(previous).toBeInViewport();
+    await expect(previous).toBeHidden();
+    const coversCanvas = () => page.locator(".cx-generation").evaluate(loader => {
+      const area = document.querySelector("#cx-stage")!.getBoundingClientRect();
+      const rect = loader.getBoundingClientRect();
+      return rect.top <= area.top + 1 && rect.bottom >= area.bottom - 1 &&
+        rect.left <= area.left + 1 && rect.right >= area.right - 1;
+    });
+    expect(await coversCanvas()).toBe(true);
     await expect(page.getByRole("timer")).toContainText(/0:0[1-9]/);
     await capture(page, "assistant-generation");
     const history = page.getByRole("button", { name: "История диалога" });
@@ -494,7 +501,8 @@ test("generation appears alongside the previous answer until the requested resul
     await expect(
       page.getByRole("button", { name: "Остановить запрос" }),
     ).toBeInViewport();
-    await expect(previous).toBeInViewport();
+    await expect(previous).toBeHidden();
+    expect(await coversCanvas()).toBe(true);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     ).toBe(true);

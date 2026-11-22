@@ -1,3 +1,4 @@
+import Select from "./Select";
 import { useEffect, useRef, useState } from "react";
 import type { Incident } from "../../../packages/domain/index";
 import type { DispatchDecision, DispatchMember, DispatchTeam, DispatchView } from "../../server/dispatch";
@@ -394,7 +395,7 @@ export default function CoordinatorDispatch(props: Props) {
                   <div className="dispatch-team">
                     <label>
                       Команда назначения
-                      <select aria-label="Команда назначения"
+                      <Select aria-label="Команда назначения"
                         ref={teamSelect}
                         required
                         value={selected?.name || ""}
@@ -406,7 +407,7 @@ export default function CoordinatorDispatch(props: Props) {
                         ).map((t) => (
                           <option key={t.name} value={t.name}>{t.name}</option>
                         ))}
-                      </select>
+                      </Select>
                     </label>
                     {csrf && currentSnapshot && !loadingFault && <DispatchHints key={view.snapshot + "/teams"}
                       kind="teams" csrf={csrf} endpoint={hintsUrl} snapshot={view.snapshot}

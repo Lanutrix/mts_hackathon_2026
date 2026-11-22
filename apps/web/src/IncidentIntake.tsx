@@ -1,5 +1,7 @@
+import Select from "./Select";
 import { useRef, useState, type FormEvent } from "react";
-import type { IntakeReceipt } from "../../../packages/contracts/intake";
+import { intakeByteLimit, intakeRecordLimit, type IntakeReceipt } from "../../../packages/contracts/intake";
+import { Icon } from "./Brand";
 import {
   FIELDS,
   PRIORITIES,
@@ -13,6 +15,27 @@ const sourceNames: Record<string, string> = {
   demo: "Демоисточник",
 };
 const nowUtc = () => new Date().toISOString().slice(0, 19);
+
+async function readIncidentFiles(files: File[]) {
+  if (files.reduce((bytes, file) => bytes + file.size, 0) > intakeByteLimit)
+    throw new Error("Общий размер выбранных файлов превышает 20 МиБ.");
+  const records: unknown[] = [];
+  for (const file of files) {
+    let data: unknown;
+    try {
+      data = JSON.parse((await file.text()).trim());
+    } catch {
+      throw new Error("Не удалось прочитать JSON в файле «" + file.name + "».");
+    }
+    const batch = Array.isArray(data) ? data : [data];
+    if (!batch.length || batch.some(row => !row || typeof row !== "object" || Array.isArray(row)))
+      throw new Error("В файле «" + file.name + "» нужен объект инцидента или непустой массив объектов.");
+    if (records.length + batch.length > intakeRecordLimit)
+      throw new Error("За один раз можно добавить до 20 000 записей.");
+    for (const row of batch) records.push(row);
+  }
+  return records;
+}
 
 function formRecord(form: HTMLFormElement) {
   const data = new FormData(form);
@@ -62,6 +85,8 @@ export function IncidentIntake({
 }) {
   const [mode, setMode] = useState<"single" | "json">("single");
   const [json, setJson] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<IntakeReceipt | null>(null);
@@ -88,24 +113,18 @@ export function IncidentIntake({
     event.preventDefault();
     if (sending.current) return;
     const form = event.currentTarget;
-    let payload: unknown;
     setError("");
     setReceipt(null);
-    if (mode === "single") {
-      payload = formRecord(form);
-    } else {
-      try {
-        payload = JSON.parse(json.trim());
-      } catch {
-        setError(
-          "Ошибка синтаксиса JSON. Проверьте кавычки, запятые и скобки.",
-        );
-        return;
-      }
-    }
     sending.current = true;
     setBusy(true);
     try {
+      let payload: unknown;
+      if (mode === "single") payload = formRecord(form);
+      else if (files.length) payload = await readIncidentFiles(files);
+      else {
+        try { payload = JSON.parse(json.trim()); }
+        catch { throw new Error("Ошибка синтаксиса JSON. Проверьте кавычки, запятые и скобки."); }
+      }
       const accepted = await post("/intake", payload);
       setReceipt(accepted);
       if (mode === "single") {
@@ -202,7 +221,7 @@ export function IncidentIntake({
             </label>
             <label>
               Статус
-              <select
+              <Select
                 name="stateId"
                 value={stateId}
                 onChange={(e) => setStateId(Number(e.target.value))}
@@ -212,17 +231,17 @@ export function IncidentIntake({
                     {s.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label>
               Приоритет
-              <select name="priorityId" defaultValue="2">
+              <Select name="priorityId" defaultValue="2">
                 {Object.entries(PRIORITIES).map(([value, label]) => (
                   <option value={value} key={value}>
                     {label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="intake-wide">
               Описание
@@ -288,10 +307,24 @@ export function IncidentIntake({
       <form className="intake-form" hidden={mode !== "json"} onSubmit={submit}>
         <fieldset disabled={busy}>
           <p className="intake-hint" id="intake-format">
-            Вставьте один объект или массив записей в исходном формате.
-            Проверьте id, stateId, stateEnum и priorityId каждой записи.
+            Один объект или массив инцидентов. Все выбранные файлы отправляются одним пакетом до 20 МиБ.
           </p>
-          <label>
+          <div className="intake-attachments">
+            <label className="intake-file-button">
+              <Icon name="file" size={18} />Прикрепить JSON
+              <input type="file" multiple accept=".json,application/json" ref={fileInput}
+                onChange={e => { setFiles(Array.from(e.target.files ?? [])); setError(""); setReceipt(null); }} />
+            </label>
+            {files.length > 0 && <>
+              <ul aria-label="Прикреплённые файлы">{files.map((file, i) => <li key={i}>{file.name}</li>)}</ul>
+              <button type="button" className="intake-clear-files" onClick={() => {
+                setFiles([]); setError(""); setReceipt(null);
+                if (fileInput.current) fileInput.current.value = "";
+                fileInput.current?.focus();
+              }}>Убрать файлы</button>
+            </>}
+          </div>
+          {!files.length && <label>
             Записи в формате JSON
             <textarea
               className="intake-json"
@@ -303,7 +336,7 @@ export function IncidentIntake({
               rows={8}
               placeholder={sample}
             />
-          </label>
+          </label>}
           <details className="intake-extra">
             <summary>Пример JSON</summary>
             <pre>{sample}</pre>
