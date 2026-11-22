@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Incident } from "../../../packages/domain/index";
 import type { Triage } from "../../../packages/domain/triage";
 import type { WallboardOrder } from "../../../packages/contracts/preferences";
@@ -26,19 +26,26 @@ const orderLabels = { priority: "По приоритету", deadline: "По с�
 
 export default function Wallboard({ data, now, zone, online, order, seconds }: Props) {
   const list = useRef<HTMLUListElement>(null);
-  const [size, setSize] = useState(1);
+  const [{ rows, columns }, setCapacity] = useState({ rows: 1, columns: 1 });
+  const size = rows * columns;
   useLayoutEffect(() => {
     const el = list.current;
     if (!el) return;
     const fit = () => {
       const height = parseFloat(getComputedStyle(el).gridAutoRows);
-      if (height > 0)
-        setSize(Math.max(1, Math.floor((el.clientHeight + 0.1) / height)));
+      if (!height) return;
+      const columns = Number(getComputedStyle(el).getPropertyValue("--wall-columns"));
+      const rows = Math.max(1, Math.floor((el.clientHeight + 0.1) / height));
+      setCapacity(old => old.rows === rows && old.columns === columns ? old : { rows, columns });
     };
     const observer = new ResizeObserver(fit);
     observer.observe(el);
+    window.addEventListener("resize", fit);
     fit();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fit);
+    };
   }, []);
 
   const total = data.unique;
@@ -115,7 +122,7 @@ export default function Wallboard({ data, now, zone, online, order, seconds }: P
     const id = window.setTimeout(() => retry.current(), 5000);
     return () => clearTimeout(id);
   }, [prefix.error]);
-  const current = batch?.namespace === data.namespace ? batch : null;
+  const current = batch?.namespace === data.namespace && batch.size === size ? batch : null;
   const dateFormat = useMemo(
     () =>
       new Intl.DateTimeFormat("ru-RU", {
@@ -181,13 +188,18 @@ export default function Wallboard({ data, now, zone, online, order, seconds }: P
             </small>
           </span>
         </div>
-        <div className="observe-columns" aria-hidden="true">
-          <span><Icon name="queue" />Заявка и продукт</span>
-          <span><Icon name="ranking" />Приоритет</span>
-          <span><Icon name="team" />Команда и статус</span>
-          <span><Icon name="clock" />Срок решения</span>
+        <div className="observe-headings" aria-hidden="true">
+          {Array.from({ length: columns }, (_, index) => (
+            <div className="observe-columns" key={index}>
+              <span><Icon name="queue" />Заявка и продукт</span>
+              <span><Icon name="ranking" />Приоритет</span>
+              <span><Icon name="team" />Команда и статус</span>
+              <span><Icon name="clock" />Срок решения</span>
+            </div>
+          ))}
         </div>
-        <ul ref={list} className="observe-list" aria-label={"Заявки " + orderLabels[order].toLowerCase()}>
+        <ul ref={list} className="observe-list" style={{ "--wall-rows": rows } as CSSProperties}
+          aria-label={"Заявки " + orderLabels[order].toLowerCase()}>
           {current?.rows.map((item) => {
             const deadline = item.dates.deadline
               ? Date.parse(item.dates.deadline)
