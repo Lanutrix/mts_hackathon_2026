@@ -395,7 +395,7 @@ test("live embeds a quiet 3D slice with the active count and opens evidence from
   await page.getByTestId("group-critical").click();
   const board = await (await filtered).json();
   const id = (board.triage.liveFocus?.step ?? board.triage.cases[0].step).ticketId;
-  const ticket = page.getByRole("button", { name: id + " ↗", exact: true });
+  const ticket = page.getByRole("link", { name: "Открыть заявку " + id, exact: true });
   await expect(ticket).toBeVisible();
   expect(await still()).toBe(image);
   await ticket.click();

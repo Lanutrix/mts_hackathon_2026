@@ -56,15 +56,20 @@ export function CanvasTicketLink({
   open: (id: string) => void;
   zone: string;
 }) {
+  const stamp = ticket.submittedAt ?? ticket.deadline;
   const date =
-    ticket.deadline &&
+    stamp &&
     new Intl.DateTimeFormat("ru-RU", {
       timeZone: zone,
       day: "numeric",
       month: "short",
       hour: "2-digit",
       minute: "2-digit",
-    }).format(new Date(ticket.deadline));
+    }).format(new Date(stamp));
+  let timing = date ? (ticket.overdue ? "Просрочен · " : "") + date : "Без срока";
+  if (ticket.duration) timing = "Время решения · " + formatFactDuration(ticket.duration.ms);
+  if (ticket.submittedAt) timing = "Регистрация · " + date;
+  if (ticket.statusIntervals) timing = "Между сменами статуса · " + formatFactDuration(ticket.statusIntervals.meanMs);
   return (
     <a
       {...elPart("ticket-reference")}
@@ -87,10 +92,9 @@ export function CanvasTicketLink({
       <span
         {...elPart("deadline-stamp")}
         className="cx-ticket-date"
-        data-overdue={!ticket.duration && ticket.overdue}
+        data-overdue={!ticket.duration && !ticket.submittedAt && !ticket.statusIntervals && ticket.overdue}
       >
-        {ticket.duration ? "Время решения · " + formatFactDuration(ticket.duration.ms) :
-          date ? (ticket.overdue ? "Просрочен · " : "") + date : "Без срока"}
+        {timing}
       </span>
     </a>
   );

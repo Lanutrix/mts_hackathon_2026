@@ -48,6 +48,8 @@ export function explainFact(result: CanvasResult): CanvasResult {
       : " Для каждой группы упорядочили длительности решения и взяли срединное значение. При чётном числе заявок взяли среднее двух центральных значений.";
   } else if (operation === "duration" && fact.durations?.length) {
     text += " Для каждой подходящей заявки посчитано время от регистрации до завершения. Учитывались завершённые и закрытые заявки с обеими датами.";
+  } else if (operation === "statusInterval" || operation === "recent" || operation === "count" && result.intent.filters.deadline === "overdue") {
+    text += " " + fact.method;
   } else if (operation === "distinct" && result.total) {
     text += " Каждое разное значение учтено один раз, даже если встречается в нескольких заявках.";
   } else if (operation === "count") {
@@ -232,15 +234,17 @@ export function readConversation(raw: unknown): CanvasConversation | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
   const c = raw as Record<string, unknown>;
   if (
-    !Object.keys(c).every((k) => ["title", "text", "followUp"].includes(k)) ||
+    !Object.keys(c).every((k) => ["title", "text", "followUp", "suggestions"].includes(k)) ||
     !safeProse(c.title, 100) ||
-    !safeProse(c.text, 1200, true) ||
-    (c.followUp !== undefined && !safeProse(c.followUp, 200))
+    !safeProse(c.text, 1200, true)
   )
     return;
-  const followUp = c.followUp?.trim();
+  const followUp = safeProse(c.followUp, 200) ? c.followUp.trim() : undefined;
   return {
     title: c.title.trim(),
+    ...(Array.isArray(c.suggestions) ? {
+      suggestions: c.suggestions.slice(0, 8).filter((q): q is string => safeProse(q, 200)),
+    } : {}),
     text: c.text.replace(/\\n/gu, "\n").trim(),
     ...(followUp &&
     !/^(?:а )?(?:хочешь|хотите|хотел[аи]? бы|нуж(?:ен|на|но) ли тебе)/iu.test(

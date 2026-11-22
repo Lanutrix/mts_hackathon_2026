@@ -12,6 +12,8 @@ export const factOperations = [
   "distinct",
   "count",
   "duration",
+  "recent",
+  "statusInterval",
   "relations",
 ] as const;
 export type FactOperation = (typeof factOperations)[number];
@@ -19,6 +21,7 @@ export type FactOperation = (typeof factOperations)[number];
 export type FactDisplay = "ring" | "table" | "bars" | "list" | "cards" | "diagram";
 
 export interface FactPlan {
+  sourceSelection?: string;
   durationCohort?: true;
   durationMeasure?: "individual" | "median" | "mean";
   limit?: number;
@@ -47,6 +50,7 @@ export interface RelationEdge {
   evidence: string[];
 }
 export interface CanvasFact {
+  statusIntervals?: { meanMs: number | null; intervalCount: number; ticketCount: number; scopeCount: number };
   statusCounts?: { label: string; count: number; state: number | null }[];
   headline: string;
   method: string;

@@ -27,8 +27,11 @@ import { commentText, type CommentTopic } from "./dispatchSuggestions.ts";
 import { initialIntent, planCanvas } from "./canvasPlan.ts";
 import { buildAnswerInsights } from "./answerInsights.ts";
 import { shiftAnswer, shiftIntent, shiftQuestion } from "./canvasShift.ts";
+import { withCanvasSuggestions } from "./canvasSuggestions.ts";
 import { briefAnswer, briefRequest, planBrief } from "./canvasBrief.ts";
 import { describeFact, prepareFact } from "./canvasFacts.ts";
+import { recentLimit } from "./canvasFactPlan.ts";
+import type { StatusChange } from "./statusIntervals.ts";
 import { makeAnswer } from "./canvasGuide.ts";
 import {
   asksAboutResult,
@@ -44,6 +47,7 @@ export interface CanvasSource {
   revision: number;
   rows: Map<string, Incident>;
   simulation?: { runId: string };
+  statusChanges?(keys: string[], maxRevision: number): StatusChange[] | Promise<StatusChange[]>;
 }
 const titles: Record<CanvasDimension, string> = {
   symptom: "Похожие симптомы",
@@ -67,11 +71,6 @@ const escalationLabels = {
   unknown: "Нет отметки",
 };
 const collator = new Intl.Collator("ru", { numeric: true });
-const suggestions = [
-  "Сгруппируй заявки по похожим симптомам",
-  "Сравни нагрузку по командам",
-  "Покажи просроченные заявки списком",
-];
 const escalation = (row: Incident) =>
   row.raw.isNeedUp === true
     ? "yes"
@@ -376,7 +375,7 @@ export class CanvasService {
         asOf: ranking?.asOf ?? new Date().toISOString(), sourceTotal: ranking?.sourceTotal ?? 0,
         provider: "Поля ITSM", mode: "unsupported", title: "Уточните место", summary: text,
         conversation: { title: "Уточните место", text }, intent: ranking?.intent ?? initialIntent,
-        metrics: [], blocks: [], groups: [], tickets: [], selection: "", total: 0, suggestions,
+        metrics: [], blocks: [], groups: [], tickets: [], selection: "", total: 0, suggestions: [],
         ...(ranking ? { turnToken: this.remember(source, actor, history, undefined, {
           displaySelection: ranking.selection, rankPlace: priorPlace,
         }) } : {}),
@@ -413,19 +412,19 @@ export class CanvasService {
     return { namespace: source.namespace, revision: source.revision, asOf: new Date().toISOString(),
       sourceTotal: 0, provider: "Поля ITSM", mode: "unsupported", title, summary: text,
       intent: initialIntent, conversation: { title, text }, selection: "", total: 0,
-      metrics: [], blocks: [], groups: [], tickets: [], suggestions };
+      metrics: [], blocks: [], groups: [], tickets: [], suggestions: [] };
   }
   async read(
     source: CanvasSource, actor: string, question?: string, context?: CanvasIntent, turnToken?: string,
   ): Promise<CanvasResult> {
     if (question && acceptsOffer(question)) {
       const offer = this.currentTurn(source, actor, turnToken)?.offered;
-      if (!offer) return this.textResult(source, "Уточните запрос",
-        "Какой результат нужен? Например, список просроченных заявок или сравнение команд.");
+      if (!offer) return withCanvasSuggestions(this.textResult(source, "Уточните запрос",
+        "Какой результат нужен? Например, список просроченных заявок или сравнение команд."), question);
       question = offer.question;
       context = offer.context;
     }
-    const result = await this.evaluate(source, actor, question, context, turnToken);
+    const result = withCanvasSuggestions(await this.evaluate(source, actor, question, context, turnToken), question);
     const next = result.conversation?.followUp;
     const stored = this.currentTurn(source, actor, result.turnToken);
     if (next || stored?.offered) {
@@ -448,7 +447,7 @@ export class CanvasService {
     const displayed = activeTurn?.displaySelection ? this.pinned.get(activeTurn.displaySelection) : undefined;
     const focused = displayed && displayed.expires > now ? displayed : undefined;
     const advice = focused?.shift;
-    const brief = question ? briefRequest(question) : context?.brief ? "write" : undefined;
+    const brief = question && recentLimit(question) === undefined ? briefRequest(question) : !question && context?.brief ? "write" : undefined;
     const shift = question ? shiftQuestion(question, !!advice) : context?.shiftAdvice ? "recommend" : undefined;
     const rankedSelection = activeTurn?.rankingSelection ?? activeTurn?.displaySelection;
     const rankedProjection = rankedSelection ? this.pinned.get(rankedSelection) : undefined;
@@ -611,7 +610,7 @@ export class CanvasService {
       asOf: new Date(now).toISOString(),
       ...publicDecision,
       sourceTotal,
-      suggestions,
+      suggestions: [],
     };
     if (
       textOnly ||
@@ -647,8 +646,22 @@ export class CanvasService {
         selection: "",
         total: 0,
       };
-    const scoped = rows.filter(r => selected(r, intent.filters, now, !!intent.fact));
-    const prepared = intent.fact ? prepareFact(intent, scoped, now) : undefined;
+    if (intent.fact && question && /(?:из|среди|по) них|по ним|из этих|среди этих/iu.test(question) &&
+        (context?.fact?.operation === "recent" || context?.fact?.operation === "statusInterval" || context?.fact?.sourceSelection)) {
+      const selection = focused?.displayResult?.selection ?? (await this.read(source, actor, undefined, context)).selection;
+      if (!selection) return this.textResult(source, "Выборка недоступна", "Запросите предыдущий список заново, чтобы продолжить расчёт по его заявкам.");
+      intent.fact = { ...intent.fact, sourceSelection: selection };
+    }
+    let memberIds: Set<string> | undefined;
+    if (intent.fact?.sourceSelection) {
+      const pin = this.pinned.get(intent.fact.sourceSelection);
+      if (!pin || pin.actor !== actor || pin.namespace !== namespace || pin.run !== source.simulation?.runId || pin.expires <= now)
+        return this.textResult(source, "Выборка недоступна", "Запросите предыдущий список заново, чтобы продолжить расчёт по его заявкам.");
+      memberIds = new Set(pin.all.map(t => t.id));
+    }
+    const scoped = rows.filter(r => (!memberIds || memberIds.has(r.id)) && selected(r, intent.filters, now, !!intent.fact));
+    const changes = intent.fact?.operation === "statusInterval" ? await source.statusChanges?.(scoped.map(r => r.key), revision) : undefined;
+    const prepared = intent.fact ? prepareFact(intent, scoped, now, changes) : undefined;
     if (intent.shiftAdvice) {
       const ranked = (prepared?.rows ?? scoped)
         .filter(r => openStates.includes(r.stateId!) && (!rankMemberIds || rankMemberIds.has(r.id))).sort(urgent);
@@ -667,6 +680,8 @@ export class CanvasService {
     const measuringDuration = intent.fact?.operation === "duration" && !intent.brief;
     const tickets = matches.map((r, i) => ({
       ...ticket(r, now),
+      ...(intent.fact?.operation === "recent" ? { submittedAt: r.dates.submitDate! } : {}),
+      ...(prepared?.statusIntervals ? { statusIntervals: prepared.statusIntervals.tickets.get(r.key) } : {}),
       ...(measuringDuration ? { duration: prepared!.durations[i] } : {}),
     }));
     const durationMeasure = measuringDuration ? intent.fact?.durationMeasure : undefined;

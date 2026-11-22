@@ -1,6 +1,7 @@
 import { formatFactDuration } from "../../packages/contracts/canvasFacts.ts";
 import { spaces, STATES, type Incident } from "../../packages/domain/index.ts";
 import { knownSymptom } from "../../packages/domain/triage.ts";
+import { measuredStatusIntervals, type StatusChange } from "./statusIntervals.ts";
 import type {
   CanvasGroup,
   CanvasIntent,
@@ -86,13 +87,28 @@ export function prepareFact(
   intent: CanvasIntent,
   source: Incident[],
   now: number,
+  changes: StatusChange[] = [],
 ) {
   const plan = intent.fact!;
   const range = bounds(plan.period, now);
   const notes: string[] = [];
   let rows = source;
   const durations = [];
-  if (plan.operation === "duration" || plan.durationCohort) {
+  const statusIntervals = plan.operation === "statusInterval"
+    ? measuredStatusIntervals(changes, rows, range.start, range.end) : undefined;
+  if (statusIntervals) {
+    rows = rows.filter(r => statusIntervals.tickets.has(r.key)).sort((a, b) => a.id.localeCompare(b.id, "ru", { numeric: true }));
+    const skipped = source.length - rows.length;
+    if (skipped) notes.push("Заявок без пары наблюдаемых смен статуса за выбранный период — " + number.format(skipped) + ".");
+  } else if (plan.operation === "recent") {
+    const undated = rows.filter(r => !r.dates.submitDate).length;
+    if (undated) notes.push("Заявок без даты регистрации — " + number.format(undated) + ". Они исключены из списка.");
+    rows = rows.filter(r => {
+      const at = Date.parse(r.dates.submitDate ?? "");
+      return at >= range.start && at <= range.end;
+    }).sort((a, b) => b.dates.submitDate!.localeCompare(a.dates.submitDate!) || a.id.localeCompare(b.id, "ru", { numeric: true }) || a.id.localeCompare(b.id))
+      .slice(0, plan.limit);
+  } else if (plan.operation === "duration" || plan.durationCohort) {
     let missingCompletion = 0,
       invalidStart = 0, unfinished = 0, outside = 0;
     for (const r of source) {
@@ -184,6 +200,7 @@ export function prepareFact(
     rows,
     notes,
     range: range.label,
+    statusIntervals,
     durations: durations.map((e) => e.value),
   };
 }
@@ -315,6 +332,19 @@ export function describeFact(
             .join(", ") +
           ".",
       );
+  } else if (operation === "recent") {
+    title = "Последние зарегистрированные инциденты";
+    headline = rows.length ? "Последние инциденты по дате регистрации · " + n : "Нет заявок с датой регистрации в выбранном периоде.";
+    method = "По дате регистрации (submitDate), от новых к старым. При совпадении времени — по номеру заявки. " + range;
+  } else if (operation === "statusInterval") {
+    title = "Среднее время между сменами статуса";
+    const measure = prepared.statusIntervals!.summary;
+    fact.statusIntervals = measure;
+    headline = measure.meanMs === null ? "Недостаточно истории для расчёта среднего времени между сменами статуса." :
+      "Среднее время между сменами статуса — " + formatFactDuration(measure.meanMs) + ".";
+    method = "Интервал отсчитывается между двумя последовательными наблюдаемыми изменениями статуса одной заявки. " +
+      "Сумму интервалов делим на их число. Первая запись и разрывы в наблюдении исключены. " +
+      (period === "snapshot" ? "" : "Период определяется по второй смене статуса. ") + range;
   } else if (operation === "duration") {
     const { durationMeasure } = intent.fact!;
     const lead = durations[0];
@@ -369,6 +399,11 @@ export function describeFact(
     });
     title = "Количество заявок";
     headline = "Заявок в выборке: " + n + ".";
+    if (intent.filters.deadline === "overdue") {
+      title = "Просроченные заявки";
+      headline = "Просроченных заявок — " + n + ".";
+      method += " Учитываются открытые заявки, включая исследование, с указанным сроком решения (deadline) раньше времени среза.";
+    }
     if (intent.fact!.durationCohort) {
       headline = "Заявок с измеренной длительностью решения: " + n + ".";
       method = "Учтены завершённые и закрытые заявки с корректной парой дат регистрации и завершения. " +

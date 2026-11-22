@@ -370,8 +370,9 @@
         "additionalProperties": false
       },
       "DurationEvidence": {"type":"object","properties":{"id":{"type":"string"},"header":{"type":["string","null"]},"start":{"type":"string","format":"date-time"},"end":{"type":"string","format":"date-time"},"ms":{"type":"integer","minimum":0}},"required":["id","header","start","end","ms"],"additionalProperties":false},
-      "CanvasFactPlan": {"type":"object","properties":{"durationCohort":{"enum":[true]},"durationMeasure":{"enum":["individual","median","mean"]},"limit":{"type":"integer","minimum":1,"maximum":999999},"operation":{"enum":["frequency","distinct","count","duration","relations"]},"period":{"enum":["snapshot","today","yesterday","week","month","year"]},"display":{"enum":["ring","table","bars","list","cards","diagram"]},"dateField":{"enum":["completionDate"]},"ascending":{"enum":[true]}},"required":["operation","period"],"additionalProperties":false},
+      "CanvasFactPlan": {"type":"object","properties":{"sourceSelection":{"type":"string","format":"uuid"},"durationCohort":{"enum":[true]},"durationMeasure":{"enum":["individual","median","mean"]},"limit":{"type":"integer","minimum":1,"maximum":999999},"operation":{"enum":["frequency","distinct","count","duration","recent","statusInterval","relations"]},"period":{"enum":["snapshot","today","yesterday","week","month","year"]},"display":{"enum":["ring","table","bars","list","cards","diagram"]},"dateField":{"enum":["completionDate"]},"ascending":{"enum":[true]}},"required":["operation","period"],"additionalProperties":false},
       "CanvasFact": {"type":"object","properties":{"headline":{"type":"string"},"method":{"type":"string"},"notes":{"type":"array","items":{"type":"string"}},"statusCounts":{"type":"array","items":{"type":"object","required":["label","count","state"],"properties":{"label":{"type":"string"},"count":{"type":"integer","minimum":1},"state":{"type":["integer","null"]}}}},
+          "statusIntervals":{"type":"object","required":["meanMs","intervalCount","ticketCount","scopeCount"],"properties":{"meanMs":{"type":["number","null"],"minimum":0},"intervalCount":{"type":"integer","minimum":0},"ticketCount":{"type":"integer","minimum":0},"scopeCount":{"type":"integer","minimum":0}},"additionalProperties":false},
           "maxDurationMs":{"type":"integer","minimum":0},"durations":{"type":"array","items":{"$ref":"#/components/schemas/DurationEvidence"}},"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"found":{"type":"boolean"},"label":{"type":"string"}},"required":["id","found"],"additionalProperties":false},"maxItems":10},"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"kind":{"enum":["reference","similarity"]},"evidence":{"type":"array","items":{"type":"string"}}},"required":["from","to","kind","evidence"],"additionalProperties":false}}},"required":["headline","method","notes"],"additionalProperties":false},
       "CanvasIntent": {
         "type": "object",
@@ -519,6 +520,8 @@
       "CanvasTicket": {
         "type": "object",
         "properties": {
+          "submittedAt": {"type":"string","format":"date-time"},
+          "statusIntervals":{"type":"object","required":["meanMs","intervalCount"],"properties":{"meanMs":{"type":"number","minimum":0},"intervalCount":{"type":"integer","minimum":1}},"additionalProperties":false},
           "duration": { "$ref": "#/components/schemas/DurationEvidence" },
           "id": {
             "type": "string"

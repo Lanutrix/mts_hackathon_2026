@@ -11,6 +11,7 @@ import {
 } from "../../../packages/contracts/canvasFacts";
 import { canvasJson } from "./CanvasTickets";
 import { TicketMentions } from "./IncidentSources";
+import { Icon } from "./Brand";
 import { formatCount, PageControls } from "./CanvasControls";
 import {
   Branches,
@@ -231,6 +232,44 @@ function Moment({ iso }: { iso: string }) {
   return <time dateTime={iso}>{fmt.format(new Date(iso))}</time>;
 }
 
+function RecentIncidents({ result, ...navigation }: Navigation & { result: CanvasResult }) {
+  if (!result.tickets.length) return null;
+  return <ol className="fact-arrivals" aria-label="По времени регистрации">
+    {result.tickets.map(ticket => <li key={ticket.id}>
+      <div className="fact-arrival-stamp">
+        {ticket.submittedAt && <><Moment iso={ticket.submittedAt} /> <small>МСК</small></>}
+      </div>
+      <div className="fact-arrival-body">
+        <div><SourceId id={ticket.id} {...navigation} /><span>{ticket.state}</span></div>
+        <strong>{ticket.header}</strong>
+        <small><Icon name="team" size={14} />{ticket.team}</small>
+      </div>
+    </li>)}
+  </ol>;
+}
+
+function StatusIntervalSample({ result, ...navigation }: Navigation & { result: CanvasResult }) {
+  const sample = result.fact?.statusIntervals;
+  if (!sample) return null;
+  const examples = result.tickets.filter(t => t.statusIntervals).slice(0, 4);
+  return <>
+    <div role="group" aria-label="Основание расчёта">
+      <dl className="fact-interval-sample">
+        <div><dt>Интервалов</dt><dd>{formatCount(sample.intervalCount)}</dd></div>
+        <div><dt>Заявок с интервалами</dt><dd>{formatCount(sample.ticketCount)}</dd></div>
+        <div><dt>Заявок в выборке</dt><dd>{formatCount(sample.scopeCount)}</dd></div>
+      </dl>
+    </div>
+    {examples.length > 0 && <ul className="fact-interval-rows" aria-label="Интервалы по заявкам">
+      {examples.map(ticket => <li key={ticket.id}>
+        <SourceId id={ticket.id} {...navigation} />
+        <span>{ticket.header}</span>
+        <strong title="Среднее по заявке">{formatFactDuration(ticket.statusIntervals!.meanMs)}</strong>
+      </li>)}
+    </ul>}
+  </>;
+}
+
 function GroupDurations({ result, choose }: { result: CanvasResult; choose: GroupChoice }) {
   const [page, setPage] = useState(0);
   const perPage = 8;
@@ -434,6 +473,13 @@ export default function FactBoard({
         </details>
       </div>
       {!!fact.statusCounts?.length && <StatusSlice counts={fact.statusCounts} total={result.total} />}
+      {result.intent.fact?.operation === "recent" && <>
+        <RecentIncidents result={result} {...navigation} />
+        {result.tickets.length < result.total && <p className="fact-note">
+          Показано {formatCount(result.tickets.length)} из {formatCount(result.total)}. Весь список доступен в «Открыть заявки».
+        </p>}
+      </>}
+      {fact.statusIntervals && <StatusIntervalSample result={result} {...navigation} />}
       {result.groups.length > 0 && (result.intent.fact?.operation === "duration"
         ? <GroupDurations key={viewKey} result={result} choose={choose} />
         : <GroupValues key={viewKey} result={result} choose={choose} />)}

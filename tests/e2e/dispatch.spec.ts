@@ -62,7 +62,7 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     await login.getByLabel("Пароль").fill(password);
     await login.getByRole("button", { name: "Войти", exact: true }).click();
     await expect(page).toHaveURL(origin + "/live");
-    await page.getByTestId("live-guidance").getByRole("button", { name: rows[0].id + " ↗" }).click();
+    await page.getByTestId("live-guidance").getByRole("link", { name: "Открыть заявку " + rows[0].id }).click();
     await expect(page).toHaveURL(new RegExp("/incident/" + rows[0].id));
     const facts = page.getByRole("region", { name: "Текущее состояние" });
     await expect(facts).toContainText("Координация");

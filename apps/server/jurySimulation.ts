@@ -344,6 +344,12 @@ function accept(
         (entry) => entry.revision <= maxRevision,
       );
     },
+    statusChanges(keys: string[], maxRevision: number) {
+      const state = (row: Incident | null) => row?.sourcePresent && !row.quarantined ? row.stateId : null;
+      return keys.flatMap(key => (versions.get(key) ?? []).filter(entry => entry.revision <= maxRevision)
+        .map(entry => ({ key, at: entry.at, fromState: state(entry.before_doc), toState: state(entry.after_doc) }))
+        .reverse());
+    },
     notifications(
       _user: string,
       after = 0,

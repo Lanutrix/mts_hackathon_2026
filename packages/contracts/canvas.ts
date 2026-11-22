@@ -57,6 +57,8 @@ export interface CanvasIntent extends CanvasView {
   blocks?: CanvasView[];
 }
 export interface CanvasTicket {
+  submittedAt?: string;
+  statusIntervals?: { meanMs: number; intervalCount: number };
   duration?: import("./canvasFacts.ts").DurationEvidence;
   id: string;
   header: string;
@@ -88,6 +90,7 @@ export interface CanvasConversation {
   text: string;
   sourceIds?: string[];
   followUp?: string;
+  suggestions?: string[];
 }
 export interface CanvasResult {
   fact?: import("./canvasFacts.ts").CanvasFact;

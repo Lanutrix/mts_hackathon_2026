@@ -4,13 +4,11 @@ import { PageControls, useBox } from "./CanvasControls";
 import { TicketMentions } from "./IncidentSources";
 import "./conversationAnswer.css";
 
-export default function ConversationAnswer({ answer, canAsk, ask, ids, ns, open }: {
+export default function ConversationAnswer({ answer, ids, ns, open }: {
   answer: NonNullable<CanvasResult["conversation"]>;
   ids: string[];
   ns: string;
   open: (id: string) => void;
-  canAsk: boolean;
-  ask: (question: string) => void;
 }) {
   const { ref, width, height } = useBox();
   const [pages, setPages] = useState(1);
@@ -30,19 +28,12 @@ export default function ConversationAnswer({ answer, canAsk, ask, ids, ns, open 
   useLayoutEffect(() => {
     if (ref.current) ref.current.scrollLeft = current * width;
   }, [current, width, ref]);
-  const followUp = answer.followUp;
   return (
     <div className="cx-prose" data-testid="conversation-answer">
       <div className="cx-prose-sheet" ref={ref}>
         <p><TicketMentions text={answer.text} {...{ ids, ns, open }} /></p>
       </div>
       <div className="cx-prose-actions">
-        {followUp && (
-          <button type="button" className="cx-prose-question" disabled={!canAsk}
-            onClick={() => ask(followUp)}>
-            {followUp}<span aria-hidden="true">↗</span>
-          </button>
-        )}
         <PageControls page={current} pages={pages} goto={setPage} label="Страницы ответа" />
       </div>
     </div>

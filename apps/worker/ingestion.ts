@@ -11,6 +11,7 @@ import {
   type Issue,
 } from "../../packages/domain/index.ts";
 import type { DB } from "../server/db.ts";
+import type { StatusChange } from "../server/statusIntervals.ts";
 
 export class Store extends EventEmitter {
   rows = new Map<string, Incident>();
@@ -205,6 +206,18 @@ export class Store extends EventEmitter {
       error: message,
     };
     if (changed) this.emit("status", { state: "error" });
+  }
+  async statusChanges(keys: string[], maxRevision: number) {
+    if (!keys.length) return [];
+    // Read only changed status/presence, without loading full ticket versions or the UI's 50-row limit.
+    const state = (doc: "before_doc" | "after_doc") =>
+      "CASE WHEN (" + doc + "->>'sourcePresent')::boolean AND NOT (" + doc + "->>'quarantined')::boolean " +
+      "THEN (" + doc + "->>'stateId')::integer END";
+    const query = 'SELECT key, at, "fromState", "toState" FROM (SELECT key, at, revision, ' +
+      state("before_doc") + ' AS "fromState", ' + state("after_doc") + ' AS "toState" ' +
+      'FROM events WHERE namespace=$1 AND key=ANY($2::text[]) AND revision <= $3) changes ' +
+      'WHERE "fromState" IS DISTINCT FROM "toState" ORDER BY revision, key';
+    return (await this.db.query<StatusChange>(query, [this.namespace, keys, maxRevision])).rows;
   }
   async history(key: string, maxRevision = this.revision) {
     return (

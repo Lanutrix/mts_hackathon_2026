@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { CaseAnalysis, TriageCase } from "../../../packages/domain/triage";
-import type { LiveStep } from "../../../packages/domain/liveStep";
+import type { LiveReason, LiveStep } from "../../../packages/domain/liveStep";
 import Loader from "./Loader";
-import { Icon } from "./Brand";
+import { Icon, Mark, type IconName } from "./Brand";
 import { fieldName, TicketMentions } from "./IncidentSources";
+import { screenLink } from "./routes";
 
 import { responseBands } from "../../../packages/domain/responseOrder";
 
@@ -15,6 +16,31 @@ const dimensions = [
   ["product", "По продукту"],
   ["team", "По команде"],
 ] as const;
+
+const reasonLabels: Record<LiveReason, { label: string; icon: IconName }> = {
+  missingSource: { label: "Источник", icon: "quality" },
+  overdue: { label: "Просрочка", icon: "clock" },
+  soon: { label: "Срок близко", icon: "clock" },
+  followUp: { label: "Последствия", icon: "escalation" },
+  missingDeadline: { label: "Без срока", icon: "clock" },
+  coordinator: { label: "Назначение", icon: "coordinators" },
+  research: { label: "Исследование", icon: "research" },
+  missingTeam: { label: "Без команды", icon: "team" },
+  progress: { label: "Ход работ", icon: "team" },
+};
+
+type Check = { record: TriageCase; step: LiveStep };
+
+function shiftChecks(cases: TriageCase[], primary: Check) {
+  const checks = [primary];
+  for (const record of cases) {
+    const { reason, ticketId } = record.step;
+    if (checks.some(({ step }) => step.reason === reason || step.ticketId === ticketId)) continue;
+    checks.push({ record, step: record.step });
+    if (checks.length === 3) break;
+  }
+  return checks;
+}
 
 function caseCriterion(record: TriageCase, dimension: string) {
   if (dimension === "symptom" || dimension === "symptomProduct") {
@@ -122,10 +148,18 @@ export default function TriageCases(props: Props) {
     Math.floor(offset / perPage) * perPage,
     Math.max(0, Math.floor((cases.length - 1) / perPage) * perPage),
   );
-  const focus = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
-  const step = (!chosen && props.liveFocus?.caseId === focus?.id ? props.liveFocus?.step : null) ?? focus?.step;
+  const primary = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
+  const primaryStep = (!chosen && props.liveFocus?.caseId === primary?.id ? props.liveFocus?.step : null) ?? primary?.step;
+  const checks = primary && primaryStep ? shiftChecks(chosen ? [] : cases, { record: primary, step: primaryStep }) : [];
+  const queue = JSON.stringify([props.query, primary?.id, primaryStep?.ticketId, primaryStep?.reason]);
+  const [selection, setSelection] = useState<{ queue: string; id: string; reason: LiveReason } | null>(null);
+  const active = (selection?.queue === queue && checks.find(({ step }) =>
+    step.ticketId === selection.id && step.reason === selection.reason)) || checks[0];
+  const focus = active?.record;
+  const step = active?.step;
   const band = focus?.responseRank === undefined ? undefined : responseBands[focus.responseRank];
   const inspected = inspection?.query === props.query ? cases.find(item => item.id === inspection.record.id) : undefined;
+  const inspectedStep = inspected && (inspected.id === primary?.id ? primaryStep : inspected.step);
   const pick = (id: string) => {
     setParam("case", id);
   };
@@ -235,7 +269,8 @@ export default function TriageCases(props: Props) {
         )}
       </div>
       {props.ready && focus && step && (
-        <LiveAdvice key={focus.id} {...props} record={focus} step={step}
+        <LiveAdvice {...props} record={focus} step={step} checks={checks}
+          selectCheck={next => setSelection({ queue, id: next.ticketId, reason: next.reason })}
           inspect={advice => setInspection({ record: focus, step, query: props.query, advice, dimension })}
           groupAction={band && !chosen && focus.count > 1 ?
             <button type="button" className="response-open" onClick={() => pick(focus.id)}>
@@ -247,8 +282,8 @@ export default function TriageCases(props: Props) {
       )}
       {inspection && (
         <CaseDialog {...props} {...inspection} record={inspected ?? inspection.record}
-          step={inspected?.step ?? inspection.step} revision={(inspected ?? inspection.record).revision}
-          advice={inspected && inspected.step.key !== inspection.step.key ? null : inspection.advice}
+          step={inspectedStep ?? inspection.step} revision={(inspected ?? inspection.record).revision}
+          advice={inspectedStep && inspectedStep.key !== inspection.step.key ? null : inspection.advice}
           close={() => setInspection(null)} />
       )}
     </aside>
@@ -257,7 +292,12 @@ export default function TriageCases(props: Props) {
 
 type Advice = { key: string; action: string; mode: "local" | "model"; model?: string; retryAfterMs?: number };
 
-function LiveAdvice(props: Props & { record: TriageCase; step: LiveStep; inspect: (advice: Advice | null) => void; groupAction: React.ReactNode }) {
+function LiveAdvice(props: Props & Check & {
+  checks: Check[];
+  selectCheck: (step: LiveStep) => void;
+  inspect: (advice: Advice | null) => void;
+  groupAction: React.ReactNode;
+}) {
   const {record, step, query, ns, runId, revision, csrf, canAnalyze, modelGuidance, open} = props;
   const band = record.responseRank === undefined ? undefined : responseBands[record.responseRank];
   const scope = JSON.stringify([ns, runId, query, record.id, step.key]);
@@ -297,19 +337,45 @@ function LiveAdvice(props: Props & { record: TriageCase; step: LiveStep; inspect
     return () => { clearTimeout(timer); controller.abort(); };
   }, [scope, csrf, canAnalyze, modelGuidance, step.key, step.ticketId, step.reason, runId]);
   const refined = canAnalyze && modelGuidance && reply?.scope === scope ? reply.advice : null;
+  const priority = band?.key === "criticalDeadline" || band?.key === "critical" ? "Наивысший приоритет. " : "";
   return (
-    <section className="case-insight live-advice" aria-label="Следующий шаг" data-testid="live-guidance" data-origin={refined ? "model" : "local"}>
-      <div className="case-insight-head">
-        <h3>{refined ? "Совет ИИ" : "Следующий шаг"}</h3>
-        <button type="button" className="case-analyze" onClick={() => props.inspect(refined)}>Подробнее</button>
+    <section className="live-advice" aria-labelledby="live-advice-title" data-testid="live-guidance" data-origin={refined ? "model" : "local"}>
+      <div className="advice-head">
+        <h3 id="live-advice-title"><Mark />{refined ? "Совет ИИ" : "Помощник смены"}</h3>
+        <button type="button" className="case-analyze" onClick={event => {
+          event.currentTarget.focus({preventScroll: true});
+          props.inspect(refined);
+        }}>Подробнее</button>
       </div>
+      {props.checks.length > 1 && (
+        <div className="advice-checks" role="group" aria-label="Подсказки смены">
+          {props.checks.map(({ step: option }) => (
+            <button type="button" key={option.reason} aria-pressed={option === step}
+              onClick={() => props.selectCheck(option)}>
+              <Icon name={reasonLabels[option.reason].icon} size={15} />
+              {reasonLabels[option.reason].label}
+            </button>
+          ))}
+        </div>
+      )}
       <div aria-live="polite" aria-atomic="true">
         <p className="advice-action" data-testid="guidance-action">{refined?.action ?? step.action}</p>
-        <p className="advice-basis" data-testid="guidance-basis">{band?.key === "criticalDeadline" ? "Наивысший приоритет. " :
-          band && band.basis !== step.basis ? band.basis + " " : ""}{step.basis}</p>
-        <button type="button" className="case-source" onClick={() => open(step.ticketId)}>{step.ticketId} ↗</button>
+        <p className="advice-basis" data-testid="guidance-basis">
+          <Icon name={reasonLabels[step.reason].icon} size={15} />
+          <span><span className="sr-only">Основание. </span>{priority}{step.basis}</span>
+        </p>
       </div>
-      {props.groupAction}
+      <div className="advice-links">
+        <a className="case-source" href={screenLink("/incident/" + encodeURIComponent(step.ticketId), ns)}
+          aria-label={"Открыть заявку " + step.ticketId} onClick={event => {
+            if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            open(step.ticketId);
+          }}>
+          <span>{step.ticketId}</span><span aria-hidden="true">↗</span>
+        </a>
+        {props.groupAction}
+      </div>
     </section>
   );
 }
@@ -385,7 +451,7 @@ function CaseDialog({
     >
       <div className="case-dialog-top">
         <span>Разбор группы</span>
-        <button aria-label="Закрыть разбор" onClick={close}>
+        <button aria-label="Закрыть разбор" onClick={() => dialog.current?.close()}>
           ×
         </button>
       </div>

@@ -132,6 +132,8 @@ function figureIcon(result: CanvasResult): IconName {
   if (result.answer) return result.answer.sections.length === 1 && result.answer.sections[0].icon || "help";
   if (result.conversation) return result.intent.brief ? "live" : "layers";
   switch (result.intent.fact?.operation) {
+    case "recent": return "history";
+    case "statusInterval": return "clock";
     case "duration": return "duration";
     case "relations": return "relation";
     case "count": return "quantity";
@@ -613,8 +615,7 @@ function WorkspaceScreen({
               <FactBoard result={view} choose={(g) => choose(view,g)} {...{ ns, open }} />
             ) : view.conversation ? (
               <ConversationAnswer key={view.conversation.text} answer={view.conversation}
-                ids={view.conversation.sourceIds ?? view.tickets.map(ticket => ticket.id)} {...{ ns, open }}
-                canAsk={canAsk && busy === null} ask={(question) => void send(question)} />
+                ids={view.conversation.sourceIds ?? view.tickets.map(ticket => ticket.id)} {...{ ns, open }} />
             ) : view.answer ? (
               <GuideAnswer
                 key={view.answer.topic + view.answer.lead}
@@ -647,6 +648,15 @@ function WorkspaceScreen({
         )}
       </div>
       <div className="cx-dock" data-generating={!!busy}>
+        {canAsk && result?.suggestions.length ? (
+          <div className="cx-suggestions" role="group" aria-label="Варианты следующего вопроса">
+            {result.suggestions.map(question => (
+              <button key={question} type="button" disabled={busy !== null} onClick={() => void send(question)}>
+                {question}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="cx-status">
           {error ? (
             <div role="alert">

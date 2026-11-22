@@ -757,6 +757,7 @@ test("free-form answers paginate on a phone and follow-up uses the same conversa
     reply.send({
       ...initial, title: answer.title, summary: answer.text, conversation: answer,
       turnToken: token, mode: "model", provider: "VseLLM", total: 0, selection: "",
+      suggestions: [followUp, ...initial.suggestions.slice(0, 2)],
       groups: [], blocks: [], tickets: [], metrics: [],
     });
   } };
@@ -772,7 +773,7 @@ test("free-form answers paginate on a phone and follow-up uses the same conversa
     && document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
   fault = { method: "POST", path: "/api/canvas", respond: (reply) => { reply.send(initial); } };
   const pending = page.waitForRequest(req => req.method() === "POST" && new URL(req.url()).pathname === "/api/canvas");
-  await prose.getByRole("button", { name: followUp }).click();
+  await page.getByRole("group", { name: "Варианты следующего вопроса" }).getByRole("button", { name: followUp }).click();
   const followUpBody = (await pending).postDataJSON();
   await expect(page.getByTestId("group-field")).toBeVisible();
   expect(followUpBody).toMatchObject({ question: followUp, turnToken: token, context: initial.intent });
@@ -953,4 +954,41 @@ test("a coordinator reads resolution times and the same glyphs used by the platf
   await capture(page, "assistant-symbol-mobile");
   await article.getByRole("link", { name: "Словарь иконок" }).click();
   await expect(page).toHaveURL(/\/help#icons$/);
+});
+
+test("recent incidents show registered time and deep links; sparse status history exposes the sample", async ({ page }) => {
+  await enter(page);
+  const recent = await ask(page, "дай инфу о последних трех инцедентах");
+  const list = page.getByRole("list", { name: "По времени регистрации" });
+  await expect(list.getByRole("listitem")).toHaveCount(3, { timeout: 3500 });
+  for (const item of recent.tickets) {
+    const row = list.getByRole("listitem").filter({ hasText: item.id });
+    await expect(row.getByRole("link", { name: item.id })).toHaveAttribute("href", new RegExp("/incident/" + item.id));
+    await expect(row).toContainText(item.header);
+    await expect(row).toContainText(item.state);
+    await expect(row.locator("time")).toHaveAttribute("datetime", /\d{4}-\d{2}-\d{2}/);
+  }
+  await ask(page, "время смены статуса среднее");
+  const sample = page.getByRole("group", { name: "Основание расчёта" });
+  await expect(sample).toBeVisible();
+  await expect(sample.getByText("Интервалов", { exact: true })).toBeVisible();
+  await expect(sample.locator("dd").first()).toHaveText("0");
+  await expect(page.getByRole("list", { name: "Интервалы по заявкам" })).toHaveCount(0);
+});
+
+test("prompt buttons execute distinct follow-ups from the displayed turn", async ({ page }) => {
+  const initial = await enter(page);
+  const prompts = page.getByRole("group", { name: "Варианты следующего вопроса" });
+  await expect(prompts.getByRole("button")).toHaveCount(3);
+  const button = prompts.getByRole("button", { name: "С какой заявки начать?" });
+  await button.click();
+  await expect(page.getByRole("heading", { name: "Первая заявка для проверки" })).toBeVisible();
+  await expect(prompts.getByRole("button")).toHaveCount(3);
+  const next = page.waitForRequest(req => req.method() === "POST" && req.url().includes("/api/canvas"));
+  await prompts.getByRole("button", { name: "Напиши комментарий о ходе работ" }).click();
+  const body = (await next).postDataJSON();
+  expect(body.context.shiftAdvice).toBe(true);
+  expect(body.turnToken).toBeTruthy();
+  await expect(page.getByRole("heading", { name: "Черновик комментария" })).toBeVisible();
+  expect(initial.total).toBeGreaterThan(1);
 });
