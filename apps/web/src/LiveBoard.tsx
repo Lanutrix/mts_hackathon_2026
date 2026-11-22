@@ -237,7 +237,7 @@ export default function LiveBoard({
           <h1 id="shift-name">Эфир смены</h1>
           <ShiftClock now={now} zone={zone} />
         </div>
-        <ShiftMetrics triage={triage} sliceRevision={data.revision} hints />
+        <ShiftMetrics triage={triage} showSlice loading={filtering} hints />
       </header>
       <div className="feed-tools">
         <div

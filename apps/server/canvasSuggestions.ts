@@ -8,6 +8,8 @@ const prompts = {
   overdueInSelection: "Сколько из них просрочено?",
   priorityBreakdown: "Какой приоритет встречается чаще всего среди них?",
   recent: "Покажи последние три инцидента",
+  statusTiming: "Среднее время между сменами статуса",
+  teamTiming: "Сравни среднее время решения по командам",
   overdueNow: "Сколько сейчас просроченных заявок?",
   queue: "Покажи всю очередь",
   why: "Почему именно эта заявка?",
@@ -41,6 +43,7 @@ export function withCanvasSuggestions(result: CanvasResult, question = ""): Canv
   const operation = intent.fact?.operation;
   const subset = operation === "recent" || operation === "statusInterval" || !!intent.fact?.sourceSelection;
   const hasFocus = !!turnToken && availableView && (total === 1 || !!intent.shiftAdvice);
+  if (result.fact?.durationSummary) eligible.push("statusTiming", "teamTiming");
   if (intent.shiftAdvice && hasFocus && conversation?.followUp === prompts.why) eligible.push("why");
   if (availableView && !intent.brief && !intent.shiftAdvice) {
     if (subset && openTicket && !intent.filters.deadline) eligible.push("overdueInSelection");

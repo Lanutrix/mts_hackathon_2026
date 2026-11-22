@@ -213,6 +213,59 @@ test("six different live situations can complete generation and review without u
   assert.ok("json" in await client.json("interactive", "test", { text: "test" }, 1000));
 });
 
+test("a repeated ticket-only paragraph reuses its check when unrelated queue counts change", async () => {
+  const row = ticket(0), base = buildTriage([row], "priority", 1, now).cases[0];
+  const packets: any[] = [];
+  const client = guidanceClient({observation: "У заявки прошёл срок решения.",
+    action: "Уточните текущий прогноз решения.", refs: ["deadline"]}, true, packets);
+  for (const count of [1, 2]) {
+    const group = {...base, count};
+    assert.equal((await refineLiveStep(client, liveStep(row, now, group), row, group, now)).mode, "model");
+  }
+  assert.equal(packets.filter(p => !p.candidate).length, 2);
+  assert.equal(packets.filter(p => p.candidate).length, 1);
+  assert.ok(!Object.hasOwn(packets[1].facts, "group.count"));
+});
+
+test("a decision superseded during generation never spends another call reviewing that draft", async () => {
+  const row = ticket(0), group = buildTriage([row], "priority", 1, now).cases[0];
+  const packets: any[] = [];
+  let current = true;
+  const client = guidanceClient(() => {
+    current = false;
+    return {observation: "Срок решения уже прошёл.", action: "Запросите новый прогноз решения.", refs: ["deadline"]};
+  }, true, packets);
+  const result = await refineLiveStep(client, group.step, row, group, now, () => current);
+  assert.equal(result.mode, "local");
+  assert.equal(packets.length, 1);
+});
+
+test("live requests for a changed queue wait for an occupied slot and skip superseded work", async () => {
+  const row = ticket(0), first = buildTriage([row], "priority", 1, now).cases[0];
+  const next = {...first, count: 4};
+  const packets: any[] = [];
+  let start!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { start = resolve; });
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const client = new VseLlm("test", "test", async (_url, options) => {
+    const p = JSON.parse(JSON.parse(String(options?.body)).messages[1].content);
+    packets.push(p);
+    if (packets.length === 1) { start(); await hold; }
+    const content = p.candidate ? {grounded: true, manual: true} : {
+      observation: "Срок решения уже прошёл.", action: "Запросите новый прогноз решения.", refs: ["deadline"]};
+    return Response.json({choices: [{message: {content: JSON.stringify(content)}}]});
+  });
+  let current = true;
+  const old = refineLiveStep(client, first.step, row, first, now, () => current);
+  await started;
+  current = false;
+  const fresh = refineLiveStep(client, liveStep(row, now, next), row, next, now);
+  release();
+  assert.equal((await old).mode, "local");
+  assert.equal((await fresh).mode, "model");
+  assert.equal(packets.length, 3);
+});
+
 test("a rejected paragraph receives one targeted revision and only a separately verified revision is published", async () => {
   const row = ticket(0), group = buildTriage([row], "priority", 1, now).cases[0];
   const wrong = {observation: "В группе все заявки назначены конкретным исполнителям.", action: "Уточните текущую оценку срока решения.", refs: ["deadline"]};

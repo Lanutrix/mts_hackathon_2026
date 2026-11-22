@@ -8,7 +8,7 @@ import type {
 } from "../../packages/contracts/canvas.ts";
 import type {
   CanvasFact,
-  FactPeriod,
+  FactPlan,
   RelationEdge,
 } from "../../packages/contracts/canvasFacts.ts";
 
@@ -45,8 +45,19 @@ const dimensionLabels = {
 };
 const number = new Intl.NumberFormat("ru-RU");
 const norm = (v: string) => v.normalize("NFKC").toLocaleLowerCase("ru");
-function bounds(period: FactPeriod, now: number) {
+function bounds(plan: FactPlan, now: number) {
+  const { period } = plan;
   const midnight = Math.floor((now + moscow) / day) * day - moscow;
+  if (period === "rolling") {
+    const start = now - plan.lookbackHours! * 3_600_000;
+    return { start, end: now, label: dateTime.format(start) + " — " + dateTime.format(now) + " МСК." };
+  }
+  if (period === "dates") {
+    const [from, to] = plan.dateRange!;
+    const start = Date.parse(from + "T00:00:00+03:00");
+    const end = Date.parse(to + "T23:59:59.999+03:00");
+    return { start, end: Math.min(now, end), label: dateLabel.format(start) + " — " + dateLabel.format(end) + " МСК (включительно, по момент среза)." };
+  }
   if (period === "snapshot")
     return {
       start: -Infinity,
@@ -90,7 +101,7 @@ export function prepareFact(
   changes: StatusChange[] = [],
 ) {
   const plan = intent.fact!;
-  const range = bounds(plan.period, now);
+  const range = bounds(plan, now);
   const notes: string[] = [];
   let rows = source;
   const durations = [];
@@ -106,7 +117,7 @@ export function prepareFact(
     rows = rows.filter(r => {
       const at = Date.parse(r.dates.submitDate ?? "");
       return at >= range.start && at <= range.end;
-    }).sort((a, b) => b.dates.submitDate!.localeCompare(a.dates.submitDate!) || a.id.localeCompare(b.id, "ru", { numeric: true }) || a.id.localeCompare(b.id))
+    }).sort((a, b) => (plan.ascending ? 1 : -1) * a.dates.submitDate!.localeCompare(b.dates.submitDate!) || a.id.localeCompare(b.id, "ru", { numeric: true }) || a.id.localeCompare(b.id))
       .slice(0, plan.limit);
   } else if (plan.operation === "duration" || plan.durationCohort) {
     let missingCompletion = 0,
@@ -198,6 +209,7 @@ export function prepareFact(
   }
   return {
     rows,
+    scopeCount: source.length,
     notes,
     range: range.label,
     statusIntervals,
@@ -333,9 +345,12 @@ export function describeFact(
           ".",
       );
   } else if (operation === "recent") {
-    title = "Последние зарегистрированные инциденты";
-    headline = rows.length ? "Последние инциденты по дате регистрации · " + n : "Нет заявок с датой регистрации в выбранном периоде.";
-    method = "По дате регистрации (submitDate), от новых к старым. При совпадении времени — по номеру заявки. " + range;
+    title = intent.fact!.limit ? (ascending ? "Первые" : "Последние") + " зарегистрированные инциденты" : "Зарегистрированные инциденты";
+    headline = !rows.length ? "Нет заявок с датой регистрации в выбранном периоде." : rows.length === 1 ?
+      (ascending ? "Первым" : "Последним") + " зарегистрирован " + rows[0].id + "." :
+      (intent.fact!.limit ? (ascending ? "Первые инциденты" : "Последние инциденты") : "Инциденты") + " по дате регистрации · " + n;
+    method = "По дате регистрации (submitDate), " + (ascending ? "от старых к новым" : "от новых к старым") +
+      ". При совпадении времени — по номеру заявки. " + range;
   } else if (operation === "statusInterval") {
     title = "Среднее время между сменами статуса";
     const measure = prepared.statusIntervals!.summary;
@@ -367,6 +382,15 @@ export function describeFact(
         (intent.groupBy === "team" ? "Группа определяется по команде в снимке (assignedGroupName)." :
           "Группа определяется по симптому в тексте заявки, при отсутствии совпадения — по заголовку.") +
         " Всего заявок с измеренной длительностью: " + n + ".";
+    } else if (durationMeasure === "mean" || durationMeasure === "median") {
+      title = durationMeasure === "mean" ? "Среднее время решения" : "Медиана времени решения";
+      const count = durations.length;
+      const valueMs = !count ? null : durationMeasure === "mean" ? durations.reduce((sum, item) => sum + item.ms, 0) / count :
+        (durations[Math.floor((count - 1) / 2)].ms + durations[Math.floor(count / 2)].ms) / 2;
+      fact.durationSummary = { measure: durationMeasure, valueMs, measuredCount: count, scopeCount: prepared.scopeCount };
+      if (valueMs !== null) headline = title + " — " + formatFactDuration(valueMs) + ".";
+      method += (durationMeasure === "mean" ? " Сумму длительностей делим на число измеренных заявок. " : " Берём медиану измеренных длительностей. ") +
+        "Подходящих пар дат — " + n + " из " + number.format(prepared.scopeCount) + " заявок исходной выборки.";
     } else if (durationMeasure === "individual") {
       title = "Сравнение инцидентов по времени решения";
       if (lead) {

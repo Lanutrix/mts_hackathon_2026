@@ -24,6 +24,7 @@ import { CanvasDrawer, canvasJson } from "./CanvasTickets";
 import { TicketMentions } from "./IncidentSources";
 import { formatCount, PageControls, useBox } from "./CanvasControls";
 import Loader from "./Loader";
+import VoiceEntry from "./VoiceEntry";
 import "./workspace.css";
 import "./answer.css";
 
@@ -69,7 +70,8 @@ function selectionConditions({ filters, fact }: CanvasIntent) {
   const escalations = { yes: "Требуется устранение последствий", no: "Устранение последствий не требуется", unknown: "Устранение последствий не указано" };
   const periods = { today: "Сегодня", yesterday: "Вчера", week: "За неделю", month: "За месяц", year: "За год" };
   return [
-    fact && fact.period !== "snapshot" && periods[fact.period],
+    fact && fact.period !== "snapshot" && (fact.period === "dates" ? fact.dateRange?.join(" — ") :
+      fact.period === "rolling" ? `За последние ${fact.lookbackHours} ч` : periods[fact.period]),
     filters.deadline && deadlines[filters.deadline],
     filters.teams?.map(name => "Команда «" + name + "»").join(", "),
     filters.excludedTeams?.map(name => "Кроме команды «" + name + "»").join(", "),
@@ -733,6 +735,9 @@ function WorkspaceScreen({
                 setChat((c) => ({ ...c, draft }));
               }}
             />
+            {canAsk && busy === null && <VoiceEntry append={words => {
+              setChat(c => ({ ...c, draft: [c.draft.trimEnd(), words].filter(Boolean).join(" ").slice(0, 500) }));
+            }} />}
             {busy !== null ? (
               <button
                 key="stop"

@@ -38,25 +38,40 @@ test("live assistant presents generated prose with a Russian ticket link and rec
     await store.ingest(JSON.stringify([row]));
     const origin = await app.listen({ host: "127.0.0.1", port: 0 });
     options.origin = origin;
+    let adviceRequests = 0;
+    page.on("request", request => {
+      if (request.method() === "POST" && request.url().includes("/analysis?") && request.postDataJSON()?.purpose === "liveStep") adviceRequests++;
+    });
     await context.addCookies([{name: "wm_session", value: "shift-user", url: origin}]);
     await page.goto(origin + "/live?ns=original");
     const card = page.getByTestId("live-guidance");
     const ticket = card.getByRole("link", {name: "Открыть заявку ORIG-004"});
     await expect(ticket).toHaveText("Открыть заявку");
     await expect(ticket).toHaveAttribute("href", "/incident/ORIG-004?ns=original");
-    await expect(card.getByRole("status")).toContainText("Готовим совет");
-    await expect(card.getByTestId("guidance-action")).toHaveCount(0);
+    const firstCheck = card.getByTestId("guidance-action");
+    await expect(firstCheck).toContainText("Срок решения уже прошёл. Запросите новый срок решения.");
+    await expect(card).toHaveAttribute("data-origin", "snapshot");
+    await expect(card.getByText("По полям заявки", {exact: true})).toBeVisible();
     release();
     const retry = card.getByRole("button", {name: "Повторить"});
     await expect(retry).toBeVisible();
-    await expect(card.getByTestId("guidance-action")).toHaveCount(0);
+    await expect(firstCheck).toContainText("Запросите новый срок решения.");
     await retry.press("Enter");
     await expect(card.getByTestId("guidance-action")).toHaveText(observation + " " + action, {timeout: 30_000});
+    await expect(card.getByText("Совет ИИ", {exact: true})).toBeVisible();
     await context.setOffline(true);
     await expect(card.getByRole("status")).toContainText("Нет подключения к сети");
-    await expect(card.getByTestId("guidance-action")).toHaveCount(0);
+    await expect(firstCheck).toContainText("Запросите новый срок решения.");
     await context.setOffline(false);
     await expect(card.getByTestId("guidance-action")).toHaveText(observation + " " + action);
+    const beforeReopen = adviceRequests;
+    const groups = page.getByRole("group", {name: "Выбрать группу"});
+    for (const button of [groups.getByRole("button").nth(1), groups.getByRole("button").first()]) {
+      await button.click();
+      await expect(button).toHaveAttribute("aria-pressed", "true");
+      await expect(card).toHaveAttribute("data-origin", "model");
+    }
+    expect(adviceRequests).toBe(beforeReopen);
     await expect(card.getByRole("group", {name: "Подсказки смены"})).toHaveCount(0);
     const details = card.getByRole("button", {name: "Подробнее"});
     await details.click();
@@ -131,6 +146,24 @@ test("live recommendations follow real stream changes, reject late AI and expire
     jurySimulation: {stepDelays: [1500, 2500, 2200, 2200, 2800] as const},
     ai: new AnalysisService(db, undefined, 500, undefined, remote) };
   const app = await createApp(options);
+  const revisions: string[] = [], decisionKeys: string[] = [];
+  let dashboardUpdated!: () => void;
+  const updated = new Promise<void>(resolve => { dashboardUpdated = resolve; });
+  app.addHook("onResponse", async req => {
+    if (req.routeOptions.url === "/api/dashboard" && (req.query as {ns?: string}).ns === "original" && original.revision === 2)
+      dashboardUpdated();
+  });
+  app.addHook("preHandler", async (req, reply) => {
+    const q = req.query as {ns?: string; revision: string}, body = req.body as {purpose?: string; decisionKey: string} | null;
+    if (req.routeOptions.url !== "/api/triage/:id/analysis" || q.ns !== "original" || body?.purpose !== "liveStep") return;
+    revisions.push(q.revision);
+    decisionKeys.push(body.decisionKey);
+    if (revisions.length === 1) {
+      await original.ingest(JSON.stringify([{...row, id: "ORIG-002", deadline: null, header: "Уточнение темы"}]));
+      await updated;
+      return reply.code(409).send({message: "Совет уже изменился."});
+    }
+  });
   try {
     const origin = await app.listen({host: "127.0.0.1", port: 0});
     options.origin = origin;
@@ -143,42 +176,25 @@ test("live recommendations follow real stream changes, reject late AI and expire
     const changed = page.waitForResponse(r => r.url().includes("/api/dashboard?"));
     await store.ingest(JSON.stringify([{...row, deadline: new Date(Date.now() - 60_000).toISOString()}]));
     await changed;
-    await expect(action).toHaveCount(0);
+    await expect(action).toContainText("Запросите новый срок решения.");
     release();
     await expect(card).toHaveAttribute("data-origin", "model", {timeout: 18_000});
     await expect(card).toHaveAccessibleName("Совет ИИ");
-    await expect(card.getByText("Совет ИИ", {exact: true})).toHaveCount(0);
+    await expect(card.getByText("Совет ИИ", {exact: true})).toBeVisible();
     await expect(action).toContainText("Уточните у команды, когда она сможет назвать новый срок.");
     const expiry = Date.now() + 4200;
     await store.ingest(JSON.stringify([{...row, deadline: new Date(expiry).toISOString()}]));
     const unchangedRevision = store.revision;
-    await expect(action).toContainText("15 минут");
-    await expect(action).toContainText("уже прошёл", {timeout: 9000});
+    await expect(card).toHaveAttribute("data-origin", "model");
+    await expect(action).toContainText("Уточните, успевает ли команда завершить работы.");
+    await expect(action).toContainText("когда она сможет назвать новый срок", {timeout: 9000});
     expect(store.revision).toBe(unchangedRevision);
     await expect(card).toHaveAttribute("data-origin", "model");
     await page.screenshot({ path: testInfo.outputPath("live-guidance.png") });
     await page.getByRole("searchbox").fill("нет такой заявки");
     await expect(card).toHaveCount(0);
-    const revisions: string[] = [];
-    const decisionKeys: string[] = [];
-    await page.route("**/analysis?**", async route => {
-      const request = route.request();
-      const params = new URL(request.url()).searchParams;
-      if (params.get("ns") !== "original" || request.postDataJSON()?.purpose !== "liveStep") {
-        await route.continue();
-        return;
-      }
-      revisions.push(params.get("revision")!);
-      decisionKeys.push(request.postDataJSON().decisionKey);
-      if (revisions.length === 1) {
-        const fresh = page.waitForResponse(r => r.url().includes("/api/dashboard?") &&
-          new URL(r.url()).searchParams.get("ns") === "original");
-        await original.ingest(JSON.stringify([{...row, id: "ORIG-002", deadline: null, header: "Уточнение темы"}]));
-        await fresh;
-        await route.fulfill({status: 409, json: {message: "Совет уже изменился."}});
-      } else await route.continue();
-    });
     await page.goto(origin + "/live?ns=original");
+    await expect(card).toHaveAttribute("data-origin", "model");
     await expect(action).toContainText("не указан срок");
     expect(revisions).toEqual(["1", "2"]);
     expect(decisionKeys[0]).toBe(decisionKeys[1]);

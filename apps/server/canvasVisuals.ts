@@ -100,6 +100,8 @@ export function readVisual(question: string): Partial<CanvasView> {
 }
 
 export function inferredPresentation(question: string): AnswerPresentation | undefined {
+  const grouped = /(?:между|по)\s+(?:(?:всем|этим|разн\p{L}*)\s+)?(?:команд|продукт|приоритет|статус|симптом)/u.test(question);
+  if (grouped && /расклад|разлож|разбивк|распредел|поделил|разделил|соотношени|пропорци/u.test(question)) return "orbit";
   if (
     /дол[яию]\s+(?:кажд|команд|продукт|групп)|структур\p{L}*\s+дол|распредел\p{L}*.*(?:между|по)\s+(?:разн\p{L}*\s+)?(?:команд|продукт|приоритет|статус|симптом)|(?:часть|дол[яиюе]|процент)\p{L}*.*(?:приходится|приходятся|у кажд|на кажд|по команд|по продукт)/u.test(question)
   ) return "orbit";

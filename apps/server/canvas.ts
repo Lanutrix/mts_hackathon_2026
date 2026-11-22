@@ -30,7 +30,7 @@ import { shiftAnswer, shiftIntent, shiftQuestion } from "./canvasShift.ts";
 import { withCanvasSuggestions } from "./canvasSuggestions.ts";
 import { briefAnswer, briefRequest, planBrief } from "./canvasBrief.ts";
 import { describeFact, prepareFact } from "./canvasFacts.ts";
-import { recentLimit } from "./canvasFactPlan.ts";
+import { registrationOrder, shortAverage } from "./canvasFactPlan.ts";
 import type { StatusChange } from "./statusIntervals.ts";
 import { makeAnswer } from "./canvasGuide.ts";
 import {
@@ -447,7 +447,8 @@ export class CanvasService {
     const displayed = activeTurn?.displaySelection ? this.pinned.get(activeTurn.displaySelection) : undefined;
     const focused = displayed && displayed.expires > now ? displayed : undefined;
     const advice = focused?.shift;
-    const brief = question && recentLimit(question) === undefined ? briefRequest(question) : !question && context?.brief ? "write" : undefined;
+    const registration = question ? registrationOrder(question, context) : undefined;
+    const brief = question && !registration ? briefRequest(question) : !question && context?.brief ? "write" : undefined;
     const shift = question ? shiftQuestion(question, !!advice) : context?.shiftAdvice ? "recommend" : undefined;
     const rankedSelection = activeTurn?.rankingSelection ?? activeTurn?.displaySelection;
     const rankedProjection = rankedSelection ? this.pinned.get(rankedSelection) : undefined;
@@ -468,7 +469,7 @@ export class CanvasService {
       if (projection) projection.displayResult = base;
       return this.rankReply(source, actor, history, context.rankFocus, base);
     }
-    const rankRequest = question && readRankRequest(question, !!activeTurn?.rankPlace);
+    const rankRequest = question && !(registration && context?.fact?.operation === "recent") && readRankRequest(question, !!activeTurn?.rankPlace);
     if (rankRequest && (ranking || rankRequest.place || isGroupRanking(context) || context?.rankFocus || !context))
       return this.rankReply(source, actor, history, rankRequest, ranking, activeTurn?.rankPlace);
     if (context?.rankFocus && !shift && !brief) context = ranking?.intent ?? rankingIntent(context);
@@ -646,7 +647,8 @@ export class CanvasService {
         selection: "",
         total: 0,
       };
-    if (intent.fact && question && /(?:из|среди|по) них|по ним|из этих|среди этих/iu.test(question) &&
+    if (intent.fact && question && (/(?:из|среди|по) них|по ним|из этих|среди этих/iu.test(question) ||
+        shortAverage.test(question.trim()) && context?.fact?.operation === "recent") &&
         (context?.fact?.operation === "recent" || context?.fact?.operation === "statusInterval" || context?.fact?.sourceSelection)) {
       const selection = focused?.displayResult?.selection ?? (await this.read(source, actor, undefined, context)).selection;
       if (!selection) return this.textResult(source, "Выборка недоступна", "Запросите предыдущий список заново, чтобы продолжить расчёт по его заявкам.");
@@ -714,7 +716,9 @@ export class CanvasService {
       const boundary = limit && primary.groups[limit - 1]?.count;
       const groups = boundary ? primary.groups.filter((group, index) => index < limit! || group.count === boundary) : primary.groups;
       const answer = describeFact(intent, prepared, groups, describe(intent.filters));
+      const compatibleInsights = intent.insightIds?.length ? buildAnswerInsights("", matches, now, intent.insightIds) : undefined;
       const result: CanvasResult = { ...base, ...answer, total: tickets.length, metrics: [], groups,
+        ...(compatibleInsights?.length ? { insights: compatibleInsights } : {}),
         tickets: primary.tickets, selection: primary.selection, blocks: [],
         turnToken: this.remember(source, actor, history, {
           question: "Расчёт по полям ITSM", answer: "Результат доступен в предыдущем срезе."

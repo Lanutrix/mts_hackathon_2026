@@ -81,6 +81,11 @@ async function api(path: string, options: RequestInit = {}) {
 const legacyFilters = ["q", "ns", "sort", "service", "up", ...groups];
 function readRoute() {
   const url = new URL(location.href);
+  if (screenPath(url.pathname) === "/quality") {
+    url.pathname = isTrainingPath(url.pathname) ? "/simulation" : "/live";
+    url.searchParams.delete("offset");
+    history.replaceState(history.state, "", url);
+  }
   if (
     url.pathname === "/simulation/login" ||
     (url.pathname === "/login" && url.searchParams.get("ns") === "simulation")
@@ -466,11 +471,9 @@ function Dashboard({
             (params.get("offset") ?? 0) +
             (params.has("revision") ? "&revision=" + encodeURIComponent(params.get("revision")!) : ""),
         );
-      else if (path === "/quality" || path === "/history")
+      else if (path === "/history")
         e = await read(
-          "/incidents?" +
-            (path === "/quality" ? "quality=1" : "history=1") +
-            "&offset=" +
+          "/incidents?history=1&offset=" +
             (params.get("offset") ?? 0) +
             "&ns=" +
             encodeURIComponent(ns),
@@ -806,7 +809,6 @@ function Dashboard({
             >
               {nav("/help", "Помощь", "help")}
               {nav("/history", "История", "history")}
-              {nav("/quality", "Качество данных", "quality")}
               {nav("/wallboard", "Общий экран", "expand")}
               <a href={training ? "/live" : "/simulation"}>
                 <Icon name="live" size={16} />
@@ -949,7 +951,7 @@ function Dashboard({
             )
           ) : (path.startsWith("/incident/") ||
               path.startsWith("/itsm/") ||
-              ["/notifications", "/history", "/quality"].includes(path)) &&
+              ["/notifications", "/history"].includes(path)) &&
             !extra ? (
             error ? null : (
               <Loader label="Загрузка раздела…" stage />
@@ -976,13 +978,6 @@ function Dashboard({
                   go("/live?ns=" + encodeURIComponent(source))
                 }
               >
-                {(data.quality.quarantined > 0 || data.quality.missing > 0) && (
-                  <div className="warning notice">
-                    Требуется сверка: {data.quality.quarantined} с конфликтами,{" "}
-                    {data.quality.missing} отсутствуют в текущем снимке.{" "}
-                    {nav("/quality", "Проверить качество данных")}
-                  </div>
-                )}
                 {data.recent.length > 0 && (
                   <section className="recent" aria-label="Недавние решения">
                     <strong>Недавно завершены критические</strong>
@@ -1134,16 +1129,10 @@ function Dashboard({
                 </button>
               </div>
             </section>
-          ) : path === "/quality" || path === "/history" ? (
+          ) : path === "/history" ? (
             <section className="content">
-              <h1>
-                {path === "/quality" ? "Качество данных" : "История инцидентов"}
-              </h1>
-              <p className="muted">
-                {path === "/quality"
-                  ? "Исходные значения сохранены. Конфликты исключены из автоматических групп до сверки."
-                  : "Завершённые и закрытые инциденты."}
-              </p>
+              <h1>История инцидентов</h1>
+              <p className="muted">Завершённые и закрытые инциденты.</p>
               <p>Записей: {extra?.total ?? 0}</p>
               {extra?.items?.map((i: Incident) => (
                 <article className="list-row" key={i.key}>

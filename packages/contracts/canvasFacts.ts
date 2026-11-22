@@ -5,6 +5,8 @@ export const factPeriods = [
   "week",
   "month",
   "year",
+  "dates",
+  "rolling",
 ] as const;
 export type FactPeriod = (typeof factPeriods)[number];
 export const factOperations = [
@@ -28,6 +30,9 @@ export interface FactPlan {
   display?: FactDisplay;
   operation: FactOperation;
   period: FactPeriod;
+  /** Inclusive calendar days in Europe/Moscow. */
+  dateRange?: [string, string];
+  lookbackHours?: number;
   dateField?: "completionDate";
   ascending?: true;
 }
@@ -50,6 +55,7 @@ export interface RelationEdge {
   evidence: string[];
 }
 export interface CanvasFact {
+  durationSummary?: { measure: "mean" | "median"; valueMs: number | null; measuredCount: number; scopeCount: number };
   statusIntervals?: { meanMs: number | null; intervalCount: number; ticketCount: number; scopeCount: number };
   statusCounts?: { label: string; count: number; state: number | null }[];
   headline: string;

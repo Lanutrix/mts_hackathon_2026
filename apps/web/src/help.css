@@ -23,12 +23,17 @@
   border-top: 1px solid var(--wm-line);
 }
 .help-grid > nav a {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  min-height: 44px;
   padding: 0.55rem 0;
   border-bottom: 1px solid var(--wm-line);
   font-size: 0.93rem;
   color: var(--wm-muted);
 }
-.help-grid > nav a:hover {
+.help-grid > nav a svg { flex: none; color: var(--wm-violet); }
+.help-grid > nav a:hover, .help-grid > nav a:focus-visible {
   color: var(--wm-ink);
 }
 .help-topic {

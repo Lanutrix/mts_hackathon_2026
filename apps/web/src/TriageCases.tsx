@@ -101,6 +101,8 @@ type Props = {
 
 export default function TriageCases(props: Props) {
   const { cases, chosen, dimension, amount, setParam } = props;
+  // The board remounts this lens when the namespace or simulation run changes.
+  const adviceCache = useRef(new Map<string, { expires: number; advice: Advice }>());
   const [inspection, setInspection] = useState<{ record: TriageCase; step: LiveStep; query: string; advice: Advice | null; dimension: string } | null>(null);
   const focus = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
   const step = (!chosen && props.liveFocus?.caseId === focus?.id ? props.liveFocus?.step : null) ?? focus?.step;
@@ -137,7 +139,7 @@ export default function TriageCases(props: Props) {
       {cases.length > 6 && <button type="button" className="more-cases" aria-expanded={expanded}
         onClick={() => setExpanded(value => !value)}>{expanded ? "Свернуть группы" : "Все группы · " + cases.length}</button>}
       {props.ready && focus && step && (
-        <LiveAdvice key={JSON.stringify([props.query, focus.id, step.key])} {...props} record={focus} step={step}
+        <LiveAdvice key={JSON.stringify([props.query, focus.id, step.key])} {...props} record={focus} step={step} cache={adviceCache.current}
           inspect={advice => setInspection({ record: focus, step, query: props.query, advice, dimension })}
           groupAction={band && !chosen && focus.count > 1 ?
             <button type="button" className="response-open" onClick={() => pick(focus.id)}>
@@ -162,12 +164,16 @@ type LocalAdvice = { key: string; mode: "local"; reason?: "unconfigured" | "unav
 type AdviceState = { status: "pending" } | { status: "failed"; message: string } | { status: "ready"; advice: Advice };
 
 function LiveAdvice(props: Props & Check & {
+  cache: Map<string, { expires: number; advice: Advice }>;
   inspect: (advice: Advice | null) => void;
   groupAction: React.ReactNode;
 }) {
-  const {record, step, query, ns, runId, revision, csrf, canAnalyze, modelGuidance, open} = props;
+  const {record, step, query, ns, runId, revision, csrf, canAnalyze, modelGuidance, open, cache} = props;
   const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<AdviceState>({status: "pending"});
+  const [state, setState] = useState<AdviceState>(() => {
+    const hit = cache.get(step.key);
+    return hit && hit.expires > Date.now() ? {status: "ready", advice: hit.advice} : {status: "pending"};
+  });
   const [online, setOnline] = useState(() => navigator.onLine);
   const latestRequest = useRef("");
   latestRequest.current = caseRequest(record, query, ns, revision, true);
@@ -185,6 +191,11 @@ function LiveAdvice(props: Props & Check & {
   const enabled = online && canAnalyze && (modelGuidance || attempt > 0);
   useEffect(() => {
     if (!enabled) return;
+    const hit = cache.get(step.key);
+    if (hit && hit.expires > Date.now()) {
+      setState({status: "ready", advice: hit.advice});
+      return;
+    }
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     const controller = new AbortController();
@@ -214,6 +225,8 @@ function LiveAdvice(props: Props & Check & {
         const result: Advice | LocalAdvice = await response.json();
         if (disposed) return;
         if (result.key === step.key && result.mode === "model" && result.text?.trim()) {
+          cache.set(step.key, {expires: Date.now() + 60_000, advice: result});
+          if (cache.size > 32) cache.delete(cache.keys().next().value!);
           setState({status: "ready", advice: result});
           return;
         }
@@ -229,23 +242,29 @@ function LiveAdvice(props: Props & Check & {
           "Истекло время ожидания ответа ИИ." : "Не удалось связаться с сервисом ИИ."});
       }
     };
-    timer = setTimeout(() => void request(true), Math.max(350, retryAt.current - Date.now()));
+    const wait = retryAt.current - Date.now();
+    if (wait > 0) timer = setTimeout(() => void request(true), wait);
+    else void request(true);
     return () => { disposed = true; clearTimeout(timer); controller.abort(); };
-  }, [enabled, attempt, csrf, runId, step.key, step.ticketId]);
+  }, [enabled, attempt, csrf, runId, step.key, step.ticketId, cache]);
   const result: AdviceState = enabled ? state : {status: "failed", message: !online ?
     "Нет подключения к сети." : canAnalyze ? "Сервис ИИ не подключён." : "Совет ИИ доступен координатору."};
   const advice = result.status === "ready" ? result.advice : null;
   return (
-    <section className="live-advice" aria-label="Совет ИИ" data-testid="live-guidance"
-      data-origin={advice ? "model" : result.status}>
+    <section className="live-advice" aria-label={advice ? "Совет ИИ" : "Проверка по полям заявки"} data-testid="live-guidance"
+      data-origin={advice ? "model" : "snapshot"}>
       <p className="advice-group"><Icon name={record.icon ?? "relation"} size={15} />{record.label}</p>
-      {result.status === "pending" ? <Loader label="Готовим совет по заявке…" /> :
-        result.status === "failed" ? <div className="advice-status">
+      <p className="advice-action" data-testid="guidance-action" aria-live="polite">{advice?.text ?? step.basis + " " + step.action}</p>
+      <div className="advice-status">
+        <span className="advice-attribution">{advice ? "Совет ИИ" : "По полям заявки"}</span>
+        {result.status === "pending" && <span role="status">ИИ уточняет рекомендацию…</span>}
+        {result.status === "failed" && <>
           <span role="status">{result.message}</span>
           {canAnalyze && <button type="button" onClick={() => {
             setOnline(navigator.onLine); setState({status: "pending"}); setAttempt(n => n + 1);
           }}>Повторить</button>}
-        </div> : <p className="advice-action" data-testid="guidance-action" aria-live="polite">{result.advice.text}</p>}
+        </>}
+      </div>
       <div className="advice-source">
         <span>{step.ticketId}</span>
         <a className="case-source" href={screenLink("/incident/" + encodeURIComponent(step.ticketId), ns)}

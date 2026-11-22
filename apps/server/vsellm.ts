@@ -116,7 +116,7 @@ export class VseLlm {
     { expires: number; result: JsonReply }
   >();
   private started: { at: number; priority: RequestPriority }[] = [];
-  private backgroundPending = 0;
+  private liveJob?: Promise<JsonReply>;
   constructor(
     private readonly key: string,
     readonly model: string,
@@ -141,6 +141,7 @@ export class VseLlm {
     packet: object,
     timeout: number,
     priority: RequestPriority = "interactive",
+    isCurrent?: () => boolean,
   ): Promise<JsonReply> {
     const id = hash([this.model, version, packet]);
     const now = Date.now();
@@ -148,6 +149,15 @@ export class VseLlm {
     if (cached && cached.expires > now) return cached.result;
     const running = this.pending.get(id);
     if (running) return running;
+    const live = priority === "background" || priority === "background-review";
+    if (live && this.liveJob && isCurrent) {
+      // A changing queue can overtake a previous generation. Wait for its slot
+      // within this request's deadline instead of imposing a minute-long retry.
+      await this.liveJob;
+      const remaining = timeout - (Date.now() - now);
+      if (!isCurrent() || remaining <= 0) return failure("ожидание фонового запроса завершено.");
+      return this.json(version, system, packet, remaining, priority, isCurrent);
+    }
     this.started = this.started.filter(({ at }) => at > now - 86_400_000);
     const recent = this.started.filter(({ at }) => at > now - 60_000);
     const background = priority !== "interactive";
@@ -155,13 +165,14 @@ export class VseLlm {
       return failure("достигнут лимит запросов.");
     // Generation and its evidence check can each use six slots per minute.
     // Both share one in-flight slot, leaving capacity for interactive requests.
-    if (background && ((priority !== "clusters" && this.backgroundPending >= 1) ||
+    if (background && ((live && this.liveJob) ||
       recent.filter((call) => call.priority === priority).length >= 6 ||
       this.started.filter((call) => call.priority === priority).length >= 180))
       return failure("достигнут лимит фоновых обновлений.");
     this.started.push({ at: now, priority });
-    if (background && priority !== "clusters") this.backgroundPending++;
-    const job = this.complete(system, packet, timeout, priority === "clusters" ? 2200 : 450);
+    const tokenBudget = { interactive: 450, clusters: 2200, background: 220, "background-review": 32 };
+    const job = this.complete(system, packet, timeout, tokenBudget[priority]);
+    if (live) this.liveJob = job;
     this.pending.set(id, job);
     try {
       const result = await job;
@@ -174,7 +185,7 @@ export class VseLlm {
       return result;
     } finally {
       this.pending.delete(id);
-      if (background && priority !== "clusters") this.backgroundPending--;
+      if (live) this.liveJob = undefined;
     }
   }
   private async complete(

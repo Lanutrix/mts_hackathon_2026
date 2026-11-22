@@ -480,6 +480,10 @@ export default function FactBoard({
         </p>}
       </>}
       {fact.statusIntervals && <StatusIntervalSample result={result} {...navigation} />}
+      {fact.durationSummary && <dl className="fact-interval-sample" aria-label="Основание расчёта времени решения">
+        <div><dt>Заявок с измеренной длительностью</dt><dd>{formatCount(fact.durationSummary.measuredCount)}</dd></div>
+        <div><dt>Заявок в исходной выборке</dt><dd>{formatCount(fact.durationSummary.scopeCount)}</dd></div>
+      </dl>}
       {result.groups.length > 0 && (result.intent.fact?.operation === "duration"
         ? <GroupDurations key={viewKey} result={result} choose={choose} />
         : <GroupValues key={viewKey} result={result} choose={choose} />)}

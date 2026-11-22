@@ -100,6 +100,57 @@ async function login(page: Page, role = "coordinator") {
   ).toBeVisible();
   await expect(page).toHaveURL("/live");
 }
+test("dictation preserves the draft and help links retain the selected source", async ({ page }) => {
+  await page.addInitScript(() => {
+    class Recognition {
+      onresult?: (value: unknown) => void;
+      onerror?: (value: unknown) => void;
+      onend?: () => void;
+      start() {
+        window.addEventListener("test-speech", this);
+      }
+      handleEvent(event: Event) {
+        const sample = (event as CustomEvent).detail;
+        if (sample.error) {
+          this.onerror?.(sample);
+          this.stop();
+        } else this.onresult?.({ results: [{ 0: { transcript: sample.words }, isFinal: sample.final }] });
+      }
+      stop() { window.removeEventListener("test-speech", this); this.onend?.(); }
+      abort() { this.stop(); }
+    }
+    Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition });
+  });
+  await login(page);
+  await page.goto("/workspace");
+  const draft = page.getByRole("textbox", { name: "Вопрос об инцидентах" });
+  const mic = page.getByRole("button", { name: "Продиктовать вопрос" });
+  const emit = (detail: object) => page.evaluate(d => { window.dispatchEvent(new CustomEvent("test-speech", { detail: d })); }, detail);
+  await draft.fill("Покажи");
+  await mic.click();
+  await emit({words: "первый", final: false});
+  await expect(draft).toHaveValue("Покажи");
+  await emit({words: "самый первый инцидент", final: true});
+  await emit({words: "самый первый инцидент", final: true});
+  await page.getByRole("button", { name: "Завершить диктовку" }).click();
+  await expect(draft).toHaveValue("Покажи самый первый инцидент");
+  await mic.click();
+  await emit({error: "not-allowed"});
+  await expect(page.getByText("Разрешите микрофон в настройках сайта.")).toBeVisible();
+  await expect(draft).toHaveValue("Покажи самый первый инцидент");
+  await page.goto("/simulation/help");
+  const contents = page.getByRole("navigation", {name: "Содержание помощи"});
+  await expect(contents.getByRole("link")).toHaveCount(8);
+  await expect(contents.locator("a svg")).toHaveCount(8);
+  await contents.getByRole("link", {name: "ИИ-помощник"}).click();
+  await expect(page).toHaveURL(/\/simulation\/help#assistant$/);
+  await page.goto("/simulation/quality?offset=50");
+  await expect(page).toHaveURL("/simulation");
+  await page.goto("/quality?ns=original&offset=50");
+  await expect(page).toHaveURL("/live?ns=original");
+  await expect(page.getByRole("link", {name: "Качество данных", includeHidden: true})).toHaveCount(0);
+});
+
 test("technical intake accepts successive incidents and an atomic JSON batch in the selected source", async ({ page }) => {
   await login(page, "demo-admin");
   await expect(page.getByTestId("live-register")).toBeVisible();
@@ -407,7 +458,6 @@ test("live embeds a quiet 3D slice with the active count and opens evidence from
     count
       .locator("canvas")
       .evaluate((el) => (el as HTMLCanvasElement).toDataURL());
-  const image = await still();
   await expect(page.getByText("Риски кейса", { exact: true })).toHaveCount(0);
   const filtered = page.waitForResponse((response) => {
     const url = new URL(response.url());
@@ -421,12 +471,43 @@ test("live embeds a quiet 3D slice with the active count and opens evidence from
   const id = (board.triage.liveFocus?.step ?? board.triage.cases[0].step).ticketId;
   const ticket = page.getByRole("link", { name: "Открыть заявку " + id, exact: true });
   await expect(ticket).toBeVisible();
-  expect(await still()).toBe(image);
+  const { unique, overdue, escalations } = board.triage;
+  const slice = count.getByRole("img");
+  await expect(slice).toHaveAccessibleName(new RegExp(`Просрочены ${overdue} из ${unique}.*Отметка об устранении последствий у ${escalations}`));
+  const filteredImage = await still();
+  await page.waitForTimeout(150);
+  expect(await still()).toBe(filteredImage);
   await ticket.click();
   await expect(page).toHaveURL(new RegExp("/incident/" + id));
   await expect(
     page.getByRole("region", { name: "Маршрутизация" }),
   ).toBeVisible();
+});
+
+test("the live slice follows the monitored deadlines and consequence flags on the same screen", async ({ page }) => {
+  const productName = "Проверка дольки";
+  const rows = generate(21).rows.slice(18, 21).map(r => ({ ...r, productName, deadline: null as string | null, isNeedUp: false }));
+  await writeFile(source, JSON.stringify(rows));
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/live?product=" + encodeURIComponent(productName));
+  const metric = page.locator(".metric-live-count");
+  const slice = metric.getByRole("img");
+  const pixels = () => metric.locator("canvas").evaluate(el => (el as HTMLCanvasElement).toDataURL());
+  await expect(slice).toHaveAccessibleName(/Просрочены 0 из 3.*Отметка об устранении последствий у 0/);
+  const clear = await pixels();
+  rows[0].deadline = "2000-01-01T00:00:00Z";
+  await writeFile(source, JSON.stringify(rows));
+  await expect(slice).toHaveAccessibleName(/Просрочены 1 из 3/);
+  await expect.poll(pixels).not.toBe(clear);
+  const third = await pixels();
+  rows[2].isNeedUp = true;
+  await writeFile(source, JSON.stringify(rows));
+  await expect(slice).toHaveAccessibleName(/Просрочены 1 из 3.*Отметка об устранении последствий у 1/);
+  await expect.poll(pixels).not.toBe(third);
+  await slice.focus();
+  await expect(page.getByRole("tooltip")).toContainText("Косточка");
+  await page.getByRole("searchbox").fill("нет-такого-инцидента");
+  await expect(slice).toHaveAccessibleName(/нет заявок под наблюдением/i);
 });
 
 test("cases rank the filtered queue, explain the source tickets and fit the viewport", async ({
@@ -529,6 +610,7 @@ test("search and ticket loading keep focus and remove their indicators when data
   const search = page.getByRole("searchbox");
   await search.fill("DEMO-42-00019");
   await expect(page.getByText("Поиск инцидентов…")).toBeVisible();
+  await expect(page.locator(".metric-live-count").getByRole("img")).toHaveAccessibleName(/Загрузка выборки/);
   await expect(search).toBeFocused();
   release();
   const ticket = page.getByTestId("card-DEMO-42-00019");

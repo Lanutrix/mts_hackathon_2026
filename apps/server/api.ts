@@ -216,7 +216,8 @@ export async function createApp(o: AppOptions) {
       for (const local of groupBy === "semantic" ? [false,true] : [false]) {
         const triage = triageFor(version, s.namespace, q, now, filtered, false, local);
         const detail = triage.cases.find((c) => c.id === id && c.hash === q.hash);
-        if (detail) return { s, detail, rows: triage.members.get(id)!, nextChangeAt: triage.nextChangeAt };
+        if (detail) return { s, detail, rows: triage.members.get(id)!, nextChangeAt: triage.nextChangeAt, groupBy,
+          plan: !local && groupBy === "semantic" ? clusters.activePlan(version.rows) : undefined };
       }
     }
     reply.code(409).send({
@@ -677,17 +678,19 @@ export async function createApp(o: AppOptions) {
             return false;
           const clock = Date.now();
           const q = req.query as Record<string, string>;
-          if (q.groupBy !== "semantic" && store.revision === detail.revision && store.rows.get(row.key)?.hash === row.hash &&
+          const semantic = selection.groupBy === "semantic";
+          if ((!semantic || clusters.activePlan(store.rows) === selection.plan) &&
+            store.revision === detail.revision && store.rows.get(row.key)?.hash === row.hash &&
             store.rows.get(row.key)?.sourcePresent === row.sourcePresent &&
             (selection.nextChangeAt === null || clock < selection.nextChangeAt)) return true;
           const latest = triageFor(snapshotOf(store), store.namespace, q, clock, filterDashboard([...store.rows.values()], q, clock));
           const group = latest.cases.find((c) => c.id === detail.id);
           const target = latest.members.get(detail.id)?.find((r) => r.key === row.key);
-          return !!group && !!target && (q.groupBy !== "semantic" || group.hash === detail.hash) && liveStep(target, clock, group).key === step.key;
+          return !!group && !!target && (!semantic || group.hash === detail.hash) && liveStep(target, clock, group).key === step.key;
         };
         if (step.key !== request.decisionKey || !currentStep())
           return reply.code(409).send({ message: "Совет уже изменился." });
-        const result = await refineLiveStep(o.ai?.remote, step, row, detail, now);
+        const result = await refineLiveStep(o.ai?.remote, step, row, detail, now, () => !reply.raw.destroyed && currentStep());
         if (!currentStep())
           return reply.code(409).send({ message: "Совет уже изменился." });
         return result;

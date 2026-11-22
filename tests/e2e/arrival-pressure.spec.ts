@@ -128,7 +128,8 @@ for (const mode of ["batch", "stream"] as const) {
         await expect(count).toHaveText(String(size));
         await expect(advice).toContainText(rows[1].id);
         await expect(advice.getByRole("status")).toContainText("Сервис ИИ не подключён");
-        await expect(advice.getByTestId("guidance-action")).toHaveCount(0);
+        await expect(advice).toHaveAttribute("data-origin", "snapshot");
+        await expect(advice.getByTestId("guidance-action")).toContainText("Запросите новый срок решения.");
         console.log(JSON.stringify({ mode, size, revisions: store.revision - 1, finalPaintObservedMs: Date.now() - lastCommit }));
         if (mode === "batch") await advice.getByRole("button", { name: /Разобрать группу/ }).click();
         await expect(ledger).toHaveCount(2);

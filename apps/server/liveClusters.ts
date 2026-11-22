@@ -251,6 +251,10 @@ export class LiveClusters {
     return item;
   }
   refining(rows: Map<string, Incident>) { return this.pending === this.snapshots.get(rows)?.key; }
+  activePlan(rows: Map<string, Incident>) {
+    const snapshot = this.snapshots.get(rows);
+    return snapshot && this.cache.get(snapshot.key)?.plan;
+  }
   read(namespace: string, rows: Map<string, Incident>, mayStart: boolean, localOnly = false) {
     let snapshot = this.snapshots.get(rows);
     if (!snapshot) {

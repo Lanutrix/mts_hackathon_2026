@@ -79,11 +79,13 @@ export function ShiftClock({ now, zone }: { now: number; zone: string }) {
 export function ShiftMetrics({
   triage,
   hints = false,
-  sliceRevision,
+  showSlice = false,
+  loading = false,
 }: {
   triage: Pick<Triage, "unique" | "overdue" | "escalations">;
   hints?: boolean;
-  sliceRevision?: number;
+  showSlice?: boolean;
+  loading?: boolean;
 }) {
   const metrics = [
     {
@@ -118,9 +120,11 @@ export function ShiftMetrics({
           <dt>{m.name}</dt>
           <dd>
             <div className="metric-reading">
-              <ShiftCount value={m.count} testId={m.testId} />
-              {m.testId === "live-count" && sliceRevision !== undefined && (
-                <ShiftSlice revision={sliceRevision} />
+              {loading ? <strong aria-label="Загрузка" data-testid={m.testId}>—</strong> :
+                <ShiftCount value={m.count} testId={m.testId} />}
+              {m.testId === "live-count" && showSlice && (
+                <ShiftSlice total={triage.unique} overdue={triage.overdue}
+                  consequences={triage.escalations} loading={loading} />
               )}
             </div>
             {!hints && <span>{m.definition}</span>}

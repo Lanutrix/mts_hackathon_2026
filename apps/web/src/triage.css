@@ -920,6 +920,7 @@
   line-height: 1.4;
 }
 .advice-source, .advice-status { flex-wrap: wrap; gap: .15rem .65rem; }
+.advice-attribution { font-weight: 600; }
 .advice-source > span { font-size: .73rem; color: var(--wm-muted); overflow-wrap: anywhere; }
 .advice-source .case-source { display: inline-flex; align-items: center; }
 .live-advice .response-open { margin: 0; }

@@ -5,6 +5,7 @@ import "./brand.css";
 const mtsMark = new URL("./assets/mts-case-mark.png", import.meta.url).href;
 
 const paths = {
+  microphone: "M8.5 6.5a3.5 3.5 0 0 1 7 0v5a3.5 3.5 0 0 1-7 0ZM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21m-3 0h6m-4-13.5 1-1.4",
   login: "M14 3h5v18h-5M3 12h12m-5-5 5 5-5 5",
   payment: "M3 6h18v13H3zM3 10h18M6 15h4",
   network: "M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0m-3 3h.01",

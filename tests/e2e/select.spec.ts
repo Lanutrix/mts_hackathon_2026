@@ -26,7 +26,7 @@ test("branded selectors support touch, keyboard and nested popups across viewpor
     await context.addCookies([{name: "wm_session", value: "picker-session", url: origin}]);
     await page.goto(origin + "/live");
     const card = page.getByTestId("live-guidance");
-    await expect(card).toHaveAccessibleName("Совет ИИ");
+    await expect(card).toHaveAccessibleName("Проверка по полям заявки");
     const profile = page.getByRole("button", {name: /Профиль:/});
     await profile.press("Enter");
     const theme = page.getByRole("combobox", {name: "Тема оформления"});

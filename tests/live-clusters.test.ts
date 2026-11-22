@@ -104,6 +104,49 @@ test("unfamiliar repeated phrases group local tickets and retain the unrelated s
   assert.deepEqual((await board("&case="+group.id)).register.items.map((r:any)=>r.id), ["PRIVATE-1","PRIVATE-2"]);
 });
 
+test("a new semantic partition supersedes advice for the previous group without a source revision", async t => {
+  let finishGroups!: () => void, startWriting!: () => void, finishWriting!: () => void;
+  const groups = new Promise<void>(resolve => { finishGroups = resolve; });
+  const writing = new Promise<void>(resolve => { startWriting = resolve; });
+  const done = new Promise<void>(resolve => { finishWriting = resolve; });
+  let reviews = 0;
+  const remote = new VseLlm("test", "test", async (_url, init) => {
+    const packet = JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+    let result: object;
+    if (packet.profiles) {
+      await groups;
+      result = {groups: [
+        {basis:["login","portal"],title:"Сбои входа в кабинет",icon:"login"},
+        {basis:["login"],title:"Сбои входа",icon:"login"},
+      ]};
+    } else if (packet.candidate) {
+      reviews++;
+      result = {grounded: true, manual: true};
+    } else {
+      startWriting();
+      await done;
+      result = {observation:"В заявке не указан срок решения.",action:"Уточните, когда появится оценка срока.",refs:["deadline"]};
+    }
+    return Response.json({choices:[{message:{content:JSON.stringify(result)}}]});
+  });
+  const {app, put, board} = await fixture(remote);
+  t.after(() => app.close());
+  put(ticket(1,"Не удаётся войти в кабинет."),ticket(2,"Ошибка авторизации."));
+  const initial = await board(), group = initial.triage.cases[0];
+  const request = app.inject({method:"POST", url:"/api/triage/"+group.id+"/analysis?ns=workspace&register=1&revision=1&hash="+group.hash,
+    headers:{cookie:"wm_session=coordinator","x-csrf-token":"csrf"},
+    payload:{purpose:"liveStep",runId:"",ticketId:group.step.ticketId,decisionKey:group.step.key}}).then(reply => reply);
+  await writing;
+  finishGroups();
+  await new Promise(resolve => setImmediate(resolve));
+  const fresh = await board();
+  finishWriting();
+  assert.equal(fresh.triage.cases.length, 2);
+  assert.equal(fresh.revision, initial.revision);
+  assert.equal((await request).statusCode, 409);
+  assert.equal(reviews, 0);
+});
+
 test("outdated inference cannot relabel a changed partition and count bands bound request churn", async t => {
   let release!: () => void;
   const hold = new Promise<void>(resolve => { release = resolve; });

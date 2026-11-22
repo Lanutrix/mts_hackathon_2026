@@ -2,19 +2,19 @@ import { platformIcons, iconNames } from "../../../packages/domain/platformIcons
 import { useEffect, type ReactNode } from "react";
 import { guidePages } from "../../../packages/domain/assistantGuide";
 import AccessIcon, { accessLabels } from "./AccessIcon";
-import { Icon, iconLabels, type IconName } from "./Brand";
+import { Icon, iconLabels } from "./Brand";
 import { screenLink } from "./routes";
 import "./help.css";
 
 const sections = [
-  ["incident", "Что такое инцидент"],
-  ["shift", "Эфир и симптомы"],
-  ["assistant", "ИИ-помощник"],
-  ["ticket", "Карточка и назначение"],
-  ["signals", "Уведомления"],
-  ["monitor", "Общий экран"],
-  ["devices", "Устройство и доступ"],
-  ["icons", "Словарь иконок"],
+  ["incident", "Что такое инцидент", "research"],
+  ["shift", "Эфир и симптомы", "live"],
+  ["assistant", "ИИ-помощник", "layers"],
+  ["ticket", "Карточка и назначение", "coordinators"],
+  ["signals", "Уведомления", "bell"],
+  ["monitor", "Общий экран", "expand"],
+  ["devices", "Устройство и доступ", "settings"],
+  ["icons", "Словарь иконок", "help"],
 ] as const;
 export default function Help({
   ns,
@@ -50,14 +50,14 @@ export default function Help({
   }
   function topic(
     id: (typeof sections)[number][0],
-    icon: IconName,
     children: ReactNode,
   ) {
+    const [, title, icon] = sections.find(([key]) => key === id)!;
     return (
       <section id={id} className="help-topic">
         <h2>
           <Icon name={icon} />
-          {sections.find((s) => s[0] === id)![1]}
+          {title}
         </h2>
         {children}
       </section>
@@ -68,8 +68,9 @@ export default function Help({
       <h1>Помощь</h1>
       <div className="help-grid">
         <nav aria-label="Содержание помощи">
-          {sections.map(([id, title]) => (
+          {sections.map(([id, title, icon]) => (
             <a key={id} href={"#" + id}>
+              <Icon name={icon} size={18} />
               {title}
             </a>
           ))}
@@ -77,7 +78,6 @@ export default function Help({
         <div>
           {topic(
             "incident",
-            "research",
             <>
               <p>{guidePages.incident.lead}</p>
               <p>{guidePages.incident.sections[0].body}</p>
@@ -90,7 +90,6 @@ export default function Help({
           )}
           {topic(
             "shift",
-            "live",
             <>
               <p>
                 Три числа относятся к текущей выборке. Первое считает уникальные
@@ -121,7 +120,6 @@ export default function Help({
           )}
           {topic(
             "assistant",
-            "layers",
             <>
               <p>
                 Введите вопрос внизу холста. Попробуйте «Сгруппируй по командам
@@ -129,6 +127,10 @@ export default function Help({
                 Можно начать и со справочного вопроса, например «Что такое
                 инцидент?». Нажмите на группу, чтобы увидеть её обращения и
                 открыть карточку.
+              </p>
+              <p>
+                Кнопка микрофона доступна в браузерах с распознаванием речи. Продиктуйте вопрос по-русски,
+                проверьте текст и нажмите «Отправить». Браузер может использовать свою службу распознавания.
               </p>
               <p>
                 ИИ выбирает представление, а числа рассчитываются по снимку
@@ -154,7 +156,6 @@ export default function Help({
           )}
           {topic(
             "ticket",
-            "coordinators",
             <>
               <p>
                 В карточке собраны статус, срок, описание и история конкретной
@@ -168,7 +169,6 @@ export default function Help({
           )}
           {topic(
             "signals",
-            "bell",
             <>
               <p>
                 Полоса сигнала сообщает, когда критическая заявка появилась,
@@ -186,7 +186,6 @@ export default function Help({
           )}
           {topic(
             "monitor",
-            "expand",
             <>
               <p>
                 Общий экран предназначен для телевизора или второго монитора. Он
@@ -200,7 +199,6 @@ export default function Help({
           )}
           {topic(
             "devices",
-            "settings",
             <>
               <p>
                 Выберите светлую, тёмную или системную тему. Выбор хранится в
@@ -215,8 +213,7 @@ export default function Help({
                 определяют доступные действия.
               </p>
               <p>
-                В «Истории» ищите завершённые заявки. «Качество данных»
-                показывает записи с противоречиями и пропусками. Администратор
+                В «Истории» ищите завершённые заявки. Исходные поля можно проверить в карточке. Администратор
                 может проверить импорт и управлять демонстрацией отдельно от
                 рабочего источника.
               </p>
@@ -225,7 +222,6 @@ export default function Help({
           )}
           {topic(
             "icons",
-            "help",
             <dl className="help-icons">
               {iconNames.map(
                 icon => (
