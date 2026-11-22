@@ -16,7 +16,7 @@ import {screenLink} from "./routes";
 import {serviceFilterId} from "../../../packages/contracts/serviceType";
 import { ShiftClock, ShiftMetrics } from "./LiveIndicators";
 import { responseBands, responseRank } from "../../../packages/domain/responseOrder";
-import TriageCases from "./TriageCases";
+import TriageCases, { type LiveAdviceCache } from "./TriageCases";
 import type { DashboardFacets, TriageCase, Triage } from "../../../packages/domain/triage";
 import "./triage.css";
 import { duration, groups, type Dashboard, type Signal } from "./liveFeed";
@@ -189,6 +189,7 @@ function SearchFilters({
 type RegisterPage = { offset: number; total: number; nextChangeAt: number | null; items: Incident[] };
 type RegisterDashboard = Dashboard & { register: RegisterPage; triage: Triage; facets: DashboardFacets };
 type Props = SelectionProps & {
+  adviceCache: LiveAdviceCache;
   username: string;
   data: RegisterDashboard & { simulation?: { runId: string } };
   csrf?: string;
@@ -201,6 +202,7 @@ type Props = SelectionProps & {
   children?: ReactNode;
 };
 export default function LiveBoard({
+  adviceCache,
   data,
   username,
   filtering,
@@ -301,6 +303,7 @@ export default function LiveBoard({
         </section>
       ) : <div className="triage-layout">
         <TriageCases
+          cache={adviceCache}
           key={search.ns + "/" + (data.simulation?.runId ?? "")}
           cases={triage.cases}
           chosen={chosen}

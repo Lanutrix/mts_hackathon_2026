@@ -5,6 +5,7 @@ import { Icon } from "./Brand";
 type Props = {
   endpoint: string;
   snapshot: string;
+  initial?: DispatchSuggestions;
   csrf: string;
   team?: string;
 } & (
@@ -18,12 +19,20 @@ export default function DispatchHints(props: Props) {
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
   useEffect(() => () => request.current?.abort(), []);
+  function dismiss() {
+    request.current?.abort();
+    request.current = null;
+    setBusy(false);
+    setError("");
+    setResult(null);
+  }
   async function suggest() {
     if (request.current) return;
     const controller = new AbortController();
     request.current = controller;
     setError("");
     setBusy(true);
+    if (props.initial?.snapshot === props.snapshot) setResult(props.initial);
     try {
       const response = await fetch(props.endpoint, {
         method: "POST",
@@ -32,21 +41,24 @@ export default function DispatchHints(props: Props) {
         signal: controller.signal,
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.message || "Подсказки недоступны. Повторите запрос.");
+      if (!response.ok) {
+        if ([401, 403, 404, 409].includes(response.status) && !controller.signal.aborted) setResult(null);
+        throw new Error(body.message || "Подсказки недоступны. Повторите запрос.");
+      }
       if (body.snapshot !== props.snapshot) throw new Error("Данные изменились. Повторите запрос для текущей выгрузки.");
       if (!controller.signal.aborted) setResult(body);
     } catch (cause) {
       if (!controller.signal.aborted) setError((cause as Error).message);
     } finally {
       if (!controller.signal.aborted) setBusy(false);
-      request.current = null;
+      if (request.current === controller) request.current = null;
     }
   }
   return <div className="dispatch-hints">
-    <button type="button" className="dispatch-hint-trigger" disabled={busy}
-      onClick={() => result ? setResult(null) : void suggest()}>
+    <button type="button" className="dispatch-hint-trigger" aria-expanded={!!result} disabled={busy && !result}
+      onClick={() => result ? dismiss() : void suggest()}>
       <Icon name="layers" size={15} />
-      {busy ? "Готовим подсказки…" : result ? "Скрыть подсказки" :
+      {result ? "Скрыть подсказки" : busy ? "Готовим подсказки…" :
         props.kind === "teams" ? "Предложить команду решения" : "Предложить комментарий"}
     </button>
     {error && <p role="alert">{error}</p>}
@@ -58,14 +70,14 @@ export default function DispatchHints(props: Props) {
           <strong>{name}</strong>
           <p>{reason}</p>
           <button type="button" className="dispatch-inline" aria-label={"Выбрать команду " + name}
-            onClick={() => { props.chooseTeam(name); setResult(null); }}>Выбрать команду</button>
+            onClick={() => { dismiss(); props.chooseTeam(name); }}>Выбрать команду</button>
         </div>)}
       </> : <>
         {result.comments.length === 0 && <p>Для этого инцидента нет черновиков.</p>}
         {result.comments.map(({ label, text }) => <div key={label + text} role="group" aria-label={label} className="dispatch-hint-result">
           <strong>{label}</strong>
           <p>{text}</p>
-          <button type="button" className="dispatch-inline" onClick={() => { props.insert(text); setResult(null); }}>
+          <button type="button" className="dispatch-inline" onClick={() => { dismiss(); props.insert(text); }}>
             {props.hasNote ? "Заменить комментарий" : "Вставить комментарий"}
           </button>
         </div>)}

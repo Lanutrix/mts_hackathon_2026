@@ -6,6 +6,7 @@ import type {
 import {
   factOperations,
   factPeriods,
+  isDurationGroup,
   type FactPeriod,
   type FactPlan,
 } from "../../packages/contracts/canvasFacts.ts";
@@ -18,9 +19,10 @@ export function validFact(fact: unknown): fact is FactPlan {
   const f = fact as Record<string, unknown>;
   return (
     Object.keys(f).every((k) =>
-      ["operation", "period", "dateRange", "lookbackHours", "ascending", "dateField", "display", "limit", "durationMeasure", "durationCohort", "sourceSelection"].includes(k),
+      ["operation", "period", "dateRange", "lookbackHours", "ascending", "dateField", "display", "limit", "durationMeasure", "intervalMeasure", "durationCohort", "sourceSelection"].includes(k),
     ) &&
     factOperations.some((v) => v === f.operation) &&
+    (f.intervalMeasure === undefined || f.operation === "statusInterval" && f.intervalMeasure === "median") &&
     (f.sourceSelection === undefined || typeof f.sourceSelection === "string" && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u.test(f.sourceSelection)) &&
     (f.operation !== "recent" || f.limit !== undefined || f.period !== "snapshot") &&
     (f.durationCohort === undefined || (f.operation === "count" && f.durationCohort === true && f.dateField === undefined)) &&
@@ -81,6 +83,9 @@ export function registrationOrder(question: string, previous?: CanvasIntent) {
   const subject = (rollingWindow(text)?.rest ?? calendarWindow(text).rest)
     .replace(/(?:последн|перв)\p{L}*\s+(?:(?:\d+|семь)\s+)?(?:день|дн\p{L}*|сут\p{L}*|час\p{L}*|недел\p{L}*|месяц\p{L}*|год\p{L}*)|приоритет\p{L}*\s+\d+|\b[pe]\d+\b/gu, " ");
   if (/в первую очередь|первым делом|перв\p{L}* (?:мест|лини|смен|статус|ответ|назнач|реакц)|по (?:срочности|важности|приоритету)|закрыли|решили|завершили|по сроку|дедлайн|ранн\p{L}* срок/u.test(subject)) return;
+  if (incidentWord.test(subject) &&
+      /с (?:какого|какой) (?:инц[ие]дента|заявки|обращения|тикета) (?:у нас |вообще |все )?(?:начал[ао]сь|начинал[ао]сь)(?: история| учет| очередь)?[.!?\s]*$/u.test(subject))
+    return { ascending: true, limit: 1 };
   const direction = earliest.exec(subject) ?? latest.exec(subject);
   if (!direction) return;
   const prior = previous?.fact?.operation === "recent";
@@ -94,13 +99,17 @@ export function registrationOrder(question: string, previous?: CanvasIntent) {
 export function recentLimit(question: string) {
   return registrationOrder(question)?.limit;
 }
-export const shortAverage = /^(?:(?:а|и|ну|тогда|теперь|покажи|посчитай|какое|пожалуйста)\s+)*(?:среднее время|время (?:в среднем|среднее)|в среднем)[?!.,\s]*$/iu;
+const shortAggregate = /^(?:(?:а|и|ну|тогда|теперь|покажи|посчитай|какое|какая|какую|пожалуйста)\s+)*(среднее(?:\s+(?:время|значение))?|время (?:в среднем|среднее)|в среднем|медиан[ауы])[\s?!.,]*$/iu;
+export function aggregateFollowup(text: string) {
+  const term = shortAggregate.exec(text.trim())?.[1];
+  return term ? (/^медиан/iu.test(term) ? "median" : "mean") : undefined;
+}
 function asksStatusInterval(text: string, previous?: CanvasIntent) {
-  if (previous?.fact?.operation === "statusInterval" && shortAverage.test(text.trim())) return true;
+  if (previous?.fact?.operation === "statusInterval" && aggregateFollowup(text)) return true;
   const followup = previous?.fact?.operation === "statusInterval" || previous?.fact?.durationMeasure === "mean";
   return /статус|состоян/u.test(text) && /смен|меня|измен|переход|между (?:статус|состоян)/u.test(text) &&
     (followup && /между/u.test(text) ||
-    /средн/u.test(text) && /врем|долго|часто|частот|интервал|длительност|сколько (?:минут|часов|дней)/u.test(text));
+    /средн|медиан/u.test(text) && /врем|долго|часто|частот|интервал|длительност|сколько (?:минут|часов|дней)/u.test(text));
 }
 export function asksOverdueCount(text: string) {
   return /ск[оo]ль?к|количеств|число|подсчита/u.test(text) &&
@@ -160,13 +169,16 @@ function durationRequest(text: string, previous?: CanvasIntent) {
   if (ticketCount.test(text) || /до назначени|между|смен\p{L}* статус|ожидани|реакци|отклик|просроч|(?:пер|про)центил|врем(?:я|ени) (?:до |ответа|(?:последнего )?назначения|регистрации|создания|поступления|суток)/u.test(text) &&
       !/между командами/u.test(text)) return;
   const prior = previous?.fact?.operation === "duration" && !/за все время|новый (?:срез|вопрос)|заново/u.test(text);
-  if (prior && (previous.groupBy === "team" || previous.groupBy === "symptom") &&
-    (shortAverage.test(text.trim()) || /^(?:(?:а|и|теперь|покажи)\s+)*(?:среднее|медиан[ау])\s*[?!.]*$/u.test(text.trim()))) {
-    return { dimension: previous.groupBy, measure: text.includes("медиан") ? "median" : "mean", continuation: true } as const;
+  const aggregate = aggregateFollowup(text);
+  if (aggregate && previous?.insightIds?.includes("resolve-median") && !previous.fact)
+    return { dimension: "ticket", measure: aggregate, continuation: true } as const;
+  if (aggregate && (prior || previous?.fact?.operation === "recent")) {
+    return { dimension: prior ? previous.groupBy : "ticket", measure: aggregate, continuation: true } as const;
   }
-  const regroup = prior && /^(?:(?:а|и|теперь|покажи|сравни|разбей|сгруппируй)\s+)*(?:по|между)\s+(?:отдельн\p{L}*\s+)?(?:команд|симптом|инцидент|заявк|тикет)/u.test(text);
+  const regroup = prior && /^(?:(?:а|и|теперь|покажи|сравни|разбей|сгруппируй)\s+)*(?:по|между)\s+(?:отдельн\p{L}*\s+)?(?:команд|симптом|продукт|статус|приоритет|инцидент|заявк|тикет)/u.test(text);
   const groups = /команд(?:ам|ами|ы)(?!\p{L})|какая команда|какой команды|между командами/u.test(text) ? "team" :
-    /симптом/u.test(text) ? "symptom" : undefined;
+    /симптом/u.test(text) ? "symptom" : /по продуктам/u.test(text) ? "product" :
+    /по приоритетам/u.test(text) ? "priority" : /по статусам/u.test(text) ? "status" : undefined;
   const ticket = ticketTerm.test(text) || /\bE\d+\b|(?:inc|demo|sim)-\d/iu.test(text);
   const time = /врем(?:я|ени)|длительност|продолжительност|скорост[ьи]|mttr/u.test(text.replace(/за (?:все|это|какое|последнее) время/gu, ""));
   const compare = /сравн|сопостав|анализ|разбер|у кажд|для кажд|по кажд|отсортируй|ранжируй/u.test(text) ||
@@ -181,8 +193,10 @@ function durationRequest(text: string, previous?: CanvasIntent) {
   }
   const average = /(?<!\p{L})средн\p{L}*(?!\p{L})(?!\s+приоритет)|\bmttr\b/u.test(text);
   const resolutionAction = resolution.test(text) || /чини|чинят|ремонт|закрыва|реша(?:ют|ем|ется|ть)|разрулива/u.test(text);
-  if (average && (resolutionAction || time && unqualifiedDuration(text)) && !/статус|по (?:продуктам|сервисам|приоритетам)|возраст|нагрузк|срок\p{L}* (?:реакци|назначени)/u.test(text)) {
-    return { dimension: "ticket", measure: "mean", continuation: prior } as const;
+  // The adjective form names the existing «Медианное время решения» insight.
+  const median = /медиан[ауы](?!\p{L})/u.test(text);
+  if ((average || median) && (resolutionAction || time && unqualifiedDuration(text)) && !/статус|по (?:продуктам|сервисам|приоритетам)|возраст|нагрузк|срок\p{L}* (?:реакци|назначени)/u.test(text)) {
+    return { dimension: "ticket", measure: median ? "median" : "mean", continuation: prior } as const;
   }
   if (/(?:средн\p{L}*|медиан\p{L}*)\s+(?:время|времени|длительность)|по (?:продуктам|сервисам|приоритетам|статусам)/u.test(text)) return;
   if ((ticket || prior) && (regroup || time && compare)) {
@@ -240,7 +254,7 @@ export function validFactView(
     );
   if (fact.operation === "duration")
     return fact.durationMeasure === "median" || fact.durationMeasure === "mean"
-      ? dimension === "team" || dimension === "symptom" || dimension === "ticket"
+      ? dimension === "ticket" || isDurationGroup(dimension)
       : dimension === "ticket";
   if (fact.operation === "count") return dimension === "ticket" && !fact.ascending;
   if (fact.operation === "recent") return dimension === "ticket";
@@ -271,7 +285,7 @@ export function mightAskFact(question: string, previous?: CanvasIntent) {
   const s = normalized(question);
   return (
     ((ticketTerm.test(s) || intake.test(s)) && (!!periodIn(s) || calendarWindow(s).invalid)) ||
-    !!registrationOrder(s, previous) || asksOverdueCount(s) || asksStatusInterval(s, previous) || !!durationRequest(s, previous) ||
+    !!registrationOrder(s, previous) || asksOverdueCount(s) || !!aggregateFollowup(s) || asksStatusInterval(s, previous) || !!durationRequest(s, previous) ||
     /средн/u.test(s) && /регистр|поступле|создани/u.test(s) ||
     frequency.test(s) || workloadRank.test(s) || asksBacklog(s) || requestedLimit(s) !== undefined || commonality.test(s) || ticketCount.test(s) ||
     (resolution.test(s) && extremum.test(s)) ||
@@ -324,6 +338,9 @@ export function readFact(
   const statusInterval = asksStatusInterval(measure, previous);
   const overdue = asksOverdueCount(measure);
   const duration = !statusInterval && durationRequest(measure, previous) || undefined;
+  const aggregate = aggregateFollowup(measure);
+  if (aggregate && !duration && !statusInterval)
+    return { problem: "Какой показатель посчитать по заявкам: время решения или интервал между сменами статуса?" };
   if (!requestedOperation && !statusInterval && !order && /средн/u.test(measure) &&
       /врем|долго|длительност|интервал/u.test(measure) && /регистрац|поступлен|создани/u.test(measure) &&
       !/решени|закрыти|завершени|от регистраци.*до/u.test(measure))
@@ -336,7 +353,7 @@ export function readFact(
   const continuation =
     !!previous?.fact &&
     (duration?.continuation || follow.test(shaped) || /(?:из|среди) них/u.test(shaped) ||
-      shortAverage.test(shaped.trim()) || previous.fact.operation === "recent" && !!order && /^(?:а|и|теперь)\s/u.test(shaped.trim()));
+      !!aggregate || previous.fact.operation === "recent" && !!order && /^(?:а|и|теперь)\s/u.test(shaped.trim()));
   const namedStatus = /(?:со\s+статус(?:ом|ами)|в\s+статус(?:е|ах))/u.test(shaped);
   const hasClosed = closed.test(shaped);
   const actionStates = finished.test(shaped)
@@ -481,10 +498,13 @@ export function readFact(
         !/(?:со |в )статусе|со статусом/u.test(shaped));
   const states = operation === "count" ? actionStates : operation === "frequency" && asksBacklog(measure) ? [0, 2, 20] : undefined;
   const durationMeasure = duration ? duration.measure : continuation ? previous?.fact?.durationMeasure : undefined;
+  const medianInterval = operation === "statusInterval" && (/медиан/u.test(measure) ||
+    continuation && !/средн/u.test(measure) && previous?.fact?.intervalMeasure === "median");
   return {
     fact: {
       operation,
       period,
+      ...(medianInterval ? { intervalMeasure: "median" as const } : {}),
       ...(dateRange ? { dateRange } : {}),
       ...(lookbackHours ? { lookbackHours } : {}),
       ...(durationCohort ? { durationCohort: true } : {}),

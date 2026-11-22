@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -37,6 +38,7 @@ import { analysisSource, analysisText } from "./analysisLabels";
 import type { Incident } from "../../../packages/domain/index.ts";
 import { defaultPreferences, wallboardIntervals, wallboardOrders, type AccountPreferences, type WallboardOrder } from "../../../packages/contracts/preferences.ts";
 import type { Analysis } from "../../server/analysis.ts";
+import type { LiveAdviceCache } from "./TriageCases";
 const IncidentIntake = React.lazy(() => import("./IncidentIntake").then(m => ({ default: m.IncidentIntake })));
 const Help = React.lazy(() => import("./Help"));
 const LiveBoard = React.lazy(() => import("./LiveBoard"));
@@ -363,6 +365,7 @@ function Dashboard({
     liveStatus = useRef(""),
     prefsRef = useRef(prefs ?? defaultPreferences);
   prefsRef.current = prefs ?? defaultPreferences;
+  const adviceCache = useMemo<LiveAdviceCache>(() => new Map(), [user.username, user.csrf, user.role, ns, data?.simulation?.runId]);
   const extra = detailPage?.key === detailKey ? detailPage.value : null;
   const zone = prefsRef.current.zone,
     wall = path === "/wallboard",
@@ -959,6 +962,7 @@ function Dashboard({
           ) : path === "/live" ? (
             <React.Suspense fallback={<Loader stage label="Открываем эфир…" />}>
               <LiveBoard
+                adviceCache={adviceCache}
                 data={data}
                 username={user.username}
                 csrf={user?.csrf}

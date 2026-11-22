@@ -5,6 +5,11 @@ import { memo, useLayoutEffect, useRef } from "react";
 type Point = [number, number];
 const radius = 42;
 const halfDepth = 9;
+const pips = [
+  { x: -16, y: 12, angle: 0.65 }, { x: 17, y: 12, angle: -0.65 },
+  { x: -6, y: 24, angle: 0.19 }, { x: 6, y: 24, angle: -0.19 },
+];
+const pipScale = (share: number, index: number) => Math.sqrt(Math.max(0, Math.min(1, 4 * share - index)));
 const shell = Array.from({ length: 31 }, (_, i): Point => {
   const angle = (Math.PI * i) / 30;
   return [Math.cos(angle) * radius, Math.sin(angle) * radius * 0.88];
@@ -15,7 +20,7 @@ function draw(
   height: number,
   tilt: number,
   overdueShare: number,
-  consequences: boolean,
+  consequenceShare: number,
   dark: boolean,
 ) {
   const yaw = -0.45 + 0.16 * tilt;
@@ -102,10 +107,13 @@ function draw(
     ctx.fillStyle = pink;
     ctx.fill();
   }
-  if (consequences) {
+  for (const [i, pip] of pips.entries()) {
+    const size = pipScale(consequenceShare, i);
+    if (!size) break;
     ctx.save();
-    ctx.translate(-1, 16);
-    ctx.rotate(0.24);
+    ctx.translate(pip.x, pip.y);
+    ctx.rotate(pip.angle);
+    ctx.scale(size * 0.7, size * 0.7);
     ctx.fillStyle = "#342639";
     ctx.beginPath();
     ctx.moveTo(0, -7);
@@ -119,18 +127,18 @@ function draw(
     ctx.restore();
   }
 }
-const legend = "Розовый сектор — доля просроченных. Косточка — есть заявки с отметкой об устранении последствий.";
+const legend = "Розовый сектор — доля просроченных. Полная косточка — четверть выборки с отметкой об устранении последствий.";
 export default memo(function ShiftSlice({ total, overdue, consequences, loading }: {
   total: number; overdue: number; consequences: number; loading: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const ready = !loading && total > 0;
   const overdueShare = ready ? overdue / total : 0;
-  const marked = ready && consequences > 0;
-  const previous = useRef(false);
+  const consequenceShare = ready ? consequences / total : 0;
+  const shown = useRef<{ overdue: number; consequences: number } | null>(null);
   useLayoutEffect(() => {
-    const animate = ready && previous.current;
-    previous.current = ready;
+    const from = shown.current;
+    if (!ready) shown.current = null;
     const el = canvas.current,
       ctx = el?.getContext("2d");
     if (!el || !ctx) return;
@@ -140,7 +148,7 @@ export default memo(function ShiftSlice({ total, overdue, consequences, loading 
       visible = true;
     const redraw = (time: number) => {
       cancelAnimationFrame(frame);
-      const progress = animate && !motion.matches ? Math.min(1, Math.max(0, (time - started) / 680)) : 1;
+      const progress = from && !motion.matches ? Math.min(1, Math.max(0, (time - started) / 680)) : 1;
       const dpr = Math.min(devicePixelRatio || 1, 2);
       const w = Math.round(el.clientWidth * dpr),
         h = Math.round(el.clientHeight * dpr);
@@ -149,13 +157,17 @@ export default memo(function ShiftSlice({ total, overdue, consequences, loading 
           el.width = w;
           el.height = h;
         }
+        const remaining = (1 - progress) ** 3;
+        const sample = { overdue: overdueShare + ((from?.overdue ?? overdueShare) - overdueShare) * remaining,
+          consequences: consequenceShare + ((from?.consequences ?? consequenceShare) - consequenceShare) * remaining };
+        shown.current = sample;
         draw(
           ctx,
           w,
           h,
           Math.sin(progress * Math.PI),
-          overdueShare,
-          marked,
+          sample.overdue,
+          sample.consequences,
           document.documentElement.dataset.theme === "dark",
         );
         el.dataset.ready = "true";
@@ -183,13 +195,13 @@ export default memo(function ShiftSlice({ total, overdue, consequences, loading 
       window.removeEventListener("srez-appearance", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [ready, overdueShare, marked]);
+  }, [ready, overdueShare, consequenceShare]);
   const label = loading ? "Загрузка выборки" : !total ? "В выборке нет заявок под наблюдением" :
     `Просрочены ${overdue} из ${total}. Отметка об устранении последствий у ${consequences} из ${total}.`;
   const theta = Math.PI * (1 - overdueShare);
   return (
     <span className="shift-slice" role="img" tabIndex={0}
-      aria-label={`Срез очереди. ${label}`} data-hint={ready ? legend : label}>
+      aria-label={`Срез очереди. ${label}`} data-hint={ready ? label + " " + legend : label}>
       {ready && <canvas ref={canvas} data-testid="shift-slice" aria-hidden="true" />}
       <svg viewBox="0 0 96 64" aria-hidden="true">
         <g transform="rotate(-16 48 32)">
@@ -198,7 +210,11 @@ export default memo(function ShiftSlice({ total, overdue, consequences, loading 
             <path d="M6 12h80a40 35 0 0 1-80 0Z" fill="#afe2c3" />
             <path d="M9 12h74a37 32 0 0 1-74 0Z" fill="#70ab94" />
             {overdueShare > 0 && <path d={`M46 12 L${46 + 37 * Math.cos(theta)} ${12 + 32 * Math.sin(theta)} A37 32 0 0 1 9 12Z`} fill="#e85d87" />}
-            {marked && <path d="M46 19q9 13 2 14t-2-14Z" fill="#342639" stroke="#f3ead8" />}
+            {pips.map((pip, i) => {
+              const size = pipScale(consequenceShare, i);
+              return size > 0 && <path key={i} d="M0-5C3-2 4 4 0 4S-3 0 0-5Z" fill="#342639" stroke="#f3ead8"
+                strokeWidth=".7" transform={`translate(${46 + pip.x} ${12 + pip.y}) rotate(${pip.angle * 180 / Math.PI}) scale(${size})`} />;
+            })}
           </> : <path d="M7 13h81a41 35 0 0 1-81 0Z" fill="none" stroke="currentColor"
             strokeWidth="3" strokeDasharray={loading ? "7 5" : undefined} />}
         </g>

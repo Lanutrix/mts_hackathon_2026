@@ -1,4 +1,4 @@
-import { formatFactDuration } from "../../packages/contracts/canvasFacts.ts";
+import { durationGroups, formatFactDuration, isDurationGroup } from "../../packages/contracts/canvasFacts.ts";
 import { spaces, STATES, type Incident } from "../../packages/domain/index.ts";
 import { knownSymptom } from "../../packages/domain/triage.ts";
 import { measuredStatusIntervals, type StatusChange } from "./statusIntervals.ts";
@@ -106,7 +106,7 @@ export function prepareFact(
   let rows = source;
   const durations = [];
   const statusIntervals = plan.operation === "statusInterval"
-    ? measuredStatusIntervals(changes, rows, range.start, range.end) : undefined;
+    ? measuredStatusIntervals(changes, rows, range.start, range.end, plan.intervalMeasure === "median") : undefined;
   if (statusIntervals) {
     rows = rows.filter(r => statusIntervals.tickets.has(r.key)).sort((a, b) => a.id.localeCompare(b.id, "ru", { numeric: true }));
     const skipped = source.length - rows.length;
@@ -352,13 +352,16 @@ export function describeFact(
     method = "По дате регистрации (submitDate), " + (ascending ? "от старых к новым" : "от новых к старым") +
       ". При совпадении времени — по номеру заявки. " + range;
   } else if (operation === "statusInterval") {
-    title = "Среднее время между сменами статуса";
+    const median = intent.fact!.intervalMeasure === "median";
+    title = median ? "Медиана интервалов между сменами статуса" : "Среднее время между сменами статуса";
     const measure = prepared.statusIntervals!.summary;
     fact.statusIntervals = measure;
-    headline = measure.meanMs === null ? "Недостаточно истории для расчёта среднего времени между сменами статуса." :
-      "Среднее время между сменами статуса — " + formatFactDuration(measure.meanMs) + ".";
+    const value = median ? measure.medianMs : measure.meanMs;
+    headline = value == null ? "Недостаточно истории для расчёта " +
+      (median ? "медианы интервалов" : "среднего времени") + " между сменами статуса." : title + " — " + formatFactDuration(value) + ".";
     method = "Интервал отсчитывается между двумя последовательными наблюдаемыми изменениями статуса одной заявки. " +
-      "Сумму интервалов делим на их число. Первая запись и разрывы в наблюдении исключены. " +
+      (median ? "Берём медиану всех измеренных интервалов. " : "Сумму интервалов делим на их число. ") +
+      "Первая запись и разрывы в наблюдении исключены. " +
       (period === "snapshot" ? "" : "Период определяется по второй смене статуса. ") + range;
   } else if (operation === "duration") {
     const { durationMeasure } = intent.fact!;
@@ -368,9 +371,10 @@ export function describeFact(
       "По дате завершения (completionDate). " +
       range +
       " От регистрации (submitDate) до завершения (completionDate). Учтены статусы «Завершён» и «Закрыт».";
-    if (intent.groupBy !== "ticket") {
+    if (isDurationGroup(intent.groupBy)) {
       const metric = durationMeasure === "mean" ? "Среднее время решения" : "Медиана времени решения";
-      title = metric + (intent.groupBy === "team" ? " по командам" : " по симптомам");
+      const grouping = durationGroups[intent.groupBy];
+      title = metric + " " + grouping.by;
       const first = groups[0];
       if (first) {
         const leaders = groups.filter(g => g.durationMs === first.durationMs);
@@ -379,8 +383,7 @@ export function describeFact(
           leaders.map(g => g.label).join(", ") + " · " + formatFactDuration(first.durationMs!) + ".";
       }
       method += " По каждой группе рассчитан показатель «" + metric + "». " +
-        (intent.groupBy === "team" ? "Группа определяется по команде в снимке (assignedGroupName)." :
-          "Группа определяется по симптому в тексте заявки, при отсутствии совпадения — по заголовку.") +
+        "Основание группировки — " + grouping.source + "." +
         " Всего заявок с измеренной длительностью: " + n + ".";
     } else if (durationMeasure === "mean" || durationMeasure === "median") {
       title = durationMeasure === "mean" ? "Среднее время решения" : "Медиана времени решения";

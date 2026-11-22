@@ -104,6 +104,12 @@ test("status timing uses successive observed changes, skipping plain edits and i
       assert.match(result.fact!.method, /наблюд/iu);
       assert.match(result.fact!.notes.join(" "), /1/u);
     }
+    const med = await service.read(store, "me", "медиана интервалов смены статуса");
+    assert.equal(med.fact?.statusIntervals?.medianMs, 8 * minute);
+    assert.ok(validContext(med.intent));
+    const mean = await service.read(store, "me", "а среднее?", med.intent, med.turnToken);
+    assert.equal(mean.fact?.statusIntervals?.medianMs, undefined);
+    assert.match(mean.fact!.headline, /Среднее время между сменами статуса/);
     const empty = await service.read(source, "me", "Среднее время между сменами статуса");
     assert.equal(empty.fact?.statusIntervals?.meanMs, null);
     assert.equal(empty.total, 0);

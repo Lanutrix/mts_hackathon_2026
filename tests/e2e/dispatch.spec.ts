@@ -98,6 +98,13 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     const review = panel.getByRole("button", { name: "Проверить решение" });
     await expect(team).toHaveValue("");
     await expect(review).toBeDisabled();
+    // A stalled model must never hold up either coordinator action.
+    let resumeSuggestions!: () => void;
+    const waiting = new Promise<void>(resolve => { resumeSuggestions = resolve; });
+    await page.route("**/dispatch/suggestions?*", async route => {
+      await waiting;
+      await route.abort().catch(() => {});
+    });
     await panel.getByRole("button", { name: "Предложить команду решения" }).click();
     await expect(panel.getByText("Совпали продукт и симптом в других инцидентах команды: 12.", { exact: true })).toBeVisible();
     await expect(team).toHaveValue("");
@@ -112,6 +119,7 @@ test("coordinator opens a ticket from the live feed, verifies a handoff and sees
     await expect(note).toHaveValue("Мой текст");
     await suggestion.getByRole("button", { name: "Заменить комментарий", exact: true }).click();
     await expect(note).toHaveValue(proposedText);
+    resumeSuggestions();
     await panel.getByText("Выбрать сотрудника", { exact: true }).click();
     const laterMember = panel.getByRole("radio", { name: /Яна Сафонова/ });
     await expect(laterMember).toHaveCount(0);

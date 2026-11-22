@@ -27,7 +27,8 @@ test("registration order composes direction, limit and cohort independently of p
   t.mock.timers.enable({ apis: ["Date"], now });
   const service = new CanvasService();
   for (const q of ["покажи первый инцидент самый", "самый первый", "Я забыл, какую заявку завели раньше всех?",
-    "что у нас пришло самым первым?", "самая старая заявка", "покажи инцедент который поступил первым"]) {
+    "что у нас пришло самым первым?", "самая старая заявка", "покажи инцедент который поступил первым",
+    "с какой заявки всё началось?", "с какого обращения началась история?"]) {
     const r = await service.read(source, "me", q);
     assert.deepEqual(r.tickets.map(t => t.id), ["INC-3"], q);
     assert.ok(r.tickets[0].submittedAt, q);
@@ -92,6 +93,39 @@ test("informal workload and composition requests choose ranked bars or a distrib
     const r = await service.read(source, "me", q);
     assert.equal(r.intent.presentation, "orbit", q);
     assert.ok(r.groups.length);
+  }
+});
+
+test("short spoken follow-ups keep the metric and cohort across multiple turns", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const service = new CanvasService();
+  const initial = await service.read(source, "me", "среднее время решения для команды Сеть");
+  const median = await service.read(source, "me", "а медиана?", initial.intent, initial.turnToken);
+  assert.deepEqual(median.fact?.durationSummary, { measure: "median", valueMs: 2 * hour, measuredCount: 2, scopeCount: 5 });
+  const mean = await service.read(source, "me", "ну а какое среднее значение?", median.intent, median.turnToken);
+  assert.deepEqual(mean.fact?.durationSummary, initial.fact?.durationSummary);
+  const status = await service.read(source, "me", "среднее время смены статуса");
+  const same = await service.read(source, "me", "а среднее?", status.intent, status.turnToken);
+  assert.equal(same.intent.fact?.operation, "statusInterval");
+  assert.deepEqual(same.fact?.statusIntervals, status.fact?.statusIntervals);
+  const notMean = await service.read(source, "me", "а медиана?", same.intent, same.turnToken);
+  assert.equal(notMean.fact?.statusIntervals?.medianMs, null);
+  assert.match(notMean.fact!.headline, /медиан.*статус/iu);
+  const ambiguous = await service.read(source, "me", "а среднее?");
+  assert.equal(ambiguous.mode, "unsupported");
+  assert.match(ambiguous.summary, /решения.*статус/iu);
+  const overall = await service.read(source, "me", "медиана времени решения");
+  assert.equal(overall.fact?.durationSummary?.valueMs, 3 * hour);
+  for (const [term, axis] of [["продуктам", "product"], ["статусам", "status"], ["приоритетам", "priority"]] as const) {
+    const grouped = await service.read(source, "me", "среднее время решения по " + term);
+    assert.equal(grouped.intent.groupBy, axis);
+    assert.ok(validContext(grouped.intent));
+    assert.ok(grouped.groups.every(group => Number.isFinite(group.durationMs)));
+    assert.equal(grouped.groups.reduce((sum, group) => sum + group.count, 0), 3);
+    assert.match(grouped.title, new RegExp(term));
+    const changed = await service.read(source, "me", "а медиану?", grouped.intent, grouped.turnToken);
+    assert.equal(changed.intent.fact?.durationMeasure, "median");
+    assert.equal(changed.intent.groupBy, axis);
   }
 });
 

@@ -82,6 +82,7 @@ export function caseRequest(
 }
 
 type Props = {
+  cache: LiveAdviceCache;
   cases: TriageCase[];
   chosen: TriageCase | undefined;
   dimension: string;
@@ -101,8 +102,6 @@ type Props = {
 
 export default function TriageCases(props: Props) {
   const { cases, chosen, dimension, amount, setParam } = props;
-  // The board remounts this lens when the namespace or simulation run changes.
-  const adviceCache = useRef(new Map<string, { expires: number; advice: Advice }>());
   const [inspection, setInspection] = useState<{ record: TriageCase; step: LiveStep; query: string; advice: Advice | null; dimension: string } | null>(null);
   const focus = chosen ?? cases.find((item) => item.id === props.liveFocus?.caseId) ?? cases[0];
   const step = (!chosen && props.liveFocus?.caseId === focus?.id ? props.liveFocus?.step : null) ?? focus?.step;
@@ -139,7 +138,7 @@ export default function TriageCases(props: Props) {
       {cases.length > 6 && <button type="button" className="more-cases" aria-expanded={expanded}
         onClick={() => setExpanded(value => !value)}>{expanded ? "Свернуть группы" : "Все группы · " + cases.length}</button>}
       {props.ready && focus && step && (
-        <LiveAdvice key={JSON.stringify([props.query, focus.id, step.key])} {...props} record={focus} step={step} cache={adviceCache.current}
+        <LiveAdvice key={JSON.stringify([props.query, focus.id, step.key])} {...props} record={focus} step={step}
           inspect={advice => setInspection({ record: focus, step, query: props.query, advice, dimension })}
           groupAction={band && !chosen && focus.count > 1 ?
             <button type="button" className="response-open" onClick={() => pick(focus.id)}>
@@ -160,11 +159,11 @@ export default function TriageCases(props: Props) {
 }
 
 type Advice = { key: string; action: string; mode: "model"; text: string; model: string };
+export type LiveAdviceCache = Map<string, { expires: number; advice: Advice }>;
 type LocalAdvice = { key: string; mode: "local"; reason?: "unconfigured" | "unavailable" | "unverified"; retryAfterMs?: number };
 type AdviceState = { status: "pending" } | { status: "failed"; message: string } | { status: "ready"; advice: Advice };
 
 function LiveAdvice(props: Props & Check & {
-  cache: Map<string, { expires: number; advice: Advice }>;
   inspect: (advice: Advice | null) => void;
   groupAction: React.ReactNode;
 }) {

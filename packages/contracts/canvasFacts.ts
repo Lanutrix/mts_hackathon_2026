@@ -20,9 +20,21 @@ export const factOperations = [
 ] as const;
 export type FactOperation = (typeof factOperations)[number];
 
+export const durationGroups = {
+  team: { axis: "Команда", by: "по командам", source: "команда в снимке (assignedGroupName)" },
+  symptom: { axis: "Симптом", by: "по симптомам", source: "симптом в тексте заявки или её заголовок" },
+  product: { axis: "Продукт", by: "по продуктам", source: "продукт в снимке (productName)" },
+  status: { axis: "Статус", by: "по статусам", source: "текущий статус заявки в снимке" },
+  priority: { axis: "Приоритет", by: "по приоритетам", source: "приоритет заявки в снимке" },
+} as const;
+export function isDurationGroup(value: string): value is keyof typeof durationGroups {
+  return Object.hasOwn(durationGroups, value);
+}
+
 export type FactDisplay = "ring" | "table" | "bars" | "list" | "cards" | "diagram";
 
 export interface FactPlan {
+  intervalMeasure?: "median";
   sourceSelection?: string;
   durationCohort?: true;
   durationMeasure?: "individual" | "median" | "mean";
@@ -56,7 +68,7 @@ export interface RelationEdge {
 }
 export interface CanvasFact {
   durationSummary?: { measure: "mean" | "median"; valueMs: number | null; measuredCount: number; scopeCount: number };
-  statusIntervals?: { meanMs: number | null; intervalCount: number; ticketCount: number; scopeCount: number };
+  statusIntervals?: { meanMs: number | null; medianMs?: number | null; intervalCount: number; ticketCount: number; scopeCount: number };
   statusCounts?: { label: string; count: number; state: number | null }[];
   headline: string;
   method: string;

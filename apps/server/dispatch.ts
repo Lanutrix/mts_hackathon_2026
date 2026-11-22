@@ -9,7 +9,7 @@ import { facet } from "../../packages/domain/triage.ts";
 import type { Role } from "./auth.ts";
 import type { DB } from "./db.ts";
 import type { VseLlm } from "./vsellm.ts";
-import { dispatchSuggestions } from "./dispatchSuggestions.ts";
+import { dispatchSuggestions, type DispatchSuggestions } from "./dispatchSuggestions.ts";
 
 export type DispatchMember = {
   id: string;
@@ -37,6 +37,7 @@ export type DispatchDecision = {
   sourceRevision: number;
 };
 export type DispatchView = {
+  initialHints?: DispatchSuggestions;
   snapshot: string;
   incidentRevision: number;
   sourceRevision: number;
@@ -252,6 +253,7 @@ export function registerDispatch(app: FastifyInstance, ctx: Context) {
       canSave: !readOnlyReason,
       readOnlyReason,
     };
+    if (view.canSave) view.initialHints = await dispatchSuggestions(ticket, catalog, view.snapshot, undefined);
     if (privileged) {
       try {
         const { rows } = await ctx.db.query<{ decision: DispatchDecision }>(

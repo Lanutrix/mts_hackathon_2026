@@ -410,7 +410,7 @@ export default function CoordinatorDispatch(props: Props) {
                       </Select>
                     </label>
                     {csrf && currentSnapshot && !loadingFault && <DispatchHints key={view.snapshot + "/teams"}
-                      kind="teams" csrf={csrf} endpoint={hintsUrl} snapshot={view.snapshot}
+                      kind="teams" csrf={csrf} endpoint={hintsUrl} snapshot={view.snapshot} initial={view.initialHints}
                       chooseTeam={(name) => {
                         if (!view.teams.some((candidate) => candidate.name === name)) return;
                         chooseTeam(name);
@@ -457,7 +457,7 @@ export default function CoordinatorDispatch(props: Props) {
                     />
                     {csrf && currentSnapshot && !loadingFault && <DispatchHints
                       key={JSON.stringify([view.snapshot, selected?.name])} kind="comments" csrf={csrf}
-                      endpoint={hintsUrl} snapshot={view.snapshot} team={selected?.name}
+                      endpoint={hintsUrl} snapshot={view.snapshot} team={selected?.name} initial={view.initialHints}
                       hasNote={note.length > 0} insert={(text) => {
                         setNote(text);
                         document.getElementById("dispatch-comment")?.focus();

@@ -504,8 +504,13 @@ test("the live slice follows the monitored deadlines and consequence flags on th
   await writeFile(source, JSON.stringify(rows));
   await expect(slice).toHaveAccessibleName(/Просрочены 1 из 3.*Отметка об устранении последствий у 1/);
   await expect.poll(pixels).not.toBe(third);
+  const oneFlag = await pixels();
+  rows[1].isNeedUp = true;
+  await writeFile(source, JSON.stringify(rows));
+  await expect(slice).toHaveAccessibleName(/Просрочены 1 из 3.*Отметка об устранении последствий у 2/);
+  await expect.poll(pixels).not.toBe(oneFlag);
   await slice.focus();
-  await expect(page.getByRole("tooltip")).toContainText("Косточка");
+  await expect(page.getByRole("tooltip")).toContainText("Полная косточка");
   await page.getByRole("searchbox").fill("нет-такого-инцидента");
   await expect(slice).toHaveAccessibleName(/нет заявок под наблюдением/i);
 });

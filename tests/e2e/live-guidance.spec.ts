@@ -96,6 +96,9 @@ test("live assistant presents generated prose with a Russian ticket link and rec
     }
     await ticket.press("Enter");
     await expect(page).toHaveURL(/\/incident\/ORIG-004\?ns=original/);
+    await page.goBack();
+    await expect(card).toHaveAttribute("data-origin", "model");
+    expect(adviceRequests).toBe(beforeReopen);
   } finally {
     release(); await page.close(); await app.close(); await db.close();
   }

@@ -30,7 +30,7 @@ import { shiftAnswer, shiftIntent, shiftQuestion } from "./canvasShift.ts";
 import { withCanvasSuggestions } from "./canvasSuggestions.ts";
 import { briefAnswer, briefRequest, planBrief } from "./canvasBrief.ts";
 import { describeFact, prepareFact } from "./canvasFacts.ts";
-import { registrationOrder, shortAverage } from "./canvasFactPlan.ts";
+import { registrationOrder, aggregateFollowup } from "./canvasFactPlan.ts";
 import type { StatusChange } from "./statusIntervals.ts";
 import { makeAnswer } from "./canvasGuide.ts";
 import {
@@ -648,7 +648,7 @@ export class CanvasService {
         total: 0,
       };
     if (intent.fact && question && (/(?:из|среди|по) них|по ним|из этих|среди этих/iu.test(question) ||
-        shortAverage.test(question.trim()) && context?.fact?.operation === "recent") &&
+        aggregateFollowup(question) && context?.fact?.operation === "recent") &&
         (context?.fact?.operation === "recent" || context?.fact?.operation === "statusInterval" || context?.fact?.sourceSelection)) {
       const selection = focused?.displayResult?.selection ?? (await this.read(source, actor, undefined, context)).selection;
       if (!selection) return this.textResult(source, "Выборка недоступна", "Запросите предыдущий список заново, чтобы продолжить расчёт по его заявкам.");

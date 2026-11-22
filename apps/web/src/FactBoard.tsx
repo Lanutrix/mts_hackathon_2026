@@ -6,6 +6,8 @@ import type {
 } from "../../../packages/contracts/canvas";
 import {
   formatFactDuration,
+  durationGroups,
+  isDurationGroup,
   type CanvasFact,
   type DurationEvidence,
 } from "../../../packages/contracts/canvasFacts";
@@ -264,7 +266,9 @@ function StatusIntervalSample({ result, ...navigation }: Navigation & { result: 
       {examples.map(ticket => <li key={ticket.id}>
         <SourceId id={ticket.id} {...navigation} />
         <span>{ticket.header}</span>
-        <strong title="Среднее по заявке">{formatFactDuration(ticket.statusIntervals!.meanMs)}</strong>
+        <strong title={sample.medianMs !== undefined ? "Медиана по заявке" : "Среднее по заявке"}>
+          {formatFactDuration(ticket.statusIntervals!.medianMs ?? ticket.statusIntervals!.meanMs)}
+        </strong>
       </li>)}
     </ul>}
   </>;
@@ -276,7 +280,7 @@ function GroupDurations({ result, choose }: { result: CanvasResult; choose: Grou
   const groups = result.groups.slice(page * perPage, (page + 1) * perPage);
   const { durationMeasure, display } = result.intent.fact!;
   const metric = durationMeasure === "mean" ? "Среднее" : "Медиана";
-  const dimension = result.intent.groupBy === "team" ? "Команда" : "Симптом";
+  const dimension = isDurationGroup(result.intent.groupBy) ? durationGroups[result.intent.groupBy].axis : "Группа";
   const max = Math.max(1, result.groups[0].durationMs!, result.groups.at(-1)!.durationMs!);
   return <div className="fact-durations">
     {display === "bars" || display === "list" ? (
