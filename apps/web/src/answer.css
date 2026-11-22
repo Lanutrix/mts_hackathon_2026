@@ -790,3 +790,12 @@
 .cx-plot-title h2 {
   min-width: 0;
 }
+
+.cx .ar-lollipop>i>i,.cx .ar-share-key button>i {border-radius:75% 25% 65% 40%;transform:rotate(32deg)}
+.cx .ar-lollipop>i>i {border:1px solid var(--tone);background:var(--tone)}
+.cx .ar-dial {font-variant-numeric:tabular-nums}
+
+.ar-symbol-single {align-self:start;display:grid;gap:16px;max-width:56ch;padding-block:14px}
+.ar-symbol-single p {font-size:clamp(1.05rem,2vw,1.6rem);line-height:1.45}
+.ar-symbol-single .ar-help-links {margin:0}
+.ar-symbol-list [data-srez-icon="Критический инцидент"],.ar-symbol-list [data-srez-icon="Высокий приоритет"] {color:var(--wm-pink)}

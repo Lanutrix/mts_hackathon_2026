@@ -1,3 +1,4 @@
+import { platformIcons, iconNames, type PlatformIcon } from "./platformIcons.ts";
 // The assistant and public-facing help use these same reviewed operational facts.
 // Only these local anchors are valid destinations for an explanatory answer.
 export const guideAnchors = [
@@ -12,6 +13,7 @@ export const guideAnchors = [
 ] as const;
 export type GuideAnchor = (typeof guideAnchors)[number];
 export interface GuideSection {
+  icon?: PlatformIcon;
   role: "detail" | "example" | "steps" | "distinction";
   heading: string;
   body?: string;
@@ -320,14 +322,11 @@ export const guidePages = {
     links: [help.devices],
   },
   icons: {
-    title: "Как узнать значение иконки",
-    lead: "Наведите курсор на значок, перейдите к нему клавишей Tab или удержите его пальцем. Подсказка объяснит действие или сигнал.",
-    sections: [
-      detail(
-        "Словарь",
-        "В справке собраны значки навигации, сигналов, действий и оформления.",
-      ),
-    ],
+    title: "Значки Среза",
+    lead: "Треугольник с восклицательным знаком — критический инцидент. Часы показывают срок решения, а стрелка с поворотом — необходимость устранить последствия.",
+    sections: iconNames.map(icon => ({
+      role: "detail" as const, heading: platformIcons[icon].label, body: platformIcons[icon].meaning, icon,
+    })),
     links: [help.icons],
   },
 } satisfies Record<string, GuidePage>;

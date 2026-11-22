@@ -8,11 +8,12 @@ import {
   type Raw,
 } from "../../packages/domain/index.ts";
 import type { FileSource, Store } from "../worker/ingestion.ts";
-export async function atomicWrite(path: string, text: string, move = rename) {
+export async function atomicWrite(path: string, text: string, move = rename, beforeReplace?: () => Promise<void>) {
   const temp = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temp, text, { mode: 0o600 });
   try {
+    await writeFile(temp, text, { mode: 0o600 });
     for (let attempt = 0; ; attempt++) {
+      await beforeReplace?.();
       try {
         await move(temp, path);
         break;

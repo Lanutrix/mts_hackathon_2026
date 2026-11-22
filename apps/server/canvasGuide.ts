@@ -1,3 +1,4 @@
+import { platformIcons, iconNames, type PlatformIcon } from "../../packages/domain/platformIcons.ts";
 import {
   guidePages,
   guideTopics,
@@ -55,6 +56,27 @@ export function makeAnswer(
         : page.sections,
   };
 }
+const iconAliases: Partial<Record<PlatformIcon, RegExp>> = {
+  critical: /треугольник|восклицательн|критическ/iu, high: /шеврон|высок.{0,9}приоритет/iu,
+  clock: /час(?:ы|ик|ов)|срок/iu, duration: /секундомер|длительност|врем.{0,8}решени/iu,
+  escalation: /поворот|изогнут.{0,12}стрелк|последств/iu, research: /луп[ауы]|увеличительн|исследован/iu,
+  bell: /колокол|уведомлен/iu, layers: /слои|сло[её]в|помощник/iu,
+  ranking: /столбц|рейтинг/iu, relation: /связ[ие]|узл/iu, symptom: /пульс|симптом/iu,
+};
+export function iconGuide(question: string, previous?: CanvasIntent): CanvasAnswer | undefined {
+  const q = question.toLocaleLowerCase("ru").trim();
+  const isGlossary = /(?:знач(?:ок|к[аиоуе]|ков)|иконк|пиктограмм|условные обозначения|легенд[ау] знач)/u.test(q);
+  if (!isGlossary && !(previous?.topic === "icons" && q.length < 65)) return;
+  if (/сгруппируй|отфильтруй|построй|по командам|сколько заяв|диаграмм[ау] со знач|нарисуй|придумай|сочини/u.test(q)) return;
+  const chosen = iconNames.filter(key => q.includes(platformIcons[key].label.toLocaleLowerCase("ru")) || iconAliases[key]?.test(q));
+  if (!isGlossary && !chosen.length) return;
+  const answer = makeAnswer("icons");
+  if (!chosen.length) return answer;
+  const sections = answer.sections.filter(section => section.icon && chosen.includes(section.icon));
+  return { ...answer, title: sections.map(section => section.heading).join(" · "),
+    lead: sections.map(section => section.body).join(" "), sections };
+}
+
 const topicPatterns: [GuideTopic, RegExp][] = [
   [
     "recommendation",

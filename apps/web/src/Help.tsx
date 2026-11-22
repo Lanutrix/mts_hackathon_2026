@@ -1,3 +1,4 @@
+import { platformIcons, iconNames } from "../../../packages/domain/platformIcons";
 import { useEffect, type ReactNode } from "react";
 import { guidePages } from "../../../packages/domain/assistantGuide";
 import AccessIcon, { accessLabels } from "./AccessIcon";
@@ -15,28 +16,6 @@ const sections = [
   ["devices", "Устройство и доступ"],
   ["icons", "Словарь иконок"],
 ] as const;
-const meanings: Record<IconName, string> = {
-  queue: "Показывает список заявок.",
-  live: "Открывает текущую смену и реестр.",
-  layers: "Открывает диалог с помощником.",
-  critical: "У активного инцидента наивысший приоритет (4).",
-  high: "У обращения высокий приоритет.",
-  research: "Команда исследует ситуацию.",
-  coordinators: "Заявка передана координаторам.",
-  clock: "Показывает срок решения.",
-  escalation: "После решения требуется устранение последствий.",
-  bell: "Открывает журнал сигналов.",
-  expand: "Открывает экран для наблюдения на расстоянии.",
-  more: "Открывает разделы платформы.",
-  quality: "Показывает конфликты и пропуски в источнике.",
-  history: "Открывает завершённые обращения.",
-  profile: "Открывает меню учётной записи.",
-  settings: "Открывает личные настройки.",
-  system: "Следует теме устройства.",
-  moon: "Включает тёмное оформление.",
-  sun: "Включает светлое оформление.",
-  help: "Открывает эту справку.",
-};
 export default function Help({
   ns,
   go,
@@ -239,14 +218,14 @@ export default function Help({
             "icons",
             "help",
             <dl className="help-icons">
-              {(Object.entries(meanings) as [IconName, string][]).map(
-                ([icon, detail]) => (
+              {iconNames.map(
+                icon => (
                   <div key={icon}>
                     <dt>
                       <Icon name={icon} />
                       {iconLabels[icon]}
                     </dt>
-                    <dd>{detail}</dd>
+                    <dd>{platformIcons[icon].meaning}</dd>
                   </div>
                 ),
               )}

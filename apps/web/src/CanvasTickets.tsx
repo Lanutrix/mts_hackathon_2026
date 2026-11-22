@@ -8,6 +8,7 @@ import type {
 } from "../../../packages/contracts/canvas";
 import { formatCount, PageControls, useBox } from "./CanvasControls";
 import { screenLink } from "./routes";
+import { formatFactDuration } from "../../../packages/contracts/canvasFacts";
 
 export class CanvasRequestError extends Error {
   constructor(
@@ -86,9 +87,10 @@ export function CanvasTicketLink({
       <span
         {...elPart("deadline-stamp")}
         className="cx-ticket-date"
-        data-overdue={ticket.overdue}
+        data-overdue={!ticket.duration && ticket.overdue}
       >
-        {date ? (ticket.overdue ? "Просрочен · " : "") + date : "Без срока"}
+        {ticket.duration ? "Время решения · " + formatFactDuration(ticket.duration.ms) :
+          date ? (ticket.overdue ? "Просрочен · " : "") + date : "Без срока"}
       </span>
     </a>
   );

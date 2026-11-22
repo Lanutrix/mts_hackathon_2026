@@ -21,6 +21,8 @@ import {
   type Incident,
 } from "../../packages/domain/index.ts";
 import { facet, urgent } from "../../packages/domain/triage.ts";
+import { groupObservations } from "./semanticGroups.ts";
+import { recurringSymptoms } from "../../packages/domain/symptoms.ts";
 import { commentText, type CommentTopic } from "./dispatchSuggestions.ts";
 import { initialIntent, planCanvas } from "./canvasPlan.ts";
 import { buildAnswerInsights } from "./answerInsights.ts";
@@ -295,6 +297,8 @@ export class CanvasService {
     rows: Incident[],
     tickets: CanvasTicket[],
     now: number,
+    durationMeasure?: "median" | "mean",
+    semantic?: ReadonlyMap<string, { key: string; label: string }>,
   ): CanvasBlock {
     const members = new Map<string, CanvasTicket[]>();
     const groups: CanvasGroup[] = [];
@@ -304,7 +308,8 @@ export class CanvasService {
         { label: string; items: CanvasTicket[] }
       >();
       for (let i = 0; i < rows.length; i++) {
-        const { key, label } = partition(rows[i], view.groupBy, now);
+        const inferred = view.groupBy === "symptom" ? semantic?.get(rows[i].id) : undefined;
+        const { key, label } = inferred ?? partition(rows[i], view.groupBy, now);
         let bucket = buckets.get(key);
         if (!bucket) {
           bucket = { label, items: [] };
@@ -318,9 +323,15 @@ export class CanvasService {
             ? rawKey
             : hash([view.groupBy, rawKey]).slice(0, 24);
         members.set(key, items);
+        // A duration selection and each of its buckets retain elapsed-time order.
+        const mid = Math.floor(items.length / 2);
+        const durationMs = durationMeasure === "median"
+          ? (items[mid].duration!.ms + items[Math.floor((items.length - 1) / 2)].duration!.ms) / 2
+          : durationMeasure === "mean" ? items.reduce((sum, t) => sum + t.duration!.ms, 0) / items.length : undefined;
         groups.push({
           key,
           label,
+          ...(durationMs === undefined ? {} : { durationMs }),
           count: items.length,
           overdue: items.filter((t) => t.overdue).length,
           escalated: items.filter((t) => t.escalated).length,
@@ -653,7 +664,14 @@ export class CanvasService {
     }
     let matches = prepared?.rows ?? scoped.sort(urgent);
     if (intent.briefRank && rankMemberIds) matches = matches.filter(row => rankMemberIds!.has(row.id));
-    const tickets = matches.map((r) => ticket(r, now));
+    const measuringDuration = intent.fact?.operation === "duration" && !intent.brief;
+    const tickets = matches.map((r, i) => ({
+      ...ticket(r, now),
+      ...(measuringDuration ? { duration: prepared!.durations[i] } : {}),
+    }));
+    const durationMeasure = measuringDuration ? intent.fact?.durationMeasure : undefined;
+    const showSymptoms = intent.groupBy === "symptom" && intent.layout !== "list" && !intent.fact && !intent.brief;
+    const semantic = showSymptoms && (question || context) ? await groupObservations(matches, this.client) : undefined;
     const primary = this.block(
       source,
       actor,
@@ -667,8 +685,14 @@ export class CanvasService {
       matches,
       tickets,
       now,
+      durationMeasure === "median" || durationMeasure === "mean" ? durationMeasure : undefined,
+      semantic?.assigned,
     );
     if (intent.fact && prepared && !intent.brief) {
+      if (durationMeasure === "median" || durationMeasure === "mean") {
+        const direction = intent.fact.ascending ? 1 : -1;
+        primary.groups.sort((a, b) => direction * (a.durationMs! - b.durationMs!) || collator.compare(a.label, b.label));
+      }
       if (intent.fact.ascending && intent.fact.operation === "frequency")
         primary.groups.sort((a,b) => a.count - b.count || collator.compare(a.label,b.label));
       const limit = intent.fact.limit;
@@ -731,8 +755,18 @@ export class CanvasService {
         ", устранение последствий требуется у " +
         escalated +
         ".";
+    if (showSymptoms && total) {
+      const themes = [...(semantic?.themes ?? []), ...recurringSymptoms(matches)]
+        .sort((a, b) => b.count - a.count || collator.compare(a.label, b.label)).slice(0, 2);
+      if (themes.length) {
+        summary += " Повторяющиеся проявления — " + themes.map(t => "«" + t.label + "» (" + t.count + " из " + total + ")").join(" и ") +
+          ". " + themes[0].check + " Общую причину нужно подтвердить отдельно.";
+      } else if (question) summary += " Проверьте исходные формулировки в группах перед объединением заявок.";
+      if (semantic) summary += " ИИ сопоставил дополнительные описания в выборке из " + semantic.sampled + " заявок.";
+    }
     const result: CanvasResult = {
       ...base,
+      ...(semantic && this.client ? { mode: "model", provider: "VseLLM", model: this.client.model } : {}),
       ...(question || briefText
         ? {
             turnToken: this.remember(source, actor, history, {

@@ -100,6 +100,60 @@ async function login(page: Page, role = "coordinator") {
   ).toBeVisible();
   await expect(page).toHaveURL("/live");
 }
+test("technical intake accepts successive incidents and an atomic JSON batch in the selected source", async ({ page }) => {
+  await login(page, "demo-admin");
+  await page.goto("/intake?ns=workspace");
+  const registered = page.getByLabel("Регистрация (UTC)", { exact: true });
+  await expect(registered).not.toHaveValue("");
+  await registered.fill("2026-11-21T09:00");
+  await page.getByLabel("Срок решения (UTC)").fill("2026-11-21T10:00");
+  await page.getByLabel("ID инцидента", { exact: true }).fill("INC-UI-1");
+  await page.getByLabel("Тема", { exact: true }).fill("Платёж не проходит");
+  // A lost receipt after the server commits must leave the form safe to resend.
+  await page.route("**/api/intake?ns=workspace", async (route) => {
+    expect((await route.fetch()).status()).toBe(200);
+    await route.fulfill({ status: 503, json: { message: "Ответ сервера потерян" } });
+  }, { times: 1 });
+  await page.getByRole("button", { name: "Добавить инцидент", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Ответ сервера потерян" })).toBeVisible();
+  await expect(registered).toHaveValue("2026-11-21T09:00");
+  await page.getByRole("button", { name: "Добавить инцидент", exact: true }).click();
+  await expect(page.getByText("Уже в источнике 1", { exact: true })).toBeVisible();
+  const first = page.getByRole("link", { name: "INC-UI-1", exact: true });
+  await expect(first).toHaveAttribute("href", "/incident/INC-UI-1?ns=workspace");
+  await expect(page.getByLabel("ID инцидента", { exact: true })).toHaveValue("");
+  await page.getByLabel("ID инцидента", { exact: true }).fill("INC-UI-2");
+  await page.getByLabel("Тема", { exact: true }).fill("Ошибка авторизации");
+  await page.getByRole("combobox", { name: "Статус", exact: true }).selectOption("7");
+  await registered.fill("2026-11-21T11:00");
+  await page.getByLabel("Фактическое время решения (UTC)").fill("2026-11-21T11:45");
+  await page.getByLabel("Решение", { exact: true }).fill("Вход восстановлен");
+  await page.getByRole("button", { name: "Добавить инцидент", exact: true }).click();
+  await expect(page.getByRole("link", { name: "INC-UI-2", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Пакет JSON", exact: true }).click();
+  const records = generate(2, 973).rows;
+  await page.getByLabel("Записи в формате JSON").fill(JSON.stringify(records));
+  await page.getByRole("button", { name: "Отправить JSON" }).click();
+  await expect(page.getByText("Добавлено 2", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Отправить JSON" }).click();
+  await expect(page.getByText("Уже в источнике 2", { exact: true })).toBeVisible();
+  await page.getByLabel("Записи в формате JSON").fill(JSON.stringify([records[0], { ...records[1], header: "Конфликт" }]));
+  await page.getByRole("button", { name: "Отправить JSON" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Запись 2" })).toContainText(String(records[1].id));
+  const exported = await (await page.request.get("/api/export?ns=workspace")).json();
+  expect(exported).toHaveLength(4);
+  expect(exported[0]).toMatchObject({ submitDate: "2026-11-21T09:00:00.000Z", deadline: "2026-11-21T10:00:00.000Z" });
+  expect(exported[1]).toMatchObject({ submitDate: "2026-11-21T11:00:00.000Z", completionDate: "2026-11-21T11:45:00.000Z", solution: "Вход восстановлен" });
+  expect((await (await page.request.get("/api/export?ns=demo")).json()).length).toBe(120);
+  for (const role of ["coordinator", "viewer"]) {
+    await page.context().clearCookies();
+    await login(page, role);
+    await expect(page.locator('a[href*="/intake"]')).toHaveCount(0);
+    await page.goto("/intake?ns=workspace");
+    await expect(page.getByText("Недостаточно прав", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("ID инцидента", { exact: true })).toHaveCount(0);
+  }
+});
 test("public landing shows only the hero and opens either screen", async ({
   page,
 }) => {
@@ -127,7 +181,7 @@ test("public landing shows only the hero and opens either screen", async ({
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
   await page.clock.fastForward(6000);
-  expect(apiCalls).toEqual([]);
+  expect([...new Set(apiCalls)]).toEqual(["/api/me"]);
   await page.getByRole("link", { name: "ИИ-помощник" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByTestId("live-register")).toHaveCount(0);
@@ -252,6 +306,15 @@ test("jury viewers receive the same observed events and dismiss them independent
   } finally {
     await guest.close();
   }
+});
+
+test("the landing links to the current profile for a signed-in user", async ({ page }) => {
+  await login(page, "coordinator");
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: "Мой профиль" })).toHaveAttribute("href", "/preferences");
+  await expect(page.getByRole("link", { name: "Войти", exact: true })).toHaveCount(0);
+  await page.getByRole("link", { name: "Мой профиль" }).click();
+  await expect(page).toHaveURL("/preferences");
 });
 
 test("system and explicit themes persist from the landing to help and authenticated screens", async ({

@@ -926,3 +926,31 @@ test("an action request renders its records and typed consent opens the offered 
   await answer.getByRole("link", { name: advice.tickets[0].id }).click();
   await expect(page).toHaveURL(new RegExp("/incident/" + advice.tickets[0].id + "$"));
 });
+
+test("a coordinator reads resolution times and the same glyphs used by the platform", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await enter(page);
+  const total = await ask(page, "Общее число инцидентов");
+  expect(total.fact?.statusCounts?.reduce((sum, state) => sum + state.count, 0)).toBe(total.total);
+  await expect(page.locator(".fact-status-composition")).toContainText("Закрыт");
+  await capture(page, "assistant-status-count");
+  const compare = await ask(page, "Анализ времени по командам");
+  expect(compare.intent.fact?.operation).toBe("duration");
+  expect(compare.intent.groupBy).toBe("team");
+  await expect(page.locator(".fact-board")).toContainText(/медиан/iu);
+  await capture(page, "assistant-team-duration");
+  const legend = await ask(page, "Значки в системе");
+  expect(legend.answer?.topic).toBe("icons");
+  const article = page.getByTestId("answer-guide");
+  await expect(article.getByText("Критический инцидент", { exact: true })).toBeVisible();
+  await expect(article.locator('[data-srez-icon="Критический инцидент"]')).toBeVisible();
+  await capture(page, "assistant-symbols");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await ask(page, "Что означает значок часов?");
+  await expect(page.locator('.cx-plot-title [data-srez-icon="Срок решения"]')).toBeVisible();
+  await expect(article).toContainText("Плановый срок из карточки ITSM");
+  await capture(page, "assistant-symbol-mobile");
+  await article.getByRole("link", { name: "Словарь иконок" }).click();
+  await expect(page).toHaveURL(/\/help#icons$/);
+});

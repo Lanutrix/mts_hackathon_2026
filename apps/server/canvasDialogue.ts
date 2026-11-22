@@ -42,6 +42,10 @@ export function explainFact(result: CanvasResult): CanvasResult {
     }
     const missing = fact.nodes?.filter(node => !node.found).map(node => node.id) ?? [];
     if (missing.length) text += " В выборке нет " + missing.join(", ") + ".";
+  } else if (operation === "duration" && result.groups.length) {
+    text += result.intent.fact?.durationMeasure === "mean"
+      ? " В каждой группе сумму длительностей разделили на число завершённых заявок с обеими датами."
+      : " Для каждой группы упорядочили длительности решения и взяли срединное значение. При чётном числе заявок взяли среднее двух центральных значений.";
   } else if (operation === "duration" && fact.durations?.length) {
     text += " Для каждой подходящей заявки посчитано время от регистрации до завершения. Учитывались завершённые и закрытые заявки с обеими датами.";
   } else if (operation === "distinct" && result.total) {

@@ -6,6 +6,7 @@ import type {
 } from "../../packages/domain/triage.ts";
 import { MODEL, type AnalysisService } from "./analysis.ts";
 import { operationalReading } from "./operationalAnalysis.ts";
+import { groupObservations } from "./semanticGroups.ts";
 
 const stop = new Set(
   "без был была были для или как над нет она они под при про уже что это эта этот после время через которой которое также чем".split(
@@ -123,15 +124,28 @@ export async function analyzeCase(
   namespace = "",
   question = "",
 ): Promise<CaseAnalysis> {
+  const observed = c.themes.map(theme =>
+    "«" + theme.label + "» — " + theme.count + " из " + c.count + ". " + theme.check);
+  const distribution = [
+    { field: "productName", name: c.product, label: "Продукт", plural: "продуктов", assigned: "указан" },
+    { field: "assignedGroupName", name: c.team, label: "Команда", plural: "команд", assigned: "указана" },
+  ].map(({ field, name, label, plural, assigned }) => {
+    const values = rows.map(row => spaces(row.raw[field])).filter(Boolean);
+    const distinct = new Set(values).size;
+    if (!distinct) return label + " в карточках не " + assigned + ".";
+    const count = values.filter(value => value === name).length;
+    if (name && count * 2 >= rows.length)
+      return label + " «" + name + "» " + assigned + " в " + count + " из " + rows.length + " заявок.";
+    return "Разных " + plural + " — " + distinct + ". Поле заполнено в " + values.length + " из " + rows.length + " заявок.";
+  });
+  const localSummary = [...observed, ...distribution];
   if (service?.remote) {
-    const result = await operationalReading(
-      service.remote,
-      rows,
-      namespace,
-      question,
-      c,
-    );
+    const [result, grouped] = await Promise.all([
+      operationalReading(service.remote, rows, namespace, question, c),
+      question.trim() ? undefined : groupObservations(rows, service.remote),
+    ]);
     const base = {
+      ...(grouped ? { semantic: { sampled: grouped.sampled, themes: grouped.themes } } : {}),
       inputRevision: c.revision,
       inputHash: c.hash,
       stale: false,
@@ -145,7 +159,7 @@ export async function analyzeCase(
         mode: "fallback",
         model: "",
         provider: "Поля ITSM",
-        summary: [c.recommendation],
+        summary: localSummary,
         evidence: c.evidence,
         sampled: 0,
         error: result.error,
@@ -178,7 +192,7 @@ export async function analyzeCase(
   if (question.trim())
     return {
       ...base,
-      summary: [c.recommendation],
+      summary: localSummary,
       evidence: c.evidence,
       error: "VseLLM не настроен. Показаны поля кейса.",
     };
@@ -193,7 +207,7 @@ export async function analyzeCase(
   if (!candidates.length)
     return {
       ...base,
-      summary: [c.recommendation],
+      summary: localSummary,
       evidence: c.evidence,
       error: "Недостаточно текста для выделения признаков.",
     };
@@ -236,28 +250,6 @@ export async function analyzeCase(
     model,
     provider,
     evidence,
-    summary: [
-      { field: "productName", name: c.product, label: "Продукт" },
-      { field: "assignedGroupName", name: c.team, label: "Исполняющая группа" },
-    ].flatMap(({ field, name, label }) => {
-      if (!name || name === c.label) return [];
-      const count = rows.filter(
-        (row) => spaces(row.raw[field]) === name,
-      ).length;
-      return count > 1 && count * 2 >= rows.length
-        ? [
-            label +
-              " «" +
-              name +
-              "» указан" +
-              (field === "productName" ? "" : "а") +
-              " в " +
-              count +
-              " из " +
-              rows.length +
-              " тикетов.",
-          ]
-        : [];
-    }),
+    summary: distribution,
   };
 }

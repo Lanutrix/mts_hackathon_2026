@@ -19,6 +19,8 @@ export type FactOperation = (typeof factOperations)[number];
 export type FactDisplay = "ring" | "table" | "bars" | "list" | "cards" | "diagram";
 
 export interface FactPlan {
+  durationCohort?: true;
+  durationMeasure?: "individual" | "median" | "mean";
   limit?: number;
   display?: FactDisplay;
   operation: FactOperation;
@@ -45,23 +47,28 @@ export interface RelationEdge {
   evidence: string[];
 }
 export interface CanvasFact {
+  statusCounts?: { label: string; count: number; state: number | null }[];
   headline: string;
   method: string;
   notes: string[];
   durations?: DurationEvidence[];
+  maxDurationMs?: number;
   nodes?: RelationNode[];
   edges?: RelationEdge[];
 }
 
 export function formatFactDuration(ms: number) {
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes === 0) return Math.floor(ms / 1000) + " с";
+  const rounded = Math.round(ms);
+  const minutes = Math.floor(rounded / 60_000);
+  const seconds = (rounded % 60_000) / 1000;
+  if (minutes === 0) return seconds.toLocaleString("ru-RU") + " с";
   const days = Math.floor(minutes / 1440),
     hours = Math.floor(minutes / 60) % 24;
   return [
     days && days + " д",
     hours && hours + " ч",
     minutes % 60 && (minutes % 60) + " мин",
+    seconds && seconds.toLocaleString("ru-RU") + " с",
   ]
     .filter(Boolean)
     .join(" ");

@@ -1,3 +1,4 @@
+import { Icon, type IconName } from "./Brand";
 import {
   useEffect,
   useLayoutEffect,
@@ -127,23 +128,20 @@ function panels(result: CanvasResult): CanvasResult[] {
   return views;
 }
 
-function Spark({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <path
-        d="M12 2.3c.7 5.6 3.1 8.1 9 9.5-5.7.9-8.3 3.6-9.4 9.7-.8-6-3.3-8.5-9-9.7 6-1.1 8.5-3.7 9.4-9.5Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+function figureIcon(result: CanvasResult): IconName {
+  if (result.answer) return result.answer.sections.length === 1 && result.answer.sections[0].icon || "help";
+  if (result.conversation) return result.intent.brief ? "live" : "layers";
+  switch (result.intent.fact?.operation) {
+    case "duration": return "duration";
+    case "relations": return "relation";
+    case "count": return "quantity";
+    case "frequency": return "ranking";
+  }
+  const icons: Record<CanvasResult["intent"]["groupBy"], IconName> = {
+    symptom: "symptom", team: "team", product: "layers", priority: "high",
+    deadline: "clock", status: "queue", escalation: "escalation", ticket: "queue",
+  };
+  return icons[result.intent.groupBy];
 }
 function SendIcon() {
   return (
@@ -239,14 +237,14 @@ function ConversationLog({
           <div className="cx-answer">
             <div className="cx-author">
               <span className="cx-assistant-icon">
-                <Spark size={15} />
+                <Icon name="layers" size={15} />
               </span>
               <b>{result.provider}</b>
             </div>
             <p>
               <TicketMentions
                 text={result.summary}
-                ids={result.tickets.map((t) => t.id)}
+                ids={result.conversation?.sourceIds ?? result.tickets.map((t) => t.id)}
                 {...{ ns, open }}
               />
             </p>
@@ -271,7 +269,7 @@ function ConversationLog({
         <article className="cx-turn">
           {busy && <p className="cx-question">{busy}</p>}
           <div className="cx-thinking">
-            <Spark size={16} />
+            <Icon name="layers" size={16} />
             {busy ? "Готовлю ответ" : "Читаю источник…"}
           </div>
         </article>
@@ -543,7 +541,7 @@ function WorkspaceScreen({
         Холст смены
       </h1>
       <div className="cx-top" hidden={!stale && !result?.total && !conditions && !result?.fact && !answerSwitch}>
-        {result?.fact && !result.conversation && <span className="cx-topic">{result.title}</span>}
+        {result?.fact && !result.conversation && <span className="cx-topic"><Icon name={figureIcon(result)} size={18} />{result.title}</span>}
         {conditions && <span className="cx-conditions" role="group" aria-label="Условия отбора">{conditions}</span>}
         {answerSwitch && (
           <button type="button" className="cx-view-toggle" aria-controls="cx-stage"
@@ -598,6 +596,7 @@ function WorkspaceScreen({
             <div className="cx-plot-title">
               {!view.fact && (
                 <h2 className={view.insights?.length ? "sr-only" : undefined} title={view.title}>
+                  <Icon name={figureIcon(view)} className="cx-chart-symbol" size={27} />
                   {view.title.startsWith("Заявки · ") && conditions && !view.intent.rankFocus ? "Заявки" : view.title}
                 </h2>
               )}
@@ -614,7 +613,7 @@ function WorkspaceScreen({
               <FactBoard result={view} choose={(g) => choose(view,g)} {...{ ns, open }} />
             ) : view.conversation ? (
               <ConversationAnswer key={view.conversation.text} answer={view.conversation}
-                ids={view.tickets.map(ticket => ticket.id)} {...{ ns, open }}
+                ids={view.conversation.sourceIds ?? view.tickets.map(ticket => ticket.id)} {...{ ns, open }}
                 canAsk={canAsk && busy === null} ask={(question) => void send(question)} />
             ) : view.answer ? (
               <GuideAnswer
@@ -686,19 +685,7 @@ function WorkspaceScreen({
             type="button"
             onClick={() => setHistoryOpen(true)}
           >
-            <svg
-              aria-hidden="true"
-              width="19"
-              height="19"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 11a9 9 0 1 1 2 7M3 4v7h7m2-5v6l4 2" />
-            </svg>
+            <Icon name="history" size={20} />
           </button>
           <form
             className="cx-composer"

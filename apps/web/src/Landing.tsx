@@ -1,5 +1,5 @@
-import type { MouseEvent, ReactNode } from "react";
-import { ProductBrand, MtsCaseBrand } from "./Brand";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { ProductBrand, MtsCaseBrand, Icon } from "./Brand";
 import LandingOptic from "./LandingOptic";
 import ThemeControl from "./ThemeControl";
 import AccessIcon from "./AccessIcon";
@@ -52,6 +52,41 @@ function RouteLink({
   );
 }
 export default function Landing({ go }: { go: (path: string) => void }) {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  useEffect(() => {
+    const lifetime = new AbortController();
+    let timer: number | undefined;
+    let revision = 0;
+    async function sync() {
+      const current = ++revision;
+      try {
+        const response = await fetch("/api/me", { signal: lifetime.signal, cache: "no-store" });
+        const session = response.ok ? (await response.json()).user : null;
+        if (current !== revision || lifetime.signal.aborted) return;
+        window.clearTimeout(timer);
+        setSignedIn(!!session);
+        if (session) timer = window.setTimeout(() => setSignedIn(false), session.expiresInMs);
+      } catch {
+        if (current === revision && !lifetime.signal.aborted) setSignedIn(false);
+      }
+    }
+    const visible = () => { if (!document.hidden) void sync(); };
+    const changed = (event: StorageEvent) => {
+      if (event.key === "srez:logout" || event.key === "srez:login") void sync();
+    };
+    void sync();
+    document.addEventListener("visibilitychange", visible);
+    window.addEventListener("storage", changed);
+    const restored = (event: PageTransitionEvent) => { if (event.persisted) void sync(); };
+    window.addEventListener("pageshow", restored);
+    return () => {
+      lifetime.abort();
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", visible);
+      window.removeEventListener("storage", changed);
+      window.removeEventListener("pageshow", restored);
+    };
+  }, []);
   return (
     <div className="landing">
       <a className="skip" href="#landing-main">
@@ -65,9 +100,9 @@ export default function Landing({ go }: { go: (path: string) => void }) {
           </div>
           <div className="landing-tools">
             <ThemeControl compact />
-            <RouteLink className="landing-login" path="/login" go={go}>
-              <AccessIcon name="enter" /> Войти
-            </RouteLink>
+            {signedIn === null ? <span className="landing-account-check" aria-hidden="true" /> : <RouteLink className="landing-login" path={signedIn ? "/preferences" : "/login"} go={go}>
+              {signedIn ? <><Icon name="profile" /> Мой профиль</> : <><AccessIcon name="enter" /> Войти</>}
+            </RouteLink>}
           </div>
         </div>
       </header>

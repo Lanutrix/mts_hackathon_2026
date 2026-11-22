@@ -1386,3 +1386,16 @@ test("a named relationship keeps its evidence when the model only explains it", 
     await app.close();
   }
 });
+
+test("icon questions use the product glossary even when a training model would speculate", async (t) => {
+  const { app, ask, prompts } = await setup();
+  t.after(() => app.close());
+  const guide = (await ask("Значки в системе", undefined, "demo")).json<CanvasResult>();
+  assert.equal(guide.mode, "knowledge");
+  assert.equal(guide.answer?.topic, "icons");
+  assert.ok(guide.answer?.sections.some(section => section.icon === "critical" && section.body?.includes("4")));
+  const clock = (await ask("А часы?", guide.intent, "demo")).json<CanvasResult>();
+  assert.deepEqual(clock.answer?.sections.map(section => section.icon), ["clock"]);
+  assert.ok(clock.answer?.links.some(link => link.anchor === "icons"));
+  assert.equal(prompts.length, 0);
+});

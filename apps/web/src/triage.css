@@ -217,6 +217,11 @@
   font-size: 0.73rem;
   line-height: 1.25;
 }
+.case-themes > div { padding-block: 0.45rem; border-top: 1px solid var(--rule); }
+.case-themes p { margin: 0.25rem 0; overflow-wrap: anywhere; }
+.case-theme-source { display: grid; grid-template-columns: fit-content(40%) 1fr; align-items: baseline; gap: 0.5rem; }
+.case-theme-source button { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.case-theme-source span, .case-themes small { color: var(--subtle); }
 .case-insight-name {
   display: block;
   margin-top: 7px;

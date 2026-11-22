@@ -17,6 +17,7 @@ import {
 import { Auth, type Role } from "./auth.ts";
 import { Store, FileSource } from "../worker/ingestion.ts";
 import { Demo, atomicWrite } from "./demo.ts";
+import { appendIncidents, IntakeError } from "./intake.ts";
 import {
   registerJurySimulation,
   type SimulationOptions,
@@ -830,6 +831,27 @@ export async function createApp(o: AppOptions) {
       [u.username, JSON.stringify(doc)],
     );
     return doc;
+  });
+  app.post("/api/intake", { bodyLimit: 20 * 1024 * 1024 }, async (req, reply) => {
+    const user = requireRole(req, reply, ["demo-admin"]);
+    if (!user) return;
+    const store = storeFor(req, reply);
+    if (!store) return;
+    if (store.namespace !== "demo" && store.namespace !== "workspace")
+      return reply.code(403).send({ message: "Для приёма нужна рабочая копия или демоисточник." });
+    const source = o.sources.get(store.namespace);
+    if (!source) return reply.code(503).send({ message: "Источник недоступен." });
+    try {
+      const receipt = await appendIncidents(source, req.body, o.publicDemo);
+      await audit(user.username, "incident-intake", store.namespace, {
+        revision: receipt.revision, added: receipt.added.length, existing: receipt.existing.length,
+      });
+      return receipt;
+    } catch (error) {
+      if (error instanceof IntakeError)
+        return reply.code(error.statusCode).send({ message: error.message });
+      return reply.code(503).send({ message: "Не удалось подтвердить приём. Проверьте состояние источника и повторите отправку." });
+    }
   });
   app.post("/api/import/preview", async (req, reply) => {
     const u = requireRole(req, reply, ["demo-admin"]);

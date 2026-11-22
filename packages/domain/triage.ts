@@ -1,5 +1,7 @@
 import {serviceFilterId,sourceServiceTypeId} from "../contracts/serviceType.ts";
 import { liveStep, type LiveStep } from "./liveStep.ts";
+import { knownSymptom, recurringSymptoms, type SymptomEvidence, type SymptomTheme } from "./symptoms.ts";
+export { knownSymptom } from "./symptoms.ts";
 import {
   deadlineStatus,
   GROUPS,
@@ -10,14 +12,10 @@ import {
   type Incident,
 } from "./index.ts";
 
-export const GROUP_BY = ["symptom", "priority", "product", "team"] as const;
+export const GROUP_BY = ["symptom", "symptomProduct", "priority", "product", "team"] as const;
 export type GroupBy = (typeof GROUP_BY)[number];
 export type Signal = Group | "all";
-export interface CaseEvidence {
-  id: string;
-  field: string;
-  value: string;
-}
+export type CaseEvidence = SymptomEvidence;
 export interface TriageCase {
   id: string;
   label: string;
@@ -42,6 +40,7 @@ export interface TriageCase {
   recommendationId: string;
   step: LiveStep;
   evidence: CaseEvidence[];
+  themes: SymptomTheme[];
 }
 export interface Triage {
   groupBy: GroupBy;
@@ -55,6 +54,7 @@ export interface Triage {
   modelGuidance?: boolean;
 }
 export interface CaseAnalysis {
+  semantic?: { sampled: number; themes: SymptomTheme[] };
   mode: "model" | "fallback";
   summary: string[];
   evidence: CaseEvidence[];
@@ -112,34 +112,13 @@ export function sortTickets(rows: Incident[], sort?: string) {
   });
 }
 
-const symptomPatterns: [RegExp, string][] = [
-  [
-    /ошиб\p{L}*\s+(?:при\s+)?(?:вход|авторизац|аутентификац)|не уда[её]тся войти|не (?:входит|работает вход)/iu,
-    "Ошибки авторизации",
-  ],
-  [
-    /(?:рост|увеличени\p{L}*) времени ответа|медленн\p{L}* (?:ответ|загруз)|задержк\p{L}* ответа|тайм-?аут/iu,
-    "Задержка ответа",
-  ],
-  [
-    /плат[её]ж\p{L}* не проход|не проход\p{L}* (?:оплат|плат[её]ж)|ошиб\p{L}* (?:при )?оплат|отклон\p{L}* плат[её]ж/iu,
-    "Ошибки оплаты",
-  ],
-  [
-    /недоступност\p{L}* операц|операци\p{L}* недоступн/iu,
-    "Недоступность операции",
-  ],
-];
-export function knownSymptom(r: Incident) {
-  for (const field of ["header", "shortDescription", "description"]) {
-    const value = spaces(r.raw[field]).slice(0, 2400);
-    const match = symptomPatterns.find(([pattern]) => pattern.test(value));
-    if (match) return { label: match[1], field };
-  }
-}
 const norm = (s: string) => s.toLocaleLowerCase("ru").normalize("NFKC");
 type Facet = { key: string; label: string; field: string };
 export function facet(r: Incident, groupBy: GroupBy): Facet {
+  if (groupBy === "symptomProduct") {
+    const symptom = facet(r, "symptom"), product = facet(r, "product");
+    return { key: JSON.stringify([symptom.key, product.key]), label: symptom.label + " · " + product.label, field: symptom.field };
+  }
   if (groupBy === "priority")
     return {
       key: String(r.priorityId),
@@ -160,7 +139,7 @@ export function facet(r: Incident, groupBy: GroupBy): Facet {
   // Prefer the reporter's headline. A stock description can mention a second
   // symptom (or merely a check) that is not the subject of this ticket.
   const symptom = knownSymptom(r);
-  if (symptom) return { key: "signal:" + symptom.label, ...symptom };
+  if (symptom) return { key: "signal:" + symptom.label, label: symptom.label, field: symptom.field };
   const header = spaces(r.raw.header);
   return {
     key: header ? "header:" + norm(header) : "unknown",
@@ -201,6 +180,7 @@ function mostCommon(rows: Incident[], field: string) {
 function summarizeCase(
   id: string,
   signal: Facet,
+  groupBy: GroupBy,
   rows: Incident[],
   revision: number,
   now: number,
@@ -250,6 +230,7 @@ function summarizeCase(
     });
   }
   cite(lead, signal.field);
+  if (groupBy === "symptomProduct") cite(lead, "productName");
   cite(lead, "priorityId");
   const target = (overdue || soon ? earliest : undefined) ?? firstEscalation
     ?? (deadlineMissing ? rows.find((row) => !row.dates.deadline) : undefined) ?? lead;
@@ -285,6 +266,7 @@ function summarizeCase(
     recommendationId: target.id,
     step,
     evidence,
+    themes: recurringSymptoms(rows),
   };
 }
 
@@ -323,7 +305,7 @@ export function buildTriage(
   for (const [key, rows] of buckets) {
     rows.sort(urgent);
     const id = hash([groupBy, key]).slice(0, 24);
-    cases.push(summarizeCase(id, facet(rows[0], groupBy), rows, revision, now));
+    cases.push(summarizeCase(id, facet(rows[0], groupBy), groupBy, rows, revision, now));
     members.set(id, rows);
   }
   cases.sort(

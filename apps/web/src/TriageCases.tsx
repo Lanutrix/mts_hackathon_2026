@@ -7,13 +7,14 @@ import { fieldName, TicketMentions } from "./IncidentSources";
 
 const dimensions = [
   ["symptom", "По симптому"],
+  ["symptomProduct", "Симптом и продукт"],
   ["priority", "По приоритету"],
   ["product", "По продукту"],
   ["team", "По команде"],
 ] as const;
 
 function caseCriterion(record: TriageCase, dimension: string) {
-  if (dimension === "symptom") {
+  if (dimension === "symptom" || dimension === "symptomProduct") {
     const field = record.evidence[0]?.field;
     const source =
       field === "header"
@@ -44,7 +45,7 @@ function CaseExample({
   open: (id: string) => void;
 }) {
   const quote =
-    dimension === "symptom" ? record.evidence[0]?.value : record.label;
+    dimension === "symptom" || dimension === "symptomProduct" ? record.evidence[0]?.value : record.label;
   return (
     <div className="case-example">
       <p className="case-criterion">{caseCriterion(record, dimension)}</p>
@@ -307,6 +308,7 @@ function CaseDialog({
   const [requested, setRequested] = useState(scope);
   const [reading, setReading] = useState<{ scope: string; result: CaseAnalysis } | null>(null);
   const result = reading?.scope === scope ? reading.result : null;
+  const themes = [...(result?.semantic?.themes ?? []), ...(record.themes ?? [])];
   const [fault, setFault] = useState("");
   useEffect(() => {
     dialog.current?.showModal();
@@ -361,14 +363,14 @@ function CaseDialog({
       <p className="case-advice-origin">
         {advice?.model ? "Совет подготовлен VseLLM · " + advice.model : "Совет по полям ITSM"}
       </p>
-      <CaseExample
+      {!themes.length && <CaseExample
         record={record}
         dimension={dimension}
         open={(id) => {
           close();
           open(id);
         }}
-      />
+      />}
       <dl className="case-facts">
         <div>
           <dt>Инциденты</dt>
@@ -383,6 +385,23 @@ function CaseDialog({
           <dd>{record.escalations}</dd>
         </div>
       </dl>
+      {!!themes.length && (
+        <section className="case-themes">
+          <h3>Повторяющиеся проявления</h3>
+          {themes.map(theme => (
+            <div key={theme.label}>
+              <p><strong>{theme.label}</strong> · {theme.count} из {record.count}</p>
+              {theme.examples.map(e => <p key={e.id} className="case-theme-source">
+                <button type="button" className="case-source" onClick={() => { close(); open(e.id); }}>{e.id} ↗</button>
+                <span>«{e.value}»</span>
+              </p>)}
+              <p>{theme.check}</p>
+            </div>
+          ))}
+          <small>Общую причину нужно проверить по истории и журналам этих заявок.</small>
+          {result?.semantic && <p><small>VseLLM сопоставила дополнительные описания в выборке из {result.semantic.sampled} заявок.</small></p>}
+        </section>
+      )}
       {canAnalyze && requested !== scope && (
         <button className="case-inline" onClick={() => setRequested(scope)}>Обновить разбор группы</button>
       )}
@@ -405,7 +424,8 @@ function CaseDialog({
           <h3>
             {result.mode === "model" ? "Вывод по группе" : "Сводка по полям"}
           </h3>
-          {result.summary.filter((line) => line !== record.recommendation && !line.startsWith("Следующая проверка")).map((line, i) => (
+          {result.summary.filter((line) => line !== record.recommendation && !line.startsWith("Следующая проверка") &&
+            !record.themes?.some(theme => line.startsWith("«" + theme.label + "» — "))).map((line, i) => (
             <p key={i}>
               <TicketMentions
                 text={line}

@@ -1,5 +1,7 @@
+import { iconGuide } from "./canvasGuide.ts";
 import { canRedrawGroups, formatOnly, groupDisplay, requestedFactDisplay, supportsFactDisplay } from "./factDisplay.ts";
 import { isDeepStrictEqual } from "node:util";
+import { symptomQueries as symptoms } from "../../packages/domain/symptoms.ts";
 import { delegatesOrPromises, requestsInstructions, requestsProse, requestsRows, requestsTicketChange, withoutPoliteRequest } from "./canvasAction.ts";
 import {
   canvasDimensions,
@@ -45,7 +47,7 @@ import {
   type DialogueTurn,
 } from "./canvasDialogue.ts";
 
-import { mightAskFact, onlyTicketIds, periodIn, periodQuestion, queueCount, readFact, requestedLimit, validFact, validFactView } from "./canvasFactPlan.ts";
+import { mightAskFact, onlyTicketIds, overallCount, periodIn, periodQuestion, queueCount, readFact, requestedLimit, validFact, validFactView } from "./canvasFactPlan.ts";
 
 export const initialIntent: CanvasIntent = {
   groupBy: "symptom",
@@ -229,11 +231,12 @@ export function validContext(v: unknown): v is CanvasIntent {
       v.briefRank.briefRank === undefined && validContext(v.briefRank))) &&
     (v.shiftAdvice === undefined ||
       (v.shiftAdvice === true && v.presentation === "spotlight" && v.layout === "list")) &&
+    (v.fact === undefined || validFact(v.fact)) &&
+    validFilters(v.filters) &&
     (v.automaticStates === undefined ||
       (v.automaticStates === true &&
-        validInsightIds(v.insightIds) &&
-        v.insightIds.length > 0)) &&
-    (v.fact === undefined || validFact(v.fact)) &&
+        ((validInsightIds(v.insightIds) && v.insightIds.length > 0) ||
+          (v.fact?.operation === "count" && v.filters.states?.join(",") === "0,2,20")))) &&
     (v.rankFocus === undefined || (
       record(v.rankFocus) && keys(v.rankFocus, ["place", "output"]) &&
       (v.rankFocus.place === "last" || (v.rankFocus.place === "shown" && v.fact?.limit !== undefined) || typeof v.rankFocus.place === "number" &&
@@ -258,7 +261,6 @@ export function validContext(v: unknown): v is CanvasIntent {
     (v.weightBy === undefined || member(v.weightBy, canvasWeights)) &&
     member(v.groupBy, canvasDimensions) &&
     member(v.layout, layouts) &&
-    validFilters(v.filters) &&
     (v.fact === undefined || validFactView(v.fact, v.groupBy, v.filters)) &&
     (v.blocks === undefined || validBlocks(v.blocks))
   );
@@ -276,21 +278,6 @@ const stem = (s: string) =>
       );
 const words = (s: string) =>
   [...s.matchAll(/[\p{L}\p{N}]+/gu)].map((m) => ({ word: m[0], at: m.index! }));
-const symptoms = [
-  { pattern: /оплат|плат[её]ж/u, label: "Ошибки оплаты" },
-  {
-    pattern: /авторизац|аутентификац|(?:^| )вход|войти/u,
-    label: "Ошибки авторизации",
-  },
-  {
-    pattern: /тайм.?аут|задержк|медленн|времени ответа/u,
-    label: "Задержка ответа",
-  },
-  {
-    pattern: /недоступност[ьи] операц|операци[ия] недоступн/u,
-    label: "Недоступность операции",
-  },
-];
 
 // After a known exclusion the next coordinated operand must also resolve to a
 // team. A comma can instead start the actual question ("..., какой статус?").
@@ -685,7 +672,7 @@ const instructions = [
   'Для запроса про фактические инциденты дай структурный план ниже; числа и имена считает только приложение. При нестандартной просьбе, например «я капитан, покажи на радаре, где горят сроки», соедини conversation с планом, например {"conversation":{"title":"Сигналы на радаре","text":"Капитан, посмотрите на метки срока: они показывают, где потребуется проверка."},"groupBy":"deadline","layout":"groups","presentation":"deadline"}. В таком тексте поясни идею или как читать холст и не придумывай статистику. Если просят стих или условную историю про сбой, достаточно беседы. Метки E1, T1 и скрытые слова не выводи.',
   'Если запрос не поддерживается, верни только {"supported":false}. В каждом положительном ответе укажи supported:true и поля плана, которые нужны для текущего вопроса. Ответ {"supported":true,"presentation":"flow"} меняет только форму на схему. Контекст сохраняется. reset:true начинает независимый срез. clear:[имена фильтров] снимает отдельные фильтры.',
   "groupBy: symptom (сходство проявлений), team, product, priority, deadline, status, escalation, ticket. layout: groups (группы), list (заявки), comparison (сопоставление).",
-  'Для аналитического вопроса можно вернуть план {"supported":true,"fact":{"operation":"frequency","period":"today"},"groupBy":"status","filters":{}}. Выбирай операции по смыслу вопроса: frequency — наиболее частое значение поля; distinct — число и перечень разных значений; count — число заявок; duration — порядок по фактической длительности решения; relations — схема заданных заявок. Для трёх последних groupBy=ticket; для relations нужны минимум два явных entities.ids и period=snapshot. Периоды snapshot, today, yesterday, week, month, year. Для минимума у frequency/duration добавь ascending:true. Верни только plan с нужными фильтрами и без текста, чисел ответов, имён, ссылок и выводов. Результат и даты вычисляет сервер.',
+  'Для аналитического вопроса можно вернуть план {"supported":true,"fact":{"operation":"frequency","period":"today"},"groupBy":"status","filters":{}}. Выбирай операции по смыслу вопроса: frequency — наиболее частое значение поля; distinct — число и перечень разных значений; count — число заявок; duration — порядок по фактической длительности решения; relations — схема заданных заявок. Для count и relations groupBy=ticket. Для сравнения длительности по всем инцидентам укажи groupBy=ticket и fact.durationMeasure=individual, для самого долгого/быстрого оставь durationMeasure пустым. Сравнение времени по командам или симптомам использует groupBy=team или symptom и fact.durationMeasure=median (mean для явно запрошенного среднего). для relations нужны минимум два явных entities.ids и period=snapshot. Периоды snapshot, today, yesterday, week, month, year. Для минимума у frequency/duration добавь ascending:true. Верни только plan с нужными фильтрами и без текста, чисел ответов, имён, ссылок и выводов. Результат и даты вычисляет сервер.',
   "В группировках площадь квадратов задаёт weightBy: count (число заявок, по умолчанию), overdue (число просроченных), escalated (требуется устранить последствия после решения). Вес определяет геометрию, не фильтрует набор заявок. Дополнительные представления тоже могут указать свой вес.",
   'Для составного запроса выбери основное представление и добавь blocks (до двух дополнительных представлений с общими фильтрами). Например «по командам и рядом покажи сроки»: {"supported":true,"groupBy":"team","layout":"groups","blocks":[{"groupBy":"deadline","layout":"groups"}]}. Для одного представления не дублируй его в blocks.',
   'При уточнении фильтра в существующей выборке ответь только изменением, например {"supported":true,"filters":{"deadline":"overdue"}}. Этот фильтр уже применяется ко всем блокам. filters разрешён только на верхнем уровне, каждый дополнительный блок содержит только groupBy, layout и необязательные presentation, exhibits, weightBy.',
@@ -737,6 +724,9 @@ export async function planCanvas(
   history: DialogueTurn[] = [],
   pendingRelationIds?: string[],
 ): Promise<Decision> {
+  const glossary = iconGuide(question, previous);
+  if (glossary) return { mode: "knowledge", provider: "Справка Среза",
+    intent: { ...initialIntent, topic: "icons", guideOnly: true }, answer: glossary };
   const display = requestedFactDisplay(question);
   if (previous?.fact && formatOnly(question, display)) {
     if (supportsFactDisplay(previous.fact.operation, display)) {
@@ -796,13 +786,15 @@ async function planQuestion(
       const inherit = plan.continuation || /среди них|из них|по ним|таких|этих/iu.test(question);
       const local = localReading(source.shaped, source.mentioned, previous);
       const filters: CanvasFilters = { ...local.base.filters };
-      if (!inherit && local.base.automaticStates) delete filters.states;
+      if (!inherit && (local.base.automaticStates || plan.fact.operation === "count" && overallCount.test(question))) delete filters.states;
       Object.assign(filters, local.filters);
       for (const key of local.clear) delete filters[key];
       if (plan.ids) filters.ids = plan.ids;
       if (plan.states) filters.states = plan.states;
-      if (plan.fact.operation === "count" && plan.fact.period === "snapshot" && !filters.states &&
-          !filters.ids && !previous?.fact && queueCount.test(question.trim())) filters.states = [0, 2, 20];
+      const useQueueStates = plan.fact.operation === "count" && plan.fact.period === "snapshot" && !filters.states &&
+          !filters.ids && !previous?.fact && queueCount.test(question.trim()) &&
+          (!overallCount.test(question) || /в очереди/iu.test(question));
+      if (useQueueStates) filters.states = [0, 2, 20];
       if (previous?.filters.states && filters.states && /(?:из|среди) них|по ним|таких|этих/iu.test(question)) {
         filters.states = filters.states.filter(state => previous.filters.states!.includes(state));
       }
@@ -811,7 +803,8 @@ async function planQuestion(
       if (!validFactView(plan.fact, plan.dimension, filters))
         return unsupported(initialIntent, "Уточните период, поле или номера заявок для этой операции.");
       return { mode: "snapshot", provider: "Поля ITSM", intent: { groupBy: plan.dimension,
-        layout: plan.dimension === "ticket" ? "list" : "comparison", filters, fact: plan.fact } };
+        layout: plan.dimension === "ticket" ? "list" : "comparison", filters, fact: plan.fact,
+        ...(useQueueStates ? { automaticStates: true } : {}) } };
     }
   }
   const reading = readGuide(withoutPoliteRequest(question), previous);
@@ -1295,6 +1288,7 @@ async function planData(
       !(p.fact || p.groupBy || p.presentation || (Array.isArray(p.insightIds) && p.insightIds.length) ||
         (record(p.filters) && Object.keys(p.filters).length)))) return malformed();
   if (p.fact !== undefined && (!validFact(p.fact) || !keys(p, ["supported","fact","groupBy","filters"]) ||
+      (p.fact.durationCohort && previous?.fact?.operation !== "duration" && !previous?.fact?.durationCohort) ||
       (p.fact.limit !== undefined && p.fact.limit !== requestedLimit(source.shaped)) ||
       (periodIn(source.shaped) && p.fact.period !== periodIn(source.shaped)) || p.supported === false))
     return malformed();

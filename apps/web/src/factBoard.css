@@ -372,3 +372,46 @@
     height: clamp(105px, 32cqw, 155px);
   }
 }
+
+/* The endpoint marks the measured value against one fixed scale. */
+.cx .fact-bar {padding-block:6px 9px;isolation:isolate}
+.cx .fact-bar i {position:relative;height:5px;overflow:visible;border-radius:1px;background:var(--cx-line)}
+.cx .fact-bar i::before {content:"";position:absolute;inset:0 auto 0 0;width:calc(100% * var(--fraction));background:var(--wm-green)}
+.cx .fact-bar i::after {content:"";position:absolute;left:clamp(5px,calc(100% * var(--fraction)),calc(100% - 3px));top:50%;width:7px;height:10px;border-radius:70% 25% 65% 40%;background:var(--wm-green);transform:translate(-55%,-55%) rotate(34deg)}
+.cx .fact-bar:first-child i::before,.cx .fact-bar:first-child i::after {background:var(--wm-pink)}
+.cx .fact-bar:hover>span,.cx .fact-bar:focus-visible>span {text-decoration:underline;text-underline-offset:3px}
+.cx .fact-bar b,.fact-rank :is(td,b) {font-variant-numeric:tabular-nums}
+@media(prefers-reduced-motion:no-preference) {
+  .fact-board .fact-bar i::before {transform-origin:left;animation:srez-measure-in .42s cubic-bezier(.2,.8,.22,1) both}
+  @keyframes srez-measure-in {from{transform:scaleX(0)}to{transform:scaleX(1)}}
+}
+
+.fact-status-composition {max-width:960px;margin:clamp(16px,4vh,42px) 0}
+.fact-status-composition figcaption {font-size:.86rem;color:var(--cx-muted);margin-bottom:10px}
+.fact-slice-layout {display:grid;grid-template-columns:minmax(150px,1.2fr) minmax(220px,1fr);gap:clamp(24px,5vw,76px);align-items:center}
+.fact-status-composition [data-state] {--state-ink:var(--cx-muted)}
+.fact-status-composition [data-state="0"] {--state-ink:var(--wm-violet)}
+.fact-status-composition [data-state="2"] {--state-ink:var(--wm-pink)}
+.fact-status-composition [data-state="20"] {--state-ink:var(--cx-orchid)}
+.fact-status-composition [data-state="7"] {--state-ink:var(--wm-green)}
+.fact-status-composition [data-state="10"] {--state-ink:var(--cx-muted)}
+.fact-state-slice {display:block;width:100%;max-height:34vh;overflow:visible}
+.fact-state-slice path[data-state] {fill:var(--state-ink);stroke:var(--cx-bg);stroke-width:1.5;transition:opacity .18s}
+.fact-slice-rind,.fact-slice-outline {stroke:var(--wm-green);fill:none}
+.fact-slice-rind {stroke-width:4}
+.fact-slice-outline {stroke-width:1.5;opacity:.66}
+.fact-status-composition dl {display:grid;margin:0}
+.fact-status-composition dl>div {display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--cx-line)}
+.fact-status-composition dt {display:flex;align-items:center;gap:8px;font-size:.92rem}
+.fact-status-composition dd {display:flex;align-items:baseline;gap:15px;margin:0;font-variant-numeric:tabular-nums}
+.fact-status-composition dd span {color:var(--cx-muted);font-size:.78rem;min-width:3.5ch;text-align:end}
+.fact-status-composition dt i {width:7px;height:10px;border-radius:70% 25% 65% 40%;background:var(--state-ink);transform:rotate(32deg)}
+.fact-status-composition [data-active=true] {box-shadow:inset 0 -1px var(--wm-green)}
+@media(max-width:640px) {
+  .fact-slice-layout {grid-template-columns:1fr;gap:8px}
+  .fact-state-slice {width:min(100%,250px);max-height:20vh;justify-self:center}
+  .fact-status-composition dl>div {padding:6px 0}
+}
+@media(prefers-reduced-motion:reduce){.fact-state-slice path[data-state]{transition:none}}
+.fact-table-measure {display:inline-grid;gap:4px;min-width:min(12vw,130px)}
+.fact-table-measure i {height:3px;background:linear-gradient(to right,var(--wm-green) calc(var(--fraction) * 100%),var(--cx-line) 0);border-radius:2px}

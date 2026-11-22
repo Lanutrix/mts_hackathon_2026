@@ -154,11 +154,11 @@ export function Orbit({ all, groups, start, weight, choose }: GroupMarks) {
           <circle
             cx="100"
             cy="100"
-            r="90.8"
-            fill="none"
-            stroke="var(--cx-line)"
-            strokeWidth=".7"
-            strokeDasharray=".6 5.1"
+            r="92" fill="none" stroke="var(--wm-green)" strokeWidth="1.4"
+          />
+          <circle
+            cx="100" cy="100" r="89" fill="none"
+            stroke="var(--wm-green)" strokeOpacity=".4" strokeWidth="1"
           />
         </svg>
         <div {...el("wheel-total")}>

@@ -1,9 +1,17 @@
+import { platformIcons, iconNames, type PlatformIcon } from "../../../packages/domain/platformIcons";
 import type { Group } from "../../../packages/domain/index.ts";
 import "./brand.css";
 
 const mtsMark = new URL("./assets/mts-case-mark.png", import.meta.url).href;
 
 const paths = {
+  duration: "M8 3h8M12 3v3m6 2 2-2M20 14a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8 0 3-4m-8 6 1.3 1.5",
+  ranking: "M3 5v15h18M6 7h13l-2 3H6Zm0 7h8l-2 3H6Z",
+  relation: "M5 16 11 9m2 0 5 5M4 16c3-2 4 1 2 3-3 2-4-1-2-3Zm6-10c3-2 4 1 2 3-3 2-4-1-2-3Zm8 8c3-2 4 1 2 3-3 2-4-1-2-3Z",
+  quantity: "M4 6h15l-1.6 3H4Zm0 6h10l-1.6 3H4Zm0 6h5",
+  symptom: "M2 13h4l2-7 4 13 3-10 2 4h5",
+  intake: "M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M12 3v12m-5-5 5 5 5-5",
+  team: "M12 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM3 20v-2a6 6 0 0 1 12 0v2m0-15a3 3 0 0 1 0 6m2 3a5 5 0 0 1 4 5v1",
   more: "M3 13q-1-3 2-4 2 3-2 4Zm8 0q-1-3 2-4 2 3-2 4Zm8 0q-1-3 2-4 2 3-2 4Z",
   live: "M3 7h18a9 9 0 0 1-18 0Zm4 2.5 1.3 2m3.7-1.4v2.7m4.6-3.2-1.2 2",
   queue: "M8 6.5h12M8 12h12M8 17.5h12M4.6 5l-1 2m1 3.5-1 2m1 3.5-1 2",
@@ -27,30 +35,9 @@ const paths = {
   sun: "M16.5 12a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5",
   moon: "M20.6 14.2A9 9 0 0 1 9.8 3.4a9 9 0 1 0 10.8 10.8Z",
   system: "M3 4h18v13H3zM8 21h8m-4-4v4M6 13l3-2",
-};
-export type IconName = keyof typeof paths;
-export const iconLabels: Record<IconName, string> = {
-  more: "Дополнительные разделы",
-  live: "Эфир смены",
-  queue: "Список заявок",
-  bell: "Уведомления",
-  history: "История инцидентов",
-  quality: "Качество данных",
-  expand: "Общий экран",
-  research: "На исследовании",
-  critical: "Критический инцидент",
-  coordinators: "У координаторов",
-  high: "Высокий приоритет",
-  clock: "Срок решения",
-  escalation: "Требуется устранение последствий",
-  layers: "ИИ-помощник",
-  help: "Помощь",
-  profile: "Профиль",
-  settings: "Настройки",
-  sun: "Светлая тема",
-  moon: "Тёмная тема",
-  system: "Системная тема",
-};
+} satisfies Record<PlatformIcon, string>;
+export type IconName = PlatformIcon;
+export const iconLabels = Object.fromEntries(iconNames.map(key => [key, platformIcons[key].label])) as Record<IconName, string>;
 export function Icon({
   name,
   size = 20,

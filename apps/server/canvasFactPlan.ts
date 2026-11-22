@@ -17,9 +17,12 @@ export function validFact(fact: unknown): fact is FactPlan {
   const f = fact as Record<string, unknown>;
   return (
     Object.keys(f).every((k) =>
-      ["operation", "period", "ascending", "dateField", "display", "limit"].includes(k),
+      ["operation", "period", "ascending", "dateField", "display", "limit", "durationMeasure", "durationCohort"].includes(k),
     ) &&
     factOperations.some((v) => v === f.operation) &&
+    (f.durationCohort === undefined || (f.operation === "count" && f.durationCohort === true && f.dateField === undefined)) &&
+    (f.durationMeasure === undefined || (f.operation === "duration" &&
+      ["individual", "median", "mean"].some(m => m === f.durationMeasure))) &&
     (f.limit === undefined || (f.operation === "frequency" && typeof f.limit === "number" &&
       Number.isSafeInteger(f.limit) && f.limit > 0 && f.limit <= 999999)) &&
     (f.display === undefined || supportsFactDisplay(f.operation, f.display)) &&
@@ -77,12 +80,45 @@ const ticketCount =
   /(?<!\p{L})(?:ск[оo]ль?к[оo]|подсчита[йть]|количеств\p{L}*|число)\s+(?:(?:всего|сейчас|тут|у нас|таких|этих|было|есть|еще|уже|открыт\p{L}*|активн\p{L}*|просроченн\p{L}*|закрыт\p{L}*|критич\p{L}*|новых|завершенн\p{L}*)\s+)*(?:заяв[ко]|инцидент|тикет|обращени)/u;
 export const queueCount =
   /^(?:(?:а|и|теперь)\s+)*сколько\s+(?:(?:всего|сейчас|таких|тут|у нас)\s+)*(?:заявок|обращений|тикетов|инцидентов)(?:\s+(?:в очереди|сейчас|всего))?[?!.\s]*$/iu;
+export const overallCount = /общ(?:ее|его|ем)\s+(?:число|количеств)|сколько\s+всего|сколько\s+(?:заявок|инцидентов|обращений|тикетов)\s+всего|во всех статусах|всех статус/iu;
 const follow =
   /^(?:а |и |теперь |тогда )*(?:только|среди|из них|для |в продукте|по продукту|за |вчера|сегодня|без |кроме|исключ|не счи|оставь|огранич|ск[оo]ль?к[оo] (?:таких|из них))|^(?:а |и |теперь )ск[оo]ль?к[оo]\s+(?:уже\s+)?(?:закры|заверш|решен)/u;
 const namedId =
   /(?<![\p{L}\p{N}_])(?:[a-zа-я][a-zа-я0-9]*(?:-[a-zа-я0-9]+)+|(?:inc|инц)\d+|\d{5,})(?![\p{L}\p{N}_-])/giu;
 const normalized = (s: string) =>
   s.normalize("NFKC").toLocaleLowerCase("ru").replaceAll("ё", "е");
+
+function durationRequest(text: string, previous?: CanvasIntent) {
+  // These measures have their own source fields and should not fall back to resolution time.
+  if (ticketCount.test(text) || /до назначени|врем(?:я|ени) (?:до |ожидания|реакции|отклика|ответа|(?:последнего )?назначения|регистрации|создания|поступления|суток)|просрочк|перцентил/u.test(text)) return;
+  const prior = previous?.fact?.operation === "duration" && !/за все время|новый (?:срез|вопрос)|заново/u.test(text);
+  if (prior && (previous.groupBy === "team" || previous.groupBy === "symptom") &&
+    /^(?:(?:а|и|теперь|покажи)\s+)*(?:в среднем|среднее|медиан[ау])\s*[?!.]*$/u.test(text.trim())) {
+    return { dimension: previous.groupBy, measure: text.includes("медиан") ? "median" : "mean", continuation: true } as const;
+  }
+  const regroup = prior && /^(?:(?:а|и|теперь|покажи|сравни|разбей|сгруппируй)\s+)*(?:по|между)\s+(?:отдельн\p{L}*\s+)?(?:команд|симптом|инцидент|заявк|тикет)/u.test(text);
+  const groups = /команд(?:ам|ами|ы)(?!\p{L})|какая команда|какой команды|между командами/u.test(text) ? "team" :
+    /симптом/u.test(text) ? "symptom" : undefined;
+  const ticket = ticketTerm.test(text) || /\bE\d+\b|(?:inc|demo|sim)-\d/iu.test(text);
+  const time = /врем(?:я|ени)|длительност|продолжительност|скорост[ьи]|mttr/u.test(text.replace(/за (?:все|это|какое|последнее) время/gu, ""));
+  const compare = /сравн|сопостав|анализ|разбер|у кажд|для кажд|по кажд|отсортируй|ранжируй/u.test(text) ||
+    /(?:покажи|выведи|перечисли).*по (?:времени|длительности|продолжительности)/u.test(text);
+  if (frequency.test(text) && !time && !/дольш|долг|быстр|медлен/u.test(text)) return;
+  const extreme = /сам\p{L}*\s+(?:затяжн|продолжительн)/u.test(text) || extremum.test(text) && (resolution.test(text) ||
+    /долг(?:ий|ая|ое|ие|ую|ого)|длительн(?:ый|ая|ое|ые|ую)|длил|продлил|(?:быстр|коротк)(?:ая|ий|ый|ое|ие|ую)/u.test(text));
+  if (groups && (regroup || time || resolution.test(text) && /дольш|быстр|медлен/u.test(text))) {
+    const mean = /средн\p{L}*\s+(?:время|длительность|продолжительность)|в среднем|mttr/u.test(text) ||
+      (regroup && previous?.fact?.durationMeasure === "mean");
+    return { dimension: groups, measure: mean ? "mean" : "median", continuation: prior } as const;
+  }
+  if (/(?:средн\p{L}*|медиан\p{L}*)\s+(?:время|времени|длительность)|по (?:продуктам|сервисам|приоритетам|статусам)/u.test(text)) return;
+  if ((ticket || prior) && (regroup || time && compare)) {
+    return { dimension: "ticket", measure: "individual", continuation: prior } as const;
+  }
+  if (extreme && (ticket || prior || /котор|како|какая|какие|кто|топ|рейтинг|рекорд/u.test(text))) {
+    return { dimension: "ticket", measure: undefined, continuation: prior } as const;
+  }
+}
 
 export function onlyTicketIds(shaped: string, idAliases: string[]) {
   const remainder = shaped
@@ -127,11 +163,11 @@ export function validFactView(
       !fact.ascending &&
       (filters.ids?.length ?? 0) >= 2
     );
-  if (fact.operation === "duration" || fact.operation === "count")
-    return (
-      dimension === "ticket" &&
-      (fact.operation === "duration" || !fact.ascending)
-    );
+  if (fact.operation === "duration")
+    return fact.durationMeasure === "median" || fact.durationMeasure === "mean"
+      ? dimension === "team" || dimension === "symptom"
+      : dimension === "ticket";
+  if (fact.operation === "count") return dimension === "ticket" && !fact.ascending;
   return (
     [
       "team",
@@ -157,6 +193,7 @@ export function periodQuestion(s: string) {
 export function mightAskFact(question: string, previous?: CanvasIntent) {
   const s = normalized(question);
   return (
+    !!durationRequest(s, previous) ||
     frequency.test(s) || workloadRank.test(s) || requestedLimit(s) !== undefined || commonality.test(s) || ticketCount.test(s) ||
     (resolution.test(s) && extremum.test(s)) ||
     ((list.test(s) || quantity.test(s)) &&
@@ -203,13 +240,14 @@ export function readFact(
     .filter((d) => d.at >= 0)
     .sort((a, b) => a.at - b.at)[0]?.dimension;
   const limit = requestedLimit(measure);
+  const duration = durationRequest(measure, previous);
   if (limit === 0) return { problem: "Укажите, сколько групп показать в рейтинге: нужно положительное число." };
   if (limit && dim && [...measure.matchAll(/(?:^|\s)по\s+(\p{L}+)/gu)].some(([, field]) =>
     !/^(?:числ|количеств|нагрузк|частот|заявк|обращени|инцидент|тикет|просроч|продукт|команд|статус|приоритет|симптом|состоян)/u.test(field)))
     return { problem: "Уточните показатель для рейтинга. По этим полям можно сравнить группы по количеству заявок." };
   const continuation =
     !!previous?.fact &&
-    (follow.test(shaped) || /(?:из|среди) них/u.test(shaped));
+    (duration?.continuation || follow.test(shaped) || /(?:из|среди) них/u.test(shaped));
   const namedStatus = /(?:со\s+статус(?:ом|ами)|в\s+статус(?:е|ах))/u.test(shaped);
   const hasClosed = closed.test(shaped);
   const actionStates = finished.test(shaped)
@@ -225,6 +263,7 @@ export function readFact(
     dimension = "ticket";
   } else if (
     pendingRelationIds !== undefined || (graph.test(shaped) || commonality.test(shaped)) &&
+    (!duration || relation.test(shaped) || commonality.test(shaped)) &&
     (mentioned.ids?.length ||
       ((relation.test(shaped) || commonality.test(shaped)) && (ticketTerm.test(shaped) || referredTickets.test(shaped))) ||
       /(?:inc|demo|sim)[-\d]/iu.test(shaped))
@@ -248,16 +287,16 @@ export function readFact(
       };
     operation = "relations";
     dimension = "ticket";
+  } else if (duration) {
+    if (/(?<![\p{L}\p{N}])(?:inc|инц|demo|sim)[-\d][\p{L}\p{N}-]*/iu.test(shaped))
+      return { problem: "Часть номеров инцидентов не найдена в этом источнике. Уточните номера для сравнения." };
+    operation = "duration";
+    dimension = duration.dimension;
   } else if (dim && (frequency.test(measure) || workloadRank.test(measure) || limit !== undefined) &&
     !/(?:времени|по времени|длительност)/u.test(measure)) {
     operation = "frequency";
-  } else if (
-    extremum.test(shaped) &&
-    resolution.test(shaped) &&
-    (ticketTerm.test(shaped) ||
-      /котор|како|какая|какие|кто|топ|рейтинг|рекорд/u.test(shaped))
-  ) {
-    operation = "duration";
+  } else if (ticketCount.test(shaped) && overallCount.test(shaped) && !/(?:по|между)\s+(?:команд|симптом|статус|приоритет|продукт)/u.test(measure)) {
+    operation = "count";
     dimension = "ticket";
   } else if (
     dim &&
@@ -319,14 +358,17 @@ export function readFact(
     /реже|редк(?:ий|ая|ое)|меньше (?:всего|всех|остальных)|быстр|коротк|миним(?:ум|альн)|наимен(?:ьш|ее)/u.test(
       shaped,
     ) ||
-    (continuation &&
+    (continuation && !/дольш|долг|медлен|максим|наибольш|больше всего/u.test(shaped) &&
       previous!.fact!.operation === operation &&
       previous!.fact!.ascending);
   // «Из них» refers to the previous cohort. Its date field stays in effect
   // unless the question explicitly introduces a new event period.
   const pinnedPeriod = continuation && !periodIn(shaped);
+  const durationCohort = operation === "count" && continuation &&
+    (previous?.fact?.operation === "duration" || previous?.fact?.durationCohort) && !intake.test(shaped);
   const completionWindow =
     operation === "count" &&
+    !durationCohort &&
     period !== "snapshot" &&
     (pinnedPeriod
       ? previous!.fact!.dateField || previous!.fact!.operation === "duration"
@@ -334,10 +376,13 @@ export function readFact(
         !intake.test(shaped) &&
         !/(?:со |в )статусе|со статусом/u.test(shaped));
   const states = operation === "count" ? actionStates : undefined;
+  const durationMeasure = duration ? duration.measure : continuation ? previous?.fact?.durationMeasure : undefined;
   return {
     fact: {
       operation,
       period,
+      ...(durationCohort ? { durationCohort: true } : {}),
+      ...(operation === "duration" && durationMeasure ? { durationMeasure } : {}),
       ...(operation === "frequency" && limit !== undefined ? { limit } : {}),
       ...(completionWindow ? { dateField: "completionDate" } : {}),
       ...(ascending ? { ascending: true } : {}),

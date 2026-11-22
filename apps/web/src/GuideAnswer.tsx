@@ -1,3 +1,4 @@
+import { Icon } from "./Brand";
 import { useState } from "react";
 import { answerElement as el } from "../../../packages/contracts/answerCatalog";
 import type {
@@ -85,6 +86,26 @@ function splitWords(text: string, limit: number) {
   }
   return chunks;
 }
+function IconLegend({ answer, ns, go }: { answer: CanvasAnswer; ns: string; go?: (path: string) => void }) {
+  const { ref, height, width } = useBox();
+  const [requested, setPage] = useState(0);
+  const columns = width >= 680 ? 2 : 1;
+  const rows = Math.max(1, Math.min(5, Math.floor((height - 100) / 72)));
+  const capacity = rows * columns;
+  const pages = Math.ceil(answer.sections.length / capacity);
+  const page = Math.min(requested, Math.max(0, pages - 1));
+  if (answer.sections.length === 1) return <div className="ar-symbol-single" data-testid="answer-guide">
+    <p>{answer.sections[0].body}</p><HelpLinks {...{answer, ns, go}} />
+  </div>;
+  return <div className="ar-symbols" data-testid="answer-guide" ref={ref}>
+    <dl className="ar-symbol-list" style={{ gridTemplateColumns: "repeat(" + columns + ",minmax(0,1fr))" }}>
+      {answer.sections.slice(page * capacity, (page + 1) * capacity).map(item => <div key={item.icon}>
+        <dt><Icon name={item.icon!} size={26} />{item.heading}</dt><dd>{item.body}</dd>
+      </div>)}
+    </dl>
+    <div className="ar-symbol-foot"><HelpLinks {...{answer, ns, go}} /><PageControls {...{page, pages}} goto={setPage} label="Страницы значков" /></div>
+  </div>;
+}
 export function GuideAnswer({
   answer,
   ns,
@@ -127,6 +148,8 @@ export function GuideAnswer({
   const stackedAll = !compact && answer.sections.length <= 2 && height > 420;
   const page = Math.max(0, Math.min(requested, pages.length - 1));
   const current = pages[page];
+  if (answer.topic === "icons" && answer.sections.length && answer.sections.every(section => section.icon))
+    return <IconLegend {...{ answer, ns, go }} />;
   return (
     <div
       className="ar-guide"

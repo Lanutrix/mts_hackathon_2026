@@ -1,5 +1,5 @@
 import { formatFactDuration } from "../../packages/contracts/canvasFacts.ts";
-import { spaces, type Incident } from "../../packages/domain/index.ts";
+import { spaces, STATES, type Incident } from "../../packages/domain/index.ts";
 import { knownSymptom } from "../../packages/domain/triage.ts";
 import type {
   CanvasGroup,
@@ -92,11 +92,14 @@ export function prepareFact(
   const notes: string[] = [];
   let rows = source;
   const durations = [];
-  if (plan.operation === "duration") {
+  if (plan.operation === "duration" || plan.durationCohort) {
     let missingCompletion = 0,
-      invalidStart = 0;
+      invalidStart = 0, unfinished = 0, outside = 0;
     for (const r of source) {
-      if (r.stateId !== 7 && r.stateId !== 10) continue;
+      if (r.stateId !== 7 && r.stateId !== 10) {
+        unfinished++;
+        continue;
+      }
       const start = r.dates.submitDate,
         end = r.dates.completionDate;
       if (!end) {
@@ -104,7 +107,10 @@ export function prepareFact(
         continue;
       }
       const finish = Date.parse(end);
-      if (finish < range.start || finish > range.end) continue;
+      if (finish < range.start || finish > range.end) {
+        outside++;
+        continue;
+      }
       const ms = finish - Date.parse(start ?? "");
       if (!start || !Number.isFinite(ms) || ms < 0) {
         invalidStart++;
@@ -127,6 +133,8 @@ export function prepareFact(
         a.row.id.localeCompare(b.row.id, "ru", { numeric: true }),
     );
     rows = durations.map((e) => e.row);
+    if (unfinished) notes.push("Исключены незавершённые заявки: " + number.format(unfinished) + ".");
+    if (outside) notes.push("Вне периода по дате завершения: " + number.format(outside) + ".");
     if (missingCompletion)
       notes.push(
         "Без даты завершения в исходной выборке: " +
@@ -308,34 +316,64 @@ export function describeFact(
           ".",
       );
   } else if (operation === "duration") {
-    title = ascending ? "Быстрее всего решены" : "Дольше всего решались";
-    const lead = durations[0],
-      ties = lead ? durations.filter((v) => v.ms === lead.ms) : [];
-    headline = lead
-      ? (lead.header ?? "Тема не указана") +
-        " (" +
-        lead.id +
-        ")" +
-        " · " +
-        formatFactDuration(lead.ms) +
-        (ties.length > 1
-          ? " · одинаковый результат у " + ties.length + " заявок."
-          : ".")
-      : "Нет завершённых заявок с подходящими датами для расчёта.";
+    const { durationMeasure } = intent.fact!;
+    const lead = durations[0];
+    headline = "Нет завершённых заявок с подходящими датами для расчёта.";
     method =
       "По дате завершения (completionDate). " +
       range +
-      " Длительность от submitDate до completionDate, статусы «Завершён» и «Закрыт».";
-    fact.durations = durations.slice(0, Math.max(10, ties.length));
-    fact.notes.push(
-      "Подходящих пар дат: " +
-        n +
-        ". Полная выборка упорядочена по длительности.",
-    );
+      " От регистрации (submitDate) до завершения (completionDate). Учтены статусы «Завершён» и «Закрыт».";
+    if (intent.groupBy !== "ticket") {
+      const metric = durationMeasure === "mean" ? "Среднее время решения" : "Медиана времени решения";
+      title = metric + (intent.groupBy === "team" ? " по командам" : " по симптомам");
+      const first = groups[0];
+      if (first) {
+        const leaders = groups.filter(g => g.durationMs === first.durationMs);
+        headline = (ascending ? "Быстрее всего" : "Дольше всего") + " по " +
+          (durationMeasure === "mean" ? "среднему" : "медиане") + " — " +
+          leaders.map(g => g.label).join(", ") + " · " + formatFactDuration(first.durationMs!) + ".";
+      }
+      method += " По каждой группе рассчитан показатель «" + metric + "». " +
+        (intent.groupBy === "team" ? "Группа определяется по команде в снимке (assignedGroupName)." :
+          "Группа определяется по симптому в тексте заявки, при отсутствии совпадения — по заголовку.") +
+        " Всего заявок с измеренной длительностью: " + n + ".";
+    } else if (durationMeasure === "individual") {
+      title = "Сравнение инцидентов по времени решения";
+      if (lead) {
+        const lastMs = durations[durations.length - 1].ms;
+        fact.maxDurationMs = Math.max(lead.ms, lastMs);
+        headline = "Завершённых инцидентов: " + n + ". Время решения — от " +
+          formatFactDuration(Math.min(lead.ms, lastMs)) + " до " + formatFactDuration(fact.maxDurationMs) + ".";
+      }
+      fact.durations = durations.slice(0, 10);
+    } else {
+      title = ascending ? "Быстрее всего решены" : "Дольше всего решались";
+      const ties = lead ? durations.filter(v => v.ms === lead.ms) : [];
+      if (lead) {
+        const leaders = ties.length <= 3 ? ties : [lead];
+        headline = leaders.map(item => (item.header ?? "Тема не указана") + " (" + item.id + ")").join(", ") +
+          " · " + formatFactDuration(lead.ms) + (ties.length > 1 ? " · одинаковый результат у " + ties.length + " заявок." : ".");
+      }
+      fact.durations = durations.slice(0, Math.max(10, ties.length));
+      fact.notes.push("Подходящих пар дат: " + n + ". Полная выборка упорядочена по длительности.");
+    }
   } else if (operation === "count") {
+    const counts = new Map<number | null, number>();
+    for (const row of rows) {
+      const state = row.stateId !== null && STATES[row.stateId] ? row.stateId : null;
+      counts.set(state, (counts.get(state) ?? 0) + 1);
+    }
+    fact.statusCounts = [0, 2, 20, 7, 10, null].flatMap(state => {
+      const count = counts.get(state);
+      return count ? [{ state, count, label: state === null ? "Не указан" : STATES[state].label }] : [];
+    });
     title = "Количество заявок";
     headline = "Заявок в выборке: " + n + ".";
-    if (intent.fact!.dateField === "completionDate") {
+    if (intent.fact!.durationCohort) {
+      headline = "Заявок с измеренной длительностью решения: " + n + ".";
+      method = "Учтены завершённые и закрытые заявки с корректной парой дат регистрации и завершения. " +
+        (period === "snapshot" ? range : "По дате завершения (completionDate). " + range);
+    } else if (intent.fact!.dateField === "completionDate") {
       method = "По дате завершения (completionDate). " + range;
       if (
         intent.filters.states?.length === 1 &&
@@ -400,6 +438,7 @@ export function describeFact(
     method += " Условия: " + filters + ".";
   if (
     !intent.filters.states &&
+    !intent.fact!.durationCohort &&
     operation !== "duration" &&
     operation !== "relations"
   )

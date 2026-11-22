@@ -307,7 +307,7 @@ export async function operationalReading(
     };
   let sample = rows;
   if (group && rows.length > 6) {
-    const witnesses = new Set(group.evidence.map((e) => e.id));
+    const witnesses = new Set([...group.evidence, ...group.themes.flatMap(theme => theme.examples)].map(e => e.id));
     const spread = Array.from(
       { length: 6 },
       (_, i) => rows[Math.floor((i * (rows.length - 1)) / 5)],
@@ -352,6 +352,14 @@ export async function operationalReading(
     : { tickets: rows.length };
   const result = await client.read({ task, facts, counts });
   if ("error" in result) return { error: result.error } as const;
+  // A shared observation or queue attribute cannot establish a common cause.
+  // This packet has no confirmed causal relationship or duplicate reference.
+  if (group && [result.reading.answer, result.reading.nextCheck].some(line =>
+    line.toLowerCase().split(/[.!?;]|,\s*(?:но|однако)\s+/u).some(part =>
+      /причин|вызван|из-за|обусловлен|дубликат|являются дублями|один и тот же сбой/u.test(part) &&
+      !/не (?:подтвержден|подтвержд[её]н|установлен|выяснен|извест|доказан)|неизвест|нельзя (?:установить|подтвердить|считать)|требу\p{L}* (?:провер|подтвержден)|уточните|проверьте|выясните/u.test(part)))) {
+    return { error: "Общая причина требует отдельного подтверждения." } as const;
+  }
   const evidence = result.reading.refs.map((ref) => sources.get(ref)!);
   const ids = sample.map((row) => row.id);
   const resolveText = (s: string) =>

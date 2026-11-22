@@ -34,6 +34,7 @@ import "./ops.css";
 import "./ticket.css";
 import type { Incident } from "../../../packages/domain/index.ts";
 import type { Analysis } from "../../server/analysis.ts";
+const IncidentIntake = React.lazy(() => import("./IncidentIntake").then(m => ({ default: m.IncidentIntake })));
 const Help = React.lazy(() => import("./Help"));
 const LiveBoard = React.lazy(() => import("./LiveBoard"));
 const Wallboard = React.lazy(() => import("./Wallboard"));
@@ -116,7 +117,7 @@ function afterLogin(url: URL) {
   const destination = new URL(next, location.origin);
   if (
     destination.origin !== location.origin ||
-    !/^\/(?:simulation(?:\/|$)|live$|workspace$|help$|wallboard$|incident\/|itsm\/|preferences$|notifications$|demo$|import$|history$|quality$)/.test(
+    !/^\/(?:simulation(?:\/|$)|live$|workspace$|help$|wallboard$|incident\/|itsm\/|preferences$|notifications$|demo$|import$|intake$|history$|quality$)/.test(
       destination.pathname,
     )
   )
@@ -234,6 +235,7 @@ function LoginLanding({
               method: "POST",
               body: JSON.stringify({ username, password }),
             });
+            try { localStorage.setItem("srez:login", String(Date.now())); } catch {}
             location.replace(afterLogin(route));
           }}
         />
@@ -253,6 +255,7 @@ function App({ initialRoute }: { initialRoute: URL }) {
       "/workspace": "ИИ-помощник",
       "/wallboard": "Общий экран",
       "/login": "Вход",
+      "/intake": "Приём инцидентов",
     };
     document.title = (names[path] ?? "Дашборд координатора") + " · Срез";
   }, [route.pathname]);
@@ -742,6 +745,7 @@ function Dashboard({
                   <ThemeControl />
                   {!training && user.role === "demo-admin" && (
                     <>
+                      {(ns === "demo" || ns === "workspace") && nav("/intake", "Приём инцидентов", "intake")}
                       {nav("/import", "Импорт")}
                       {nav("/demo", "Управление сценарием")}
                     </>
@@ -1081,6 +1085,10 @@ function Dashboard({
                 </div>
               )}
             </section>
+          ) : path === "/intake" ? (
+            !training && user.role === "demo-admin" && (ns === "demo" || ns === "workspace") ? (
+              <IncidentIntake key={ns} ns={ns} publicDemo={session.publicDemo} post={post} sources={session.sources} />
+            ) : <Denied />
           ) : path === "/import" ? (
             user?.role === "demo-admin" ? (
               <ImportPanel ns={ns} post={post} onDone={load} />

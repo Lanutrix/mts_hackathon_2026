@@ -1,5 +1,6 @@
 import type { CanvasConversation, CanvasIntent } from "../../packages/contracts/canvas.ts";
 import { deadlineStatus, type Incident } from "../../packages/domain/index.ts";
+import { recurringSymptoms } from "../../packages/domain/symptoms.ts";
 import { withoutPoliteRequest } from "./canvasAction.ts";
 import { periodIn, readFact } from "./canvasFactPlan.ts";
 import { initialIntent, localReading, sourceMentions, validFilters, type planCanvas } from "./canvasPlan.ts";
@@ -74,6 +75,7 @@ const time = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", timeS
 export function briefAnswer(rows: Incident[], now: number, scope: string, period: string | undefined,
   overdue: number, escalated: number): CanvasConversation {
   const parts = [];
+  const sourceIds = new Set<string>();
   if (scope) parts.push("Выборка — " + scope + ".");
   if (period) parts.push(period);
   if (!rows.length) parts.push("В этой выборке заявок нет.");
@@ -84,9 +86,16 @@ export function briefAnswer(rows: Incident[], now: number, scope: string, period
     const next = open.filter(r => deadlineStatus(r.dates.deadline, now) === "soon")
       .sort((a, b) => Date.parse(a.dates.deadline!) - Date.parse(b.dates.deadline!) || a.id.localeCompare(b.id, "ru"))[0];
     if (next) {
+      sourceIds.add(next.id);
       const due = Date.parse(next.dates.deadline!);
       parts.push("Ближайший срок у " + next.id + " — " + time.format(due) + " МСК (" + date.format(due) + ").");
     }
+    const themes = recurringSymptoms(rows);
+    for (const { label, count, examples } of themes) {
+      examples.forEach(e => sourceIds.add(e.id));
+      parts.push("«" + label + "» — " + count + " из " + rows.length + ". Примеры — " + examples.map(e => e.id).join(" и ") + ".");
+    }
+    if (themes.length) parts.push(themes[0].check);
   }
-  return { title: "Сводка для передачи смены", text: parts.join(" ") };
+  return { title: "Сводка для передачи смены", text: parts.join(" "), ...(sourceIds.size ? { sourceIds: [...sourceIds] } : {}) };
 }

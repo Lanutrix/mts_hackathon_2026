@@ -57,6 +57,7 @@ export interface CanvasIntent extends CanvasView {
   blocks?: CanvasView[];
 }
 export interface CanvasTicket {
+  duration?: import("./canvasFacts.ts").DurationEvidence;
   id: string;
   header: string;
   team: string;
@@ -68,6 +69,7 @@ export interface CanvasTicket {
   escalated: boolean;
 }
 export interface CanvasGroup {
+  durationMs?: number;
   key: string;
   label: string;
   count: number;
@@ -84,6 +86,7 @@ export interface CanvasBlock extends CanvasView {
 export interface CanvasConversation {
   title: string;
   text: string;
+  sourceIds?: string[];
   followUp?: string;
 }
 export interface CanvasResult {
