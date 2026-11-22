@@ -102,6 +102,7 @@ async function login(page: Page, role = "coordinator") {
 }
 test("technical intake accepts successive incidents and an atomic JSON batch in the selected source", async ({ page }) => {
   await login(page, "demo-admin");
+  await expect(page.getByTestId("live-register")).toBeVisible();
   await page.goto("/intake?ns=workspace");
   const registered = page.getByLabel("Регистрация (UTC)", { exact: true });
   await expect(registered).not.toHaveValue("");
@@ -109,11 +110,19 @@ test("technical intake accepts successive incidents and an atomic JSON batch in 
   await page.getByLabel("Срок решения (UTC)").fill("2026-11-21T10:00");
   await page.getByLabel("ID инцидента", { exact: true }).fill("INC-UI-1");
   await page.getByLabel("Тема", { exact: true }).fill("Платёж не проходит");
-  // A lost receipt after the server commits must leave the form safe to resend.
-  await page.route("**/api/intake?ns=workspace", async (route) => {
-    expect((await route.fetch()).status()).toBe(200);
-    await route.fulfill({ status: 503, json: { message: "Ответ сервера потерян" } });
-  }, { times: 1 });
+  // WebKit's active service worker bypasses Playwright routing. Let the server
+  // commit the real POST, then simulate the lost receipt at the fetch consumer.
+  await page.evaluate(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await originalFetch.call(window, ...args);
+      if (response.ok && new URL(response.url).pathname === "/api/intake") {
+        window.fetch = originalFetch;
+        return Response.json({ message: "Ответ сервера потерян" }, { status: 503 });
+      }
+      return response;
+    };
+  });
   await page.getByRole("button", { name: "Добавить инцидент", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Ответ сервера потерян" })).toBeVisible();
   await expect(registered).toHaveValue("2026-11-21T09:00");
@@ -146,8 +155,10 @@ test("technical intake accepts successive incidents and an atomic JSON batch in 
   expect(exported[1]).toMatchObject({ submitDate: "2026-11-21T11:00:00.000Z", completionDate: "2026-11-21T11:45:00.000Z", solution: "Вход восстановлен" });
   expect((await (await page.request.get("/api/export?ns=demo")).json()).length).toBe(120);
   for (const role of ["coordinator", "viewer"]) {
+    await page.goto("about:blank");
     await page.context().clearCookies();
     await login(page, role);
+    await expect(page.getByTestId("live-register")).toBeVisible();
     await expect(page.locator('a[href*="/intake"]')).toHaveCount(0);
     await page.goto("/intake?ns=workspace");
     await expect(page.getByText("Недостаточно прав", { exact: true })).toBeVisible();
