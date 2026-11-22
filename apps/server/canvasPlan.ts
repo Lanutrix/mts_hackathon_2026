@@ -1516,9 +1516,11 @@ async function planData(
           (p.exhibits as AnswerExhibitId[] | undefined) ??
           localIntent.exhibits,
       };
+  // Model narration belongs alongside a view when the user sets a scene or asks for a style.
+  const stylized = /(?:представь|вообрази|как будто|словно|в стиле|в образе|от лица|сыграй роль)|^(?:мы|ты|я) (?:на|в) [^.!?]+[.!?]/iu.test(question.trim());
   return {
     intent: withVisual(intent, requested),
-    // This branch delivers data. Its first panel must contain the verified result.
+    ...(stylized && conversation && !delegatesOrPromises(conversation.text) ? { conversation, memoryQuestion: safeQuestion } : {}),
     mode: "model",
     provider: "VseLLM",
     model: client.model,
