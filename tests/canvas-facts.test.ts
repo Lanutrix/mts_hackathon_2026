@@ -645,3 +645,114 @@ test("pending ID replies respect actor, source, simulation run, expiry and chang
   const expired = await service.read(simulated, "me", answer, prompt.intent, prompt.turnToken);
   assert.notEqual(expired.intent.fact?.operation, "relations");
 });
+
+test("rank references follow a tied place through counts, shares and the actual register", async () => {
+  const teams = ["Платформа", "Платформа", "Платформа", "Сеть", "Сеть", "Связь", "Связь", "Архив"];
+  const rows = teams.map((team, i) => row("R-" + i, 0, "2026-01-01T00:00:00Z", { assignedGroupName: team }));
+  rows.push(row("R-extra", 0, "2026-01-01T00:00:00Z", { assignedGroupName: "Сеть", productName: "Архиватор" }));
+  const source = { namespace: "demo", revision: 1, rows: new Map(rows.map(r => [r.id, r])) };
+  const changed = { ...source, revision: 2, rows: new Map() };
+  const service = new CanvasService();
+  const rank = await service.read(source, "coordinator", "У какой команды больше всего заявок в продукте Кабинет?");
+  assert.equal(rank.total, 8);
+  const second = await service.read(changed, "coordinator", "А кто на втором месте?", rank.intent, rank.turnToken);
+  assert.match(second.summary, /Сеть/);
+  assert.match(second.summary, /Связь/);
+  assert.match(second.summary, /делят|поровну|одинаков/iu);
+  const count = await service.read(changed, "coordinator", "И сколько у них заявок?", second.intent, second.turnToken);
+  assert.match(count.summary, /по 2/);
+  assert.match(count.summary, /(?:вместе|всего|сумме)\s*[:—]?\s*4/i);
+  const share = await service.read(changed, "coordinator", "А какая у них доля?", count.intent, count.turnToken);
+  assert.match(share.summary, /50\s*%/);
+  assert.match(share.summary, /4 из 8/);
+  const register = await service.read(changed, "coordinator", "Покажи их заявки списком", share.intent, share.turnToken);
+  assert.equal(register.intent.presentation, "register");
+  assert.equal(register.revision, 1);
+  assert.deepEqual(service.page("demo", "coordinator", register.selection, undefined, 0)?.items.map(t => t.id).sort(), ["R-3","R-4","R-5","R-6"]);
+  assert.ok(validContext(register.intent));
+  assert.equal((await service.read(source, "coordinator", undefined, register.intent)).total, 4);
+  const last = await service.read(changed, "coordinator", "А кто на последнем месте?", register.intent, register.turnToken);
+  assert.match(last.summary, /Архив/);
+  assert.equal(last.total, 1);
+  const explicit = await service.read(source, "coordinator", "Сколько заявок у команды Платформа?", last.intent, last.turnToken);
+  assert.equal(explicit.total, 3);
+  const direct = await service.read(changed, "coordinator", "Покажи заявки второй команды", rank.intent, rank.turnToken);
+  assert.equal(direct.total, 4);
+  assert.equal(direct.intent.presentation, "register");
+  const mismatch = await service.read(source, "coordinator", "Какой продукт на втором месте?", rank.intent, rank.turnToken);
+  assert.equal(mismatch.selection, "");
+  assert.match(mismatch.summary, /продукт/iu);
+  const unknown = await service.read(source, "coordinator", "Сколько у них коммерческих заявок?", last.intent, last.turnToken);
+  assert.equal(unknown.selection, "");
+  assert.match(unknown.summary, /услов|уточн/iu);
+});
+
+test("unavailable rank references ask for a ranking without disclosing another turn", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { source, service } = setup();
+  const simulated = { ...source, simulation: { runId: "run-a" } };
+  const rank = await service.read(simulated, "me", "У какой команды больше всего заявок?");
+  const selected = await service.read(simulated, "me", "Покажи их заявки", rank.intent, rank.turnToken);
+  assert.ok(service.page("demo", "me", selected.selection, undefined, 0, "run-a")?.total);
+  assert.equal(service.page("demo", "me", selected.selection, undefined, 0, "run-b"), undefined);
+  for (const [data, actor, token] of [
+    [simulated, "other", rank.turnToken],
+    [{ ...simulated, namespace: "other" }, "me", rank.turnToken],
+    [{ ...simulated, simulation: { runId: "run-b" } }, "me", rank.turnToken],
+    [simulated, "me", undefined],
+  ] as const) {
+    const answer = await service.read(data, actor, "Кто второй?", rank.intent, token);
+    assert.equal(answer.selection, "");
+    assert.match(answer.summary, /рейтинг/iu);
+    assert.doesNotMatch(answer.summary, /Сеть|Архив/);
+  }
+  const missing = await service.read(simulated, "me", "Кто на 9-м месте?", rank.intent, rank.turnToken);
+  assert.equal(missing.selection, "");
+  assert.match(missing.summary, /мест/);
+  const last = await service.read(simulated, "me", "Тогда кто последний?", missing.intent, missing.turnToken);
+  assert.match(last.summary, /Архив/);
+  t.mock.timers.tick(16 * 60_000);
+  const expired = await service.read(simulated, "me", "Кто второй?", rank.intent, rank.turnToken);
+  assert.equal(expired.selection, "");
+  assert.match(expired.summary, /рейтинг/iu);
+});
+
+test("a requested top N includes ties at the cutoff and keeps its full denominator for follow-ups", async () => {
+  const teams = ["Север","Север","Север","Центр","Центр","Юг","Юг","Восток"];
+  const rows = teams.map((team, i) => row("T-" + i, 0, "2026-01-01T00:00:00Z", { assignedGroupName: team }));
+  const source = { namespace: "demo", revision: 1, rows: new Map(rows.map(r => [r.id, r])) };
+  const service = new CanvasService();
+  for (const question of ["Покажи топ-2 команд по количеству заявок", "Назови две самые загруженные команды",
+    "Назови две команды с наибольшим количеством заявок"]) {
+    const top = await service.read(source, "me", question);
+    assert.deepEqual(top.groups.map(g => g.label), ["Север", "Центр", "Юг"], question);
+    assert.equal(top.total, 8);
+    assert.match(top.summary, /одинаков|поровну|делят/iu);
+    assert.ok(validContext(top.intent));
+    const share = await service.read(source, "me", "Какая у них доля?", top.intent, top.turnToken);
+    assert.match(share.summary, /7 из 8/);
+    assert.match(share.summary, /87,5\s*%/);
+    const list = await service.read(source, "me", "Покажи их заявки", share.intent, share.turnToken);
+    assert.equal(service.page("demo", "me", list.selection, undefined, 0)?.total, 7);
+    assert.ok(validContext(list.intent));
+    assert.equal((await service.read(source, "me", undefined, list.intent)).total, 7);
+  }
+  const revenue = await service.read(source, "me", "Назови топ-2 команд по прибыли");
+  assert.equal(revenue.selection, "");
+  assert.match(revenue.summary, /показатель|поле/iu);
+});
+
+test("successive drill-downs of a large group retain the ranking they reference", async () => {
+  const sample = row("R-0", 0, "2026-01-01T00:00:00Z");
+  const rows = new Map(Array.from({ length: 18_000 }, (_, i) => {
+    const id = "R-" + i;
+    return [id, { ...sample, id }] as const;
+  }));
+  const source = { namespace: "demo", revision: 1, rows };
+  const service = new CanvasService();
+  let result = await service.read(source, "me", "У какой команды больше всего заявок?");
+  for (const question of ["Кто первый?", "Сколько у них заявок?", "Какая у них доля?", "Покажи их заявки"]) {
+    result = await service.read(source, "me", question, result.intent, result.turnToken);
+    assert.equal(result.total, 18_000, question);
+  }
+});

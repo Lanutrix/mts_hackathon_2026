@@ -1,5 +1,6 @@
 import { canRedrawGroups, formatOnly, groupDisplay, requestedFactDisplay, supportsFactDisplay } from "./factDisplay.ts";
 import { randomUUID } from "node:crypto";
+import { isGroupRanking, rankedGroups, rankingIntent, readRankRequest, type RankFocus, type RankRequest } from "./canvasRanking.ts";
 import type {
   CanvasBlock,
   CanvasDimension,
@@ -22,10 +23,13 @@ import {
 import { facet, urgent } from "../../packages/domain/triage.ts";
 import { initialIntent, planCanvas } from "./canvasPlan.ts";
 import { buildAnswerInsights } from "./answerInsights.ts";
+import { shiftAnswer, shiftIntent, shiftQuestion } from "./canvasShift.ts";
 import { describeFact, prepareFact } from "./canvasFacts.ts";
 import { makeAnswer } from "./canvasGuide.ts";
 import {
+  asksAboutResult,
   asksForScopeExplanation,
+  explainFact,
   explainScope,
   type DialogueTurn,
 } from "./canvasDialogue.ts";
@@ -149,6 +153,9 @@ function describe(filters: CanvasFilters) {
   return terms.join(" · ");
 }
 interface PinnedSelection {
+  projection: CanvasTicket[];
+  run?: string;
+  shift?: { result: CanvasResult; explanation: string };
   displayResult?: CanvasResult;
   namespace: string;
   actor: string;
@@ -167,6 +174,8 @@ export class CanvasService {
       expires: number;
       history: DialogueTurn[];
       displaySelection?: string;
+      rankingSelection?: string;
+      rankPlace?: RankFocus["place"];
       pendingRelationIds?: string[];
     }
   >();
@@ -176,7 +185,7 @@ export class CanvasService {
     actor: string,
     history: DialogueTurn[],
     turn?: DialogueTurn,
-    state: { displaySelection?: string; pendingRelationIds?: string[] } = {},
+    state: { displaySelection?: string; pendingRelationIds?: string[]; rankingSelection?: string; rankPlace?: RankFocus["place"] } = {},
   ) {
     const now = Date.now();
     for (const [key, entry] of this.turns)
@@ -197,36 +206,39 @@ export class CanvasService {
   // Store small source projections only. Paging uses the same membership and
   // time as the result, even if the source or a deadline changes meanwhile.
   private pin(
-    namespace: string,
+    source: CanvasSource,
     actor: string,
     all: CanvasTicket[],
     members: Map<string, CanvasTicket[]>,
+    projection = all,
   ) {
     const now = Date.now();
     // Compound views share a single projection array. Keep their page tokens
     // together even when one source has tens of thousands of tickets.
-    const projections = new Set<CanvasTicket[]>([all]);
-    let used = all.length;
+    const projections = new Set([projection]);
+    let used = projection.length;
     for (const [id, entry] of [...this.pinned].reverse()) {
       if (entry.expires <= now) {
         this.pinned.delete(id);
         continue;
       }
-      if (projections.has(entry.all)) continue;
-      if (used + entry.all.length > 50_000) {
+      if (projections.has(entry.projection)) continue;
+      if (used + entry.projection.length > 50_000) {
         this.pinned.delete(id);
         continue;
       }
-      used += entry.all.length;
-      projections.add(entry.all);
+      used += entry.projection.length;
+      projections.add(entry.projection);
     }
     while (this.pinned.size >= 72)
       this.pinned.delete(this.pinned.keys().next().value!);
     const id = randomUUID();
     this.pinned.set(id, {
-      namespace,
+      namespace: source.namespace,
+      run: source.simulation?.runId,
       actor,
       all,
+      projection,
       members,
       expires: now + 15 * 60_000,
     });
@@ -238,12 +250,14 @@ export class CanvasService {
     id: string,
     group: string | undefined,
     offset: number,
+    run?: string,
   ): CanvasPage | undefined {
     const source = this.pinned.get(id);
     if (
       !source ||
       source.namespace !== namespace ||
       source.actor !== actor ||
+      source.run !== run ||
       source.expires <= Date.now()
     )
       return;
@@ -258,7 +272,7 @@ export class CanvasService {
     };
   }
   private block(
-    namespace: string,
+    source: CanvasSource,
     actor: string,
     view: CanvasView,
     rows: Incident[],
@@ -308,8 +322,59 @@ export class CanvasService {
       title: view.layout === "list" ? "Список заявок" : titles[view.groupBy],
       groups,
       tickets: tickets.slice(0, 6),
-      selection: this.pin(namespace, actor, tickets, members),
+      selection: this.pin(source, actor, tickets, members),
     };
+  }
+  private rankReply(
+    source: CanvasSource, actor: string, history: DialogueTurn[], request: RankRequest,
+    ranking?: CanvasResult, priorPlace?: RankFocus["place"],
+  ): CanvasResult {
+    const place = request.place ?? priorPlace ?? (ranking?.intent.fact?.limit ? "shown" :
+      ranking?.intent.fact?.operation === "frequency" ? 1 : undefined);
+    const pinned = ranking && this.pinned.get(ranking.selection);
+    const mismatch = request.dimension && ranking && request.dimension !== ranking.intent.groupBy;
+    const focus = place && request.output !== "clarify" && !mismatch ? { place, output: request.output } : undefined;
+    const found = ranking && focus ? rankedGroups(ranking.groups, ranking.total, focus) : undefined;
+    if (!ranking || !pinned || !focus || !found?.chosen) {
+      const text = mismatch
+        ? "Предыдущий рейтинг использует другое поле. Запросите рейтинг по полю «" + titles[request.dimension!] + "»."
+        : request.output === "clarify"
+        ? "Уточните дополнительное условие для выбранных групп. Можно запросить их число заявок, долю или список карточек."
+        : found?.problem ?? (ranking
+        ? "Какое место в рейтинге вас интересует?"
+        : "Нужен предыдущий рейтинг по числу заявок. Например, спросите: «У какой команды больше всего заявок?»");
+      return {
+        namespace: source.namespace, revision: ranking?.revision ?? source.revision,
+        asOf: ranking?.asOf ?? new Date().toISOString(), sourceTotal: ranking?.sourceTotal ?? 0,
+        provider: "Поля ITSM", mode: "unsupported", title: "Уточните место", summary: text,
+        conversation: { title: "Уточните место", text }, intent: ranking?.intent ?? initialIntent,
+        metrics: [], blocks: [], groups: [], tickets: [], selection: "", total: 0, suggestions,
+        ...(ranking ? { turnToken: this.remember(source, actor, history, undefined, {
+          displaySelection: ranking.selection, rankPlace: priorPlace,
+        }) } : {}),
+      };
+    }
+    const groups = new Map(found.chosen.map(group => [group.key, pinned.members.get(group.key)!]));
+    const members = new Set([...groups.values()].flat());
+    const items = groups.size === 1 ? groups.values().next().value! : pinned.all.filter(item => members.has(item));
+    const selection = this.pin(source, actor, items, groups, pinned.projection);
+    const turnToken = this.remember(source, actor, history, undefined, {
+      displaySelection: selection, rankingSelection: ranking.selection, rankPlace: focus.place,
+    });
+    const list = focus.output === "tickets";
+    const title = list ? "Заявки · " + found.labels : found.position + " в рейтинге";
+    const method = "Место определяется по числу заявок. Группы с одинаковым числом занимают одно место.";
+    const { fact, ...base } = ranking;
+    const result: CanvasResult = {
+      ...base, mode: "snapshot", provider: "Поля ITSM", notice: undefined, title, summary: found.headline,
+      intent: { ...ranking.intent, rankFocus: focus, ...(list || !fact ? { layout: "list", presentation: "register" } : {}) },
+      ...(list ? {} : fact ? { fact: { ...fact, headline: found.headline, method: method + " " + fact.method } }
+        : { conversation: { title, text: found.headline + " " + method } }),
+      selection, turnToken, tickets: items.slice(0, 6), total: items.length,
+      groups: !list && fact && found.chosen.length > 1 ? found.chosen : [], metrics: [], blocks: [],
+    };
+    this.pinned.get(selection)!.displayResult = result;
+    return result;
   }
   async read(
     source: CanvasSource,
@@ -324,9 +389,43 @@ export class CanvasService {
     const activeTurn = prior && prior.namespace === namespace && prior.actor === actor &&
       prior.run === source.simulation?.runId && prior.expires > now ? prior : undefined;
     const history = activeTurn?.history ?? [];
+    const displayed = activeTurn?.displaySelection ? this.pinned.get(activeTurn.displaySelection) : undefined;
+    const focused = displayed && displayed.expires > now ? displayed : undefined;
+    const advice = focused?.shift;
+    const shift = question ? shiftQuestion(question, !!advice) : context?.shiftAdvice ? "recommend" : undefined;
+    const rankedSelection = activeTurn?.rankingSelection ?? activeTurn?.displaySelection;
+    const rankedProjection = rankedSelection ? this.pinned.get(rankedSelection) : undefined;
+    const ranking = rankedProjection && rankedProjection.expires > now && isGroupRanking(rankedProjection.displayResult?.intent)
+      ? rankedProjection.displayResult : undefined;
+    let rankMemberIds: Set<string> | undefined;
+    if (shift === "recommend" && context?.rankFocus) {
+      const { shiftAdvice: _advice, ...rankContext } = context;
+      const members = focused &&
+        (focused.displayResult?.intent.rankFocus || focused.shift?.result.intent.rankFocus)
+        ? focused : this.pinned.get((await this.read(source, actor, undefined, rankContext)).selection);
+      rankMemberIds = new Set(members?.all.map(ticket => ticket.id));
+    }
+    if (!question && context?.rankFocus && !shift) {
+      const base = await this.read(source, actor, undefined, rankingIntent(context));
+      const projection = this.pinned.get(base.selection);
+      if (projection) projection.displayResult = base;
+      return this.rankReply(source, actor, history, context.rankFocus, base);
+    }
+    const rankRequest = question && readRankRequest(question, !!activeTurn?.rankPlace);
+    if (rankRequest && (ranking || rankRequest.place || isGroupRanking(context) || context?.rankFocus || !context))
+      return this.rankReply(source, actor, history, rankRequest, ranking, activeTurn?.rankPlace);
+    if (context?.rankFocus && !shift) context = ranking?.intent ?? rankingIntent(context);
+    if (question && context?.shiftAdvice) {
+      context = { ...context };
+      delete context.shiftAdvice;
+    }
     if (question && activeTurn?.displaySelection) {
       const pinned = this.pinned.get(activeTurn.displaySelection);
       const result = pinned?.displayResult;
+      if (pinned && pinned.expires > now && result && asksAboutResult(question)) {
+        if (result.fact) return explainFact(result);
+        if (result.metrics.length) return explainScope(result, this.client);
+      }
       const display = requestedFactDisplay(question);
       if (pinned && pinned.expires > now && result && display && formatOnly(question, display)) {
         if (result.intent.fact && supportsFactDisplay(result.intent.fact.operation, display))
@@ -335,14 +434,14 @@ export class CanvasService {
           return { ...result, intent: { ...result.intent, ...groupDisplay(display) } };
       }
     }
-    if (question && asksForScopeExplanation(question)) {
+    if (question && (asksForScopeExplanation(question) || (context?.fact && asksAboutResult(question)))) {
       const active = { ...(context ?? initialIntent) };
       delete active.topic;
       delete active.related;
       delete active.focus;
       delete active.guideOnly;
       const snapshot = await this.read(source, actor, undefined, active);
-      if (snapshot.fact) return snapshot;
+      if (snapshot.fact) return explainFact(snapshot);
       const explanation = await explainScope(snapshot, this.client);
       return {
         ...explanation,
@@ -358,6 +457,18 @@ export class CanvasService {
       byId.set(r.id, r);
     }
     const rows = [...byId.values()];
+    let missingAdvice: string | undefined;
+    if (shift === "why") {
+      const lead = advice && byId.get(advice.result.tickets[0].id);
+      if (advice && lead && openStates.includes(lead.stateId!)) {
+        const title = "Почему эта заявка первая";
+        return { ...advice.result, title, summary: advice.explanation,
+          conversation: { title, text: advice.explanation } };
+      }
+      missingAdvice = advice
+        ? "Рекомендованной заявки больше нет в открытой очереди. Запросите новый совет по текущему срезу."
+        : "Выберите заявку для проверки вопросом «С какой заявки начать?», и я поясню выбор.";
+    }
     const starter: CanvasIntent =
       !question && !context && rows.some((r) => openStates.includes(r.stateId!))
         ? {
@@ -371,7 +482,12 @@ export class CanvasService {
             ],
           }
         : initialIntent;
-    const decision: Awaited<ReturnType<typeof planCanvas>> = question
+    const decision: Awaited<ReturnType<typeof planCanvas>> = missingAdvice
+      ? { intent: context ?? initialIntent, mode: "unsupported", provider: "Поля ITSM", textOnly: true,
+          conversation: { title: "Нужна рекомендация", text: missingAdvice, followUp: "С какой заявки начать?" } }
+      : shift === "recommend"
+      ? { intent: shiftIntent(context), mode: "snapshot", provider: "Поля ITSM" }
+      : question
       ? await planCanvas(
           question,
           rows,
@@ -443,10 +559,23 @@ export class CanvasService {
       };
     const scoped = rows.filter(r => selected(r, intent.filters, now, !!intent.fact));
     const prepared = intent.fact ? prepareFact(intent, scoped, now) : undefined;
+    if (intent.shiftAdvice) {
+      const ranked = (prepared?.rows ?? scoped)
+        .filter(r => openStates.includes(r.stateId!) && (!rankMemberIds || rankMemberIds.has(r.id))).sort(urgent);
+      const { conversation, explanation } = shiftAnswer(ranked, now, !!sourceTotal);
+      const tickets = ranked.map(r => ticket(r, now));
+      const selection = tickets.length ? this.pin(source, actor, tickets, new Map()) : "";
+      const result: CanvasResult = { ...base, title: conversation.title, summary: conversation.text, conversation,
+        total: ranked.length, tickets: tickets.slice(0, 1), selection, groups: [], blocks: [], metrics: [],
+        turnToken: this.remember(source, actor, history, undefined, { displaySelection: selection }) };
+      const pinned = this.pinned.get(selection);
+      if (pinned && explanation) pinned.shift = { result, explanation };
+      return result;
+    }
     const matches = prepared?.rows ?? scoped.sort(urgent);
     const tickets = matches.map((r) => ticket(r, now));
     const primary = this.block(
-      namespace,
+      source,
       actor,
       {
         groupBy: intent.groupBy,
@@ -462,8 +591,11 @@ export class CanvasService {
     if (intent.fact && prepared) {
       if (intent.fact.ascending && intent.fact.operation === "frequency")
         primary.groups.sort((a,b) => a.count - b.count || collator.compare(a.label,b.label));
-      const answer = describeFact(intent, prepared, primary.groups, describe(intent.filters));
-      const result: CanvasResult = { ...base, ...answer, total: tickets.length, metrics: [], groups: primary.groups,
+      const limit = intent.fact.limit;
+      const boundary = limit && primary.groups[limit - 1]?.count;
+      const groups = boundary ? primary.groups.filter((group, index) => index < limit! || group.count === boundary) : primary.groups;
+      const answer = describeFact(intent, prepared, groups, describe(intent.filters));
+      const result: CanvasResult = { ...base, ...answer, total: tickets.length, metrics: [], groups,
         tickets: primary.tickets, selection: primary.selection, blocks: [],
         turnToken: this.remember(source, actor, history, {
           question: "Расчёт по полям ITSM", answer: "Результат доступен в предыдущем срезе."
@@ -477,7 +609,7 @@ export class CanvasService {
       : [];
     if (insights.length) primary.insights = insights;
     const blocks = (intent.blocks ?? []).map((v) =>
-      this.block(namespace, actor, v, matches, tickets, now),
+      this.block(source, actor, v, matches, tickets, now),
     );
     const total = tickets.length;
     const overdue = tickets.filter((t) => t.overdue).length;

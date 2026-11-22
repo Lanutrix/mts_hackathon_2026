@@ -19,6 +19,7 @@ export type FactOperation = (typeof factOperations)[number];
 export type FactDisplay = "ring" | "table" | "bars" | "list" | "cards" | "diagram";
 
 export interface FactPlan {
+  limit?: number;
   display?: FactDisplay;
   operation: FactOperation;
   period: FactPeriod;

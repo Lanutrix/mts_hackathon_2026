@@ -32,6 +32,7 @@
   orphans: 1;
   widows: 1;
 }
+.cx-prose-sheet a { color: inherit; text-underline-offset: .15em; }
 .cx-prose-actions {
   display: flex;
   align-items: center;

@@ -1,10 +1,14 @@
 import { useLayoutEffect, useState } from "react";
 import type { CanvasResult } from "../../../packages/contracts/canvas";
 import { PageControls, useBox } from "./CanvasControls";
+import { TicketMentions } from "./IncidentSources";
 import "./conversationAnswer.css";
 
-export default function ConversationAnswer({ answer, canAsk, ask }: {
+export default function ConversationAnswer({ answer, canAsk, ask, ids, ns, open }: {
   answer: NonNullable<CanvasResult["conversation"]>;
+  ids: string[];
+  ns: string;
+  open: (id: string) => void;
   canAsk: boolean;
   ask: (question: string) => void;
 }) {
@@ -30,7 +34,7 @@ export default function ConversationAnswer({ answer, canAsk, ask }: {
   return (
     <div className="cx-prose" data-testid="conversation-answer">
       <div className="cx-prose-sheet" ref={ref}>
-        <p>{answer.text}</p>
+        <p><TicketMentions text={answer.text} {...{ ids, ns, open }} /></p>
       </div>
       <div className="cx-prose-actions">
         {followUp && (

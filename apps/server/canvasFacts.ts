@@ -351,7 +351,14 @@ export function describeFact(
     }
   } else {
     const field = fields[intent.groupBy];
-    if (operation === "frequency") {
+    if (operation === "frequency" && intent.fact!.limit && groups.length) {
+      const limit = intent.fact!.limit;
+      title = "Топ-" + limit + " · " + dimension.toLocaleLowerCase("ru");
+      headline = groups.map(g => g.label + " — " + g.count).join(", ") + ".";
+      method += " Группы упорядочены по числу заявок. Заявок во всём срезе: " + n + ".";
+      if (groups.length > limit)
+        method += " Группы с одинаковым числом заявок на границе рейтинга включены вместе.";
+    } else if (operation === "frequency") {
       title =
         (ascending ? "Реже всего" : "Чаще всего") +
         " · " +

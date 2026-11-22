@@ -479,7 +479,7 @@ function StandardFigure({ result, choose, ns, open, zone }: FigureProps) {
     (result.intent.groupBy === "ticket" &&
       result.intent.layout !== "comparison")
   )
-    return <TicketPreview {...{ result, choose, ns, open, zone }} />;
+    return <TicketPreview {...{ result, ns, open, zone }} />;
   if (
     result.intent.presentation === "compare" ||
     result.intent.layout === "comparison"
@@ -489,9 +489,9 @@ function StandardFigure({ result, choose, ns, open, zone }: FigureProps) {
     return <DeadlineAxis {...{ result, choose }} />;
   return <Squares {...{ result, choose }} />;
 }
-function TicketPreview({ result, choose, ns, open, zone }: FigureProps) {
+function TicketPreview({ result, ns, open, zone }: Omit<FigureProps, "choose">) {
   const { ref, height } = useBox();
-  const shown = Math.min(6, Math.max(1, Math.floor((height - 37) / 54)));
+  const shown = Math.max(1, Math.floor(height / 54));
   return (
     <div
       {...el("ticket-list")}
@@ -502,15 +502,6 @@ function TicketPreview({ result, choose, ns, open, zone }: FigureProps) {
       {result.tickets.slice(0, shown).map((ticket) => (
         <CanvasTicketLink key={ticket.id} {...{ ticket, ns, open, zone }} />
       ))}
-      {result.total > Math.min(shown, result.tickets.length) && (
-        <button
-          {...el("entire-selection")}
-          className="cx-open-all"
-          onClick={() => choose(null)}
-        >
-          Все {formatCount(result.total)} заявок ↗
-        </button>
-      )}
     </div>
   );
 }

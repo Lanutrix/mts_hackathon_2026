@@ -482,8 +482,8 @@ test("an explanation reports actual current-slice values even if the model suppl
     await app.close();
   }
 });
-test("questions about starting a shift and the most urgent work use the guide and current source queue", async () => {
-  const { app, ask, respond, prompts } = await setup();
+test("starting a shift recommends an openable source card and deadline requests keep their own filters", async () => {
+  const { app, ask, respond, prompts, headers } = await setup();
   try {
     respond({
       supported: true,
@@ -493,9 +493,13 @@ test("questions about starting a shift and the most urgent work use the guide an
       filters: { deadline: ["soon"] },
     });
     const shift = (await ask("С чего мне начать смену?")).json<CanvasResult>();
-    assert.equal(shift.mode, "knowledge");
-    assert.equal(shift.answer?.topic, "shift");
-    assert.ok(shift.answer.sections.some((s) => s.role === "steps"));
+    assert.equal(shift.mode, "snapshot");
+    assert.equal(shift.intent.presentation, "spotlight");
+    const [card] = shift.tickets;
+    assert.ok(shift.summary.includes(card.id));
+    const detail = await app.inject({ url: "/api/incident/" + encodeURIComponent(card.id) + "?ns=workspace", headers: headers() });
+    assert.equal(detail.statusCode, 200, detail.body);
+    assert.equal(detail.json().incident.id, card.id);
     const urgent = (
       await ask("Что у нас сейчас самое срочное?", shift.intent)
     ).json<CanvasResult>();

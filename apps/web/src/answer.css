@@ -2,7 +2,40 @@
   display: none;
 }
 .cx-top {
-  justify-content: flex-end;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.cx-topic, .cx-conditions {
+  min-width: 0;
+  max-height: 3.8em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: .85rem;
+  line-height: 1.45;
+  color: var(--cx-muted);
+}
+.cx-topic + .cx-conditions {
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--cx-line);
+}
+.cx-scope {
+  flex: none;
+  margin-inline-start: auto;
+}
+.cx-refresh + .cx-scope { margin-inline-start: 0; }
+.cx .cx-view-toggle {
+  color: var(--cx-ink);
+  font-size: .84rem;
+  min-height: 28px;
+  text-decoration: underline;
+  text-decoration-color: var(--cx-line);
+  text-underline-offset: .24em;
+}
+.cx .cx-view-toggle:hover { text-decoration-color: currentColor; }
+@media (max-width: 660px) {
+  .cx-top:has(.cx-conditions) { flex-wrap: wrap; gap: 0 8px; }
+  .cx-top .cx-conditions { order: 1; flex-basis: 100%; padding: 0; border: 0; }
+  .cx-topic, .cx-conditions { font-size: .76rem; }
 }
 .ar-chart,
 .ar-guide,

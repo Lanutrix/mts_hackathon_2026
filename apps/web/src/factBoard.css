@@ -6,17 +6,27 @@
   scrollbar-width: thin;
 }
 .fact-heading {
-  border-top: 2px solid var(--wm-violet);
-  padding-top: clamp(8px, 1.4vh, 18px);
   margin-bottom: clamp(12px, 2vh, 26px);
 }
 .fact-value {
-  font-size: clamp(1.22rem, 2.3vw, 2.6rem);
-  font-weight: 600;
+  max-width: 56ch;
+  font-size: clamp(1.45rem, 2.6vw, 2.8rem);
+  font-weight: 550;
   letter-spacing: -0.045em;
   line-height: 1.14;
   overflow-wrap: anywhere;
 }
+.fact-calculation {
+  margin-top: 8px;
+}
+.fact-calculation summary {
+  width: fit-content;
+  padding-block: 4px;
+  color: var(--cx-muted);
+  cursor: pointer;
+  font-size: .82rem;
+}
+.fact-calculation summary:hover { color: var(--cx-ink); }
 .cx .fact-method,
 .cx .fact-note {
   color: var(--cx-muted);
@@ -97,8 +107,7 @@
 .fact-rank td {
   font-variant-numeric: tabular-nums;
 }
-.fact-bar:hover span,
-.fact-drill:hover {
+.fact-bar:hover span {
   text-decoration: underline;
 }
 .fact-rank {
@@ -133,12 +142,6 @@
   text-decoration: underline;
   text-underline-offset: 3px;
   overflow-wrap: anywhere;
-}
-.cx .fact-drill {
-  font: 550 0.85rem/1.4 var(--cx-mono);
-  margin-top: 12px;
-  padding: 7px 0;
-  color: var(--cx-ink);
 }
 .fact-graph {
   max-width: 1000px;
@@ -215,6 +218,7 @@
   padding: 7px 0;
   font-size: clamp(0.8rem, 1vw, 1rem);
 }
+.fact-graph > .fact-note { margin-bottom: 8px; }
 .fact-edge summary {
   cursor: pointer;
   overflow-wrap: anywhere;

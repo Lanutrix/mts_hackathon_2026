@@ -163,6 +163,7 @@ test("source answers choose a team directory, ranked durations and an inspectabl
   await ask(page, "Построй диаграмму связей между DEMO-42-00001 и DEMO-42-00004");
   const graph = page.locator(".fact-graph");
   await expect(graph.getByRole("link", { name: "DEMO-42-00001" })).toBeVisible();
+  await graph.locator(".fact-edge summary").first().click();
   await expect(graph.getByText(/assignedGroupName|productName|Симптом|service/i).first()).toBeVisible();
   await graph.getByRole("link", { name: "DEMO-42-00004" }).click();
   await expect(page).toHaveURL(/\/incident\/DEMO-42-00004/);
@@ -171,6 +172,32 @@ test("source answers choose a team directory, ranked durations and an inspectabl
 test("natural questions open a team ranking and an evidence graph without a format prompt", async ({ page }) => {
   await enter(page);
   const ranking = await ask(page, "У какой команды больше всего заявок?");
+  await expect(page.getByRole("heading", { name: ranking.fact!.headline, exact: true })).toBeVisible();
+  const method = page.locator(".fact-method");
+  await expect(method).toBeHidden();
+  const details = page.getByText("Как посчитано", { exact: true });
+  await details.focus();
+  await page.keyboard.press("Enter");
+  await expect(method).toHaveText(ranking.fact!.method);
+  await expect(method).toBeVisible();
+  await page.keyboard.press("Enter");
+  const source = page.getByRole("button", { name: /^Открыть заявки/ });
+  await expect(source).toHaveCount(1);
+  await source.press("Enter");
+  await expect(page.getByRole("dialog").getByRole("link").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(source).toBeFocused();
+  await capture(page, "answer-ranking");
+  for (const size of [{ width: 320, height: 568 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size);
+    await page.emulateMedia({ colorScheme: size.width === 320 ? "dark" : "light" });
+    await expect(source).toBeInViewport();
+    await expect(page.getByRole("textbox", { name: "Вопрос об инцидентах" })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth &&
+      document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+    await capture(page, "answer-ranking-" + size.width);
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
   const bars = page.locator('.fact-distribution[data-display="bars"]');
   await expect(bars.getByRole("button").first()).toContainText(ranking.groups[0].label);
   await bars.getByRole("button").first().click();
@@ -184,7 +211,10 @@ test("natural questions open a team ranking and an evidence graph without a form
   await ask(page, ids.join(" и "));
   const graph = page.locator(".fact-graph");
   for (const id of ids) await expect(graph.getByRole("link", { name: id })).toBeVisible();
-  await expect(graph.locator(".fact-edge").first()).toContainText(/ссылка|совпадение/iu);
+  await expect(graph.locator(".fact-edge summary").first()).toContainText("Демо-сервис 1");
+  await expect(graph.locator(".fact-edge summary").first()).toContainText("Ошибки авторизации");
+  await expect(graph.getByText(/причинную связь/)).toBeVisible();
+  await capture(page, "answer-relations");
 });
 
 test("square map to compound views to incident and back preserves the conversation and each exact selection", async ({
@@ -258,9 +288,14 @@ test("square map to compound views to incident and back preserves the conversati
   await expect(
     page.getByTestId("ticket-register").getByRole("link").first(),
   ).toContainText(filtered.tickets[0].id);
+  await expect(page.getByRole("button", { name: /^Все \d+ заявок/ })).toHaveCount(0);
+  await page.getByRole("button", { name: /^Открыть заявки/ }).click();
+  await expect(page.getByRole("dialog").getByRole("link").first()).toContainText(filtered.tickets[0].id);
+  await page.keyboard.press("Escape");
   const compared = await ask(page, "А сравни по приоритетам");
   expect(compared.total).toBe(filtered.total);
   expect(compared.intent.filters.deadline).toBe("overdue");
+  await expect(page.getByRole("group", { name: "Условия отбора" })).toContainText("Срок прошёл");
   await expect(page.getByTestId("group-comparison")).toBeVisible();
   await capture(page, "canvas-compare");
   await ask(page, "Какая была выручка вчера?");
@@ -290,6 +325,35 @@ test("square map to compound views to incident and back preserves the conversati
   await expect(page.getByTestId("group-field")).toBeVisible();
   await page.getByRole("button", { name: "История диалога" }).click();
   await expect(page.getByRole("log")).not.toContainText("выручка");
+});
+
+test("an explanation keeps its source ranking on demand and advice opens the cited ticket", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await enter(page);
+  const ranking = await ask(page, "У какой команды больше всего заявок?");
+  const explanation = await ask(page, "Откуда эти цифры?");
+  expect(explanation.selection).toBe(ranking.selection);
+  const prose = page.getByTestId("conversation-answer");
+  await expect(prose).toContainText(ranking.groups[0].label);
+  await expect(page.locator(".fact-board")).toHaveCount(0);
+  await capture(page, "answer-explanation");
+  await page.getByRole("button", { name: "Показать срез" }).press("Enter");
+  const bars = page.locator(".fact-bar");
+  await expect(bars.first()).toContainText(ranking.groups[0].label);
+  await bars.first().click();
+  await expect(page.getByRole("dialog").getByRole("link").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "К ответу" }).click();
+  await expect(prose).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const advice = await ask(page, "С какой заявки начать?");
+  const id = advice.tickets[0].id;
+  await expect(prose.getByRole("link", { name: id })).toHaveAttribute("href", "/incident/" + id);
+  await capture(page, "answer-advice-390");
+  await prose.getByRole("link", { name: id }).click();
+  await expect(page).toHaveURL(new RegExp("/incident/" + id + "$"));
+  await page.getByRole("link", { name: "Вернуться на холст" }).click();
+  await expect(prose).toContainText(id);
 });
 
 test("two and ten real groups repack by weight, paginate on smaller screens and keep the composer in view", async ({

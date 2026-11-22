@@ -14,12 +14,12 @@
 .cx h1,.cx h2,.cx h3,.cx p {margin:0;}
 .cx button {min-height:0; padding:0;border:0;border-radius:0;background:transparent;color:inherit;font:inherit;text-align:inherit;}
 .cx button:disabled {opacity:.44;cursor:default;}
-.cx :is(button,input,a):focus-visible,.cx-log:focus-visible {outline:2px solid var(--wm-violet,#7858a1);outline-offset:3px;}
+.cx :is(button,input,a,summary):focus-visible,.cx-log:focus-visible {outline:2px solid var(--wm-violet,#7858a1);outline-offset:3px;}
 .cx-top {display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;padding:clamp(12px,2.1vh,23px) 0 0;}
 .cx-scope,.cx-refresh,.cx-status,.cx-figure-foot,.cx-pager,.cx-drawer header p {font:500 .72rem/1.35 var(--cx-mono);}
 .cx .cx-scope,.cx .cx-refresh {font-size:.78rem;min-height:28px;white-space:nowrap;}
 .cx .cx-refresh {margin-left:auto;color:var(--cx-muted);}
-.cx .cx-scope:hover,.cx .cx-refresh:hover,.cx .cx-open-all:hover,.cx .cx-new:hover {text-decoration:underline;text-underline-offset:4px;}
+.cx .cx-scope:hover,.cx .cx-refresh:hover,.cx .cx-new:hover {text-decoration:underline;text-underline-offset:4px;}
 .cx-stage {min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:clamp(12px,2.8vw,44px);}
 .cx-stage[data-count="2"] {grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);}
 .cx-stage[data-count="3"] {grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr));gap:12px 30px;}
@@ -28,6 +28,7 @@
 .cx-stage[data-count="2"][data-stacked=true] {grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr));gap:9px;}
 .cx-plot {min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);}
 .cx-plot-title {display:flex;align-items:center;justify-content:space-between;gap:10px;padding:clamp(8px,1.5vh,18px) 0 4px;}
+.cx-plot-title:empty { padding:0; }
 .cx-plot-title h2 {color:var(--cx-ink);font-size:clamp(1.8rem,3.6vw,4.2rem);font-weight:500;line-height:1.04;letter-spacing:-.064em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .cx-stage:not([data-count="1"]) .cx-plot-title h2 {font-size:clamp(1.3rem,2.5vw,2.6rem);}
 .cx-squares {position:relative;min-width:0;min-height:0;}
@@ -90,7 +91,6 @@
 .cx-ticket-facts {grid-row:1;color:var(--cx-muted);}
 .cx-ticket-date {grid-row:2;}
 .cx-ticket-date[data-overdue=true] {color:var(--wm-pink,#aa2b58);}
-.cx .cx-open-all {align-self:flex-start;font-size:.77rem;height:32px;}
 .cx-empty {display:grid;align-content:center;justify-items:start;gap:5px;color:var(--cx-muted);min-height:0;}
 .cx-empty h3 {font-size:clamp(1.3rem,2.1vw,2.2rem);font-weight:500;letter-spacing:-.04em;}
 .cx-empty p,.cx-note {font-size:.82rem;}

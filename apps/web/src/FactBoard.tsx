@@ -34,6 +34,7 @@ function RelationDiagram({
 }: Navigation & { fact: CanvasFact }) {
   const nodes = fact.nodes ?? [],
     edges = fact.edges ?? [];
+  const hasSimilar = edges.some(edge => edge.kind === "similarity");
   const locations = new Map(
     nodes.map((node, i) => {
       const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
@@ -97,20 +98,23 @@ function RelationDiagram({
         </div>
       </div>
       <div className="fact-legend">
-        <span data-kind="reference">Ссылка в источнике</span>
-        <span data-kind="similarity">Общие признаки</span>
+        {edges.some(edge => edge.kind === "reference") && <span data-kind="reference">Ссылка в источнике</span>}
+        {hasSimilar && <span data-kind="similarity">Общие признаки</span>}
       </div>
+      {hasSimilar && (
+        <p className="fact-note">Совпадение признаков не подтверждает причинную связь.</p>
+      )}
       {edges.map((edge, i) => (
         <details
           className="fact-edge"
           key={i}
-          open={edges.length === 1 || undefined}
         >
           <summary>
-            {edge.from} · {edge.to}
-            <strong>
-              {edge.kind === "reference" ? "Прямая ссылка" : "Совпадение полей"}
-            </strong>
+            {nodes.length === 2 && edge.kind === "similarity"
+              ? edge.evidence.map(field => field.replace(/ \([^)]*\) · /u, " — ")).join(". ")
+              : <>{edge.from} · {edge.to} <strong>
+                  {edge.kind === "reference" ? "Прямая ссылка" : "Совпадение полей"}
+                </strong></>}
           </summary>
           <ul>
             {edge.evidence.map((e) => (
@@ -336,8 +340,12 @@ export default function FactBoard({
       aria-label="Расчёт по данным источника"
     >
       <div className="fact-heading">
-        <p className="fact-value">{fact.headline}</p>
-        <p className="fact-method">{fact.method}</p>
+        <h2 className="fact-value">{fact.headline}</h2>
+        <details className="fact-calculation" key={viewKey}>
+          <summary>Как посчитано</summary>
+          <p className="fact-method">{fact.method}</p>
+          {fact.nodes && fact.notes.map(text => <p className="fact-note" key={text}>{text}</p>)}
+        </details>
       </div>
       {result.groups.length > 0 && (
         <GroupValues key={viewKey} result={result} choose={choose} />
@@ -346,20 +354,11 @@ export default function FactBoard({
         <DurationRanking key={viewKey} result={result} {...navigation} />
       )}
       {fact.nodes && <RelationDiagram fact={fact} {...navigation} />}
-      {fact.notes.map((text) => (
+      {!fact.nodes && fact.notes.map((text) => (
         <p className="fact-note" key={text}>
           {text}
         </p>
       ))}
-      {result.total > 0 && (
-        <button
-          className="fact-drill"
-          type="button"
-          onClick={() => choose(null)}
-        >
-          Открыть заявки выборки ↗
-        </button>
-      )}
     </div>
   );
 }

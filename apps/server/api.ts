@@ -343,12 +343,15 @@ export async function createApp(o: AppOptions) {
       return reply
         .code(400)
         .send({ message: "Некорректный запрос списка заявок." });
+    const simulation = q.ns === "simulation" ? await jury.read(reply) : undefined;
+    if (q.ns === "simulation" && !simulation) return;
     const page = canvas.page(
       String(q.ns ?? "demo"),
       identity(req)!.username,
       q.selection,
       q.group,
       Number(q.offset ?? 0),
+      simulation?.simulation.runId,
     );
     if (!page)
       return reply

@@ -44,7 +44,7 @@ import {
   type DialogueTurn,
 } from "./canvasDialogue.ts";
 
-import { mightAskFact, onlyTicketIds, periodIn, periodQuestion, queueCount, readFact, validFact, validFactView } from "./canvasFactPlan.ts";
+import { mightAskFact, onlyTicketIds, periodIn, periodQuestion, queueCount, readFact, requestedLimit, validFact, validFactView } from "./canvasFactPlan.ts";
 
 export const initialIntent: CanvasIntent = {
   groupBy: "symptom",
@@ -202,6 +202,7 @@ export function validContext(v: unknown): v is CanvasIntent {
       "layout",
       "filters",
       "blocks",
+      "rankFocus",
       "weightBy",
       "presentation",
       "exhibits",
@@ -212,12 +213,23 @@ export function validContext(v: unknown): v is CanvasIntent {
       "fact",
       "automaticStates",
       "insightIds",
+      "shiftAdvice",
     ]) &&
+    (v.shiftAdvice === undefined ||
+      (v.shiftAdvice === true && v.presentation === "spotlight" && v.layout === "list")) &&
     (v.automaticStates === undefined ||
       (v.automaticStates === true &&
         validInsightIds(v.insightIds) &&
         v.insightIds.length > 0)) &&
     (v.fact === undefined || validFact(v.fact)) &&
+    (v.rankFocus === undefined || (
+      record(v.rankFocus) && keys(v.rankFocus, ["place", "output"]) &&
+      (v.rankFocus.place === "last" || (v.rankFocus.place === "shown" && v.fact?.limit !== undefined) || typeof v.rankFocus.place === "number" &&
+        Number.isInteger(v.rankFocus.place) && v.rankFocus.place >= 1 && v.rankFocus.place <= 999999) &&
+      member(v.rankFocus.output, ["position", "count", "share", "tickets"]) && v.groupBy !== "ticket" &&
+      (!v.fact || v.fact.operation === "frequency") && (!v.weightBy || v.weightBy === "count") &&
+      !v.topic && !v.insightIds && !v.guideOnly
+    )) &&
     (v.insightIds === undefined || validInsightIds(v.insightIds)) &&
     validVisual(v) &&
     (v.topic === undefined || isGuideTopic(v.topic)) &&
@@ -1237,6 +1249,7 @@ async function planData(
   )
     return malformed();
   if (p.fact !== undefined && (!validFact(p.fact) || !keys(p, ["supported","fact","groupBy","filters"]) ||
+      (p.fact.limit !== undefined && p.fact.limit !== requestedLimit(source.shaped)) ||
       (periodIn(source.shaped) && p.fact.period !== periodIn(source.shaped)) || p.supported === false))
     return malformed();
   if (needsPeriod && !p.fact) return fallback("Требуется план расчёта.");

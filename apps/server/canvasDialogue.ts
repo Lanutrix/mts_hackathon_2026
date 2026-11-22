@@ -10,6 +10,50 @@ export type DialogueTurn = { question: string; answer: string };
 export const trainingCanvas = (ns: string) =>
   ns === "demo" || ns === "simulation";
 
+export function asksAboutResult(question: string) {
+  const text = question.normalize("NFKC").toLocaleLowerCase("ru").replaceAll("ё", "е")
+    .replace(/[,.?!]+/gu, " ").trim().replace(/\s+/gu, " ").replace(/^(?:а |и )/u, "");
+  return /^(?:откуда (?:взялись |взяты )?(?:эти |такие )?(?:цифры|числа|данные)|что (?:это|все это) (?:значит|означает)|как (?:ты |вы |это )?(?:посчитал[аи]?|посчитали|посчитано|получил[аи]?|получили)(?:сь)?(?: эти цифры| эти числа| такой результат)?|почему (?:столько|такая цифра))$/u.test(text)
+    || /^(?:объясни|поясни|разбери|расшифруй|перескажи) (?:мне )?(?:(?:этот|эту|эти|текущий|текущую) )?(?:результат|ответ|цифры|срез|график|диаграмму|схему|выборку|рейтинг)(?: (?:простыми словами|коротко|вкратце))?$/u.test(text);
+}
+
+const share = new Intl.NumberFormat("ru-RU", { style: "percent", maximumFractionDigits: 1 });
+
+export function explainFact(result: CanvasResult): CanvasResult {
+  const fact = result.fact!, operation = result.intent.fact!.operation;
+  let text = fact.headline;
+  if (operation === "frequency" && result.intent.rankFocus) {
+    text += " Заявки с одинаковым значением объединены в группы. Равное число заявок даёт одно место в рейтинге.";
+  } else if (operation === "frequency" && result.intent.fact?.limit && result.total) {
+    const shown = result.groups.reduce((sum, group) => sum + group.count, 0);
+    text += " Вместе показанные группы составляют " + shown + " из " + result.total + " заявок (" + share.format(shown / result.total) + ").";
+  } else if (operation === "frequency" && result.total && result.groups.length) {
+    const first = result.groups[0];
+    text += " " + (result.groups.filter(g => g.count === first.count).length > 1 ? "На каждую из этих групп приходится " : "На эту группу приходится ")
+      + share.format(first.count / result.total) + " заявок с указанным значением в выборке.";
+  } else if (operation === "relations") {
+    const edges = fact.edges ?? [];
+    const reference = edges.find(e => e.kind === "reference");
+    const common = edges.find(e => e.kind === "similarity");
+    if (reference) text += " В карточке " + reference.from + " есть ссылка на " + reference.to + ".";
+    if (common) {
+      const traits = common.evidence.map(s => s.replace(/ \([^)]*\) · /u, " — "));
+      text += " У " + common.from + " и " + common.to + " совпадают поля. " + traits.join(". ") + ". Причину сбоя по совпадению полей установить нельзя.";
+    }
+    const missing = fact.nodes?.filter(node => !node.found).map(node => node.id) ?? [];
+    if (missing.length) text += " В выборке нет " + missing.join(", ") + ".";
+  } else if (operation === "duration" && fact.durations?.length) {
+    text += " Для каждой подходящей заявки посчитано время от регистрации до завершения. Учитывались завершённые и закрытые заявки с обеими датами.";
+  } else if (operation === "distinct" && result.total) {
+    text += " Каждое разное значение учтено один раз, даже если встречается в нескольких заявках.";
+  } else if (operation === "count") {
+    text += " Каждая заявка, прошедшая условия выборки, учтена один раз.";
+    if (result.intent.fact?.dateField === "completionDate")
+      text += " Период определён по дате завершения.";
+  }
+  return { ...result, summary: text, conversation: { title: "Как получился результат", text } };
+}
+
 export function asksForScopeExplanation(question: string) {
   const text = question.toLowerCase().replaceAll("ё", "е").trim();
   return (

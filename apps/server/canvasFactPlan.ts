@@ -17,9 +17,11 @@ export function validFact(fact: unknown): fact is FactPlan {
   const f = fact as Record<string, unknown>;
   return (
     Object.keys(f).every((k) =>
-      ["operation", "period", "ascending", "dateField", "display"].includes(k),
+      ["operation", "period", "ascending", "dateField", "display", "limit"].includes(k),
     ) &&
     factOperations.some((v) => v === f.operation) &&
+    (f.limit === undefined || (f.operation === "frequency" && typeof f.limit === "number" &&
+      Number.isSafeInteger(f.limit) && f.limit > 0 && f.limit <= 999999)) &&
     (f.display === undefined || supportsFactDisplay(f.operation, f.display)) &&
     factPeriods.some((v) => v === f.period) &&
     (f.dateField === undefined ||
@@ -44,6 +46,15 @@ const frequency =
   /сам\p{L}*\s+(?:часто\s+)?встреча|чаще|часты[йемх]|частая|частом|наиболее част|распростран|преоблада|превалир|доминиру|лидиру|больше всего|большинств|популярн|реже|редк(?:ий|ая|ое)|меньше всего/u;
 const workloadRank =
   /(?:сам\p{L}*|более всего|(?:сильнее|больше|меньше) всего|наиболее|наименее)\s+(?:загруж|нагруж)|(?:наибольш|наименьш|максимальн|минимальн)\p{L}*\s+(?:количеств|числ|нагрузк)|(?:больше|меньше) (?:всех|остальных)|(?:максимум|минимум)\s+(?:заяв|инцидент|тикет|обращен)/u;
+const cardinals: Record<string, number> = { один: 1, одна: 1, две: 2, два: 2, три: 3, четыре: 4, пять: 5, шесть: 6, семь: 7, восемь: 8, девять: 9, десять: 10 };
+const nGroups = "(\\d{1,6}|" + Object.keys(cardinals).join("|") + ")(?![\\p{L}\\d])";
+const leading = new RegExp("(?:^|\\s)топ[-\\s]*" + nGroups, "u");
+const leadingWords = new RegExp("(?:^|\\s)" + nGroups + "\\s+(?:сам\\p{L}*\\s+(?:загруж|нагруж|част)|(?:крупнейш|ведущ|лидирующ))", "u");
+const leadingGroups = new RegExp("(?:^|\\s)" + nGroups + "\\s+(?:команд|продукт|статус|приоритет|симптом)\\p{L}*\\s+с\\s+(?:наи(?:больш|меньш)|м(?:аксим|иним)альн)", "u");
+export function requestedLimit(text: string) {
+  const literal = leading.exec(text)?.[1] ?? leadingWords.exec(text)?.[1] ?? leadingGroups.exec(text)?.[1];
+  return literal === undefined ? undefined : cardinals[literal] ?? Number(literal);
+}
 const extremum =
   /рекорд|дольш|долг|длительн|медлен|быстр|коротк|минимальн|максимальн|больше всего|меньше всего|наибольш|наименьш|сам\p{L}* много/u;
 const resolution =
@@ -146,7 +157,7 @@ export function periodQuestion(s: string) {
 export function mightAskFact(question: string, previous?: CanvasIntent) {
   const s = normalized(question);
   return (
-    frequency.test(s) || workloadRank.test(s) || commonality.test(s) || ticketCount.test(s) ||
+    frequency.test(s) || workloadRank.test(s) || requestedLimit(s) !== undefined || commonality.test(s) || ticketCount.test(s) ||
     (resolution.test(s) && extremum.test(s)) ||
     ((list.test(s) || quantity.test(s)) &&
       (dimensions.some(([re]) => re.test(s)) || timeQuestion.test(s))) ||
@@ -190,6 +201,11 @@ export function readFact(
     .map(([pattern, dimension]) => ({ at: measure.search(pattern), dimension }))
     .filter((d) => d.at >= 0)
     .sort((a, b) => a.at - b.at)[0]?.dimension;
+  const limit = requestedLimit(measure);
+  if (limit === 0) return { problem: "Укажите, сколько групп показать в рейтинге: нужно положительное число." };
+  if (limit && dim && [...measure.matchAll(/(?:^|\s)по\s+(\p{L}+)/gu)].some(([, field]) =>
+    !/^(?:числ|количеств|нагрузк|частот|заявк|обращени|инцидент|тикет|просроч|продукт|команд|статус|приоритет|симптом|состоян)/u.test(field)))
+    return { problem: "Уточните показатель для рейтинга. По этим полям можно сравнить группы по количеству заявок." };
   const continuation =
     !!previous?.fact &&
     (follow.test(shaped) || /(?:из|среди) них/u.test(shaped));
@@ -228,7 +244,7 @@ export function readFact(
       };
     operation = "relations";
     dimension = "ticket";
-  } else if (dim && (frequency.test(measure) || workloadRank.test(measure)) &&
+  } else if (dim && (frequency.test(measure) || workloadRank.test(measure) || limit !== undefined) &&
     !/(?:времени|по времени|длительност)/u.test(measure)) {
     operation = "frequency";
   } else if (
@@ -318,6 +334,7 @@ export function readFact(
     fact: {
       operation,
       period,
+      ...(operation === "frequency" && limit !== undefined ? { limit } : {}),
       ...(completionWindow ? { dateField: "completionDate" } : {}),
       ...(ascending ? { ascending: true } : {}),
     },

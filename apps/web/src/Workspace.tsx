@@ -8,8 +8,10 @@ import {
 } from "react";
 import type {
   CanvasGroup,
+  CanvasIntent,
   CanvasResult,
 } from "../../../packages/contracts/canvas";
+import { answerElement } from "../../../packages/contracts/answerCatalog";
 import FactBoard from "./FactBoard";
 import AnswerInsightBoard from "./AnswerInsightBoard";
 import ConversationAnswer from "./ConversationAnswer";
@@ -55,12 +57,43 @@ const emptyConversation = (): Conversation => ({
 });
 // Ticket navigation remounts this screen. Keep a short, session-scoped history in tab memory.
 const conversations = new Map<string, Conversation>();
+function selectionConditions({ filters, fact }: CanvasIntent) {
+  const states: Record<number, string> = {
+    0: "Назначен", 2: "Выполняется", 7: "Завершён", 10: "Закрыт", 20: "Исследование ситуации",
+  };
+  const priorities: Record<number, string> = { 1: "Низкий", 2: "Средний", 3: "Высокий", 4: "Наивысший" };
+  const deadlines = { overdue: "Срок прошёл", soon: "В ближайшие 15 минут", normal: "Позже 15 минут", unset: "Без срока" };
+  const escalations = { yes: "Требуется устранение последствий", no: "Устранение последствий не требуется", unknown: "Устранение последствий не указано" };
+  const periods = { today: "Сегодня", yesterday: "Вчера", week: "За неделю", month: "За месяц", year: "За год" };
+  return [
+    fact && fact.period !== "snapshot" && periods[fact.period],
+    filters.deadline && deadlines[filters.deadline],
+    filters.teams?.map(name => "Команда «" + name + "»").join(", "),
+    filters.excludedTeams?.map(name => "Кроме команды «" + name + "»").join(", "),
+    filters.products?.map(name => "Продукт «" + name + "»").join(", "),
+    filters.symptoms?.map(name => "Симптом «" + name + "»").join(", "),
+    filters.priorities?.map(p => (priorities[p] ?? p) + " приоритет").join(", "),
+    filters.states && (filters.states.map(s => states[s] ?? s).join(", ") || "Нет общих статусов"),
+    filters.escalation && escalations[filters.escalation],
+    fact?.operation !== "relations" && filters.ids?.join(", "),
+  ].filter(Boolean).join(" · ");
+}
+
 function panels(result: CanvasResult): CanvasResult[] {
   const { conversation, ...source } = result;
   const article = result.answer;
   const views: CanvasResult[] = [];
   if (conversation) {
-    views.push({ ...source, title: conversation.title, conversation, answer: undefined, insights: undefined, total: 0, blocks: [] });
+    views.push({
+      ...source,
+      title: conversation.title,
+      conversation,
+      fact: undefined,
+      answer: undefined,
+      insights: undefined,
+      total: 0,
+      blocks: [],
+    });
     if (!result.selection && !article) return views;
   }
   if (article) {
@@ -209,13 +242,6 @@ function ConversationLog({
                 <Spark size={15} />
               </span>
               <b>{result.provider}</b>
-              {result.mode === "model" && (
-                <span>
-                  {result.conversation ? "Ответ в диалоге" : result.answer?.kind === "knowledge"
-                    ? "Выбор раздела справки"
-                    : "План запроса · расчёт по полям ITSM"}
-                </span>
-              )}
             </div>
             <p>
               <TicketMentions
@@ -491,9 +517,10 @@ function WorkspaceScreen({
     result.answer?.kind !== "knowledge" &&
     revision > result.revision;
   const views = useMemo(() => (result ? panels(result) : []), [result]);
+  const answerSwitch = !!result?.conversation && views.length === 2;
   const switching =
     views.length > 1 &&
-    (views.length > 3 ||
+    (answerSwitch || views.length > 3 ||
       (stage.width < 660 &&
         (result?.answer || result?.conversation || views.length > 2 || stage.height < 450)) ||
       stage.height < 245);
@@ -504,6 +531,7 @@ function WorkspaceScreen({
   const reply = last?.mode === "unsupported" && !last.conversation ? last.summary :
     result?.conversation && result.notice === result.conversation.text ? undefined : result?.notice;
   const loadingSource = busy === "";
+  const conditions = result?.selection ? selectionConditions(result.intent) : "";
   return (
     <section
       ref={screen}
@@ -514,7 +542,15 @@ function WorkspaceScreen({
       <h1 id="cx-title" className="sr-only">
         Холст смены
       </h1>
-      <div className="cx-top" hidden={!stale && !result?.total}>
+      <div className="cx-top" hidden={!stale && !result?.total && !conditions && !result?.fact && !answerSwitch}>
+        {result?.fact && !result.conversation && <span className="cx-topic">{result.title}</span>}
+        {conditions && <span className="cx-conditions" role="group" aria-label="Условия отбора">{conditions}</span>}
+        {answerSwitch && (
+          <button type="button" className="cx-view-toggle" aria-controls="cx-stage"
+            onClick={() => setChat(c => ({ ...c, panel: panel === 0 ? 1 : 0 }))}>
+            {panel === 0 ? "Показать срез" : "К ответу"}
+          </button>
+        )}
         {stale && (
           <button
             type="button"
@@ -528,14 +564,17 @@ function WorkspaceScreen({
           <button
             type="button"
             className="cx-scope"
+            {...answerElement("entire-selection")}
+            aria-haspopup="dialog"
             onClick={() => choose(result, null)}
           >
-            {formatCount(result.total)} заявок ↗
+            Открыть заявки · {formatCount(result.total)} <span aria-hidden="true">↗</span>
           </button>
         )}
       </div>
       <div
         ref={stage.ref}
+        id="cx-stage"
         className="cx-stage"
         data-count={visible.length}
         data-stacked={stage.width < 660}
@@ -554,20 +593,15 @@ function WorkspaceScreen({
               ":" +
               (view.intent.presentation || view.intent.layout)
             }
-            aria-label={
-              i === 0
-                ? "Визуализация среза"
-                : "Дополнительный срез · " + view.title
-            }
+            aria-label={view.title}
           >
             <div className="cx-plot-title">
-              <h2
-                className={view.insights?.length ? "sr-only" : undefined}
-                title={view.title}
-              >
-                {view.title}
-              </h2>
-              {switching && (
+              {!view.fact && (
+                <h2 className={view.insights?.length ? "sr-only" : undefined} title={view.title}>
+                  {view.title.startsWith("Заявки · ") && conditions && !view.intent.rankFocus ? "Заявки" : view.title}
+                </h2>
+              )}
+              {switching && !answerSwitch && (
                 <PageControls
                   page={panel}
                   pages={views.length}
@@ -580,6 +614,7 @@ function WorkspaceScreen({
               <FactBoard result={view} choose={(g) => choose(view,g)} {...{ ns, open }} />
             ) : view.conversation ? (
               <ConversationAnswer key={view.conversation.text} answer={view.conversation}
+                ids={view.tickets.map(ticket => ticket.id)} {...{ ns, open }}
                 canAsk={canAsk && busy === null} ask={(question) => void send(question)} />
             ) : view.answer ? (
               <GuideAnswer
@@ -637,7 +672,7 @@ function WorkspaceScreen({
               onClick={() => setHistoryOpen(true)}
             >
               {result?.mode === "fallback" && last?.mode !== "unsupported"
-                ? "Локальный расчёт · подробнее"
+                ? "Ответ без ИИ · подробнее"
                 : reply}
             </button>
           ) : null}
@@ -681,7 +716,7 @@ function WorkspaceScreen({
               ref={composer}
               placeholder={
                 canAsk
-                  ? "Спросите об инцидентах…"
+                  ? "Задайте вопрос…"
                   : "Вопросы доступны координаторам"
               }
               value={chat.draft}
