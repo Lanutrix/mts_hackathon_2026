@@ -54,6 +54,7 @@ const app = await createApp({
   publicDemo: process.env.PUBLIC_DEMO !== "false",
   secure,
   origin,
+  qrLoginSecret: process.env.QR_LOGIN_SECRET,
   push: { dataDir: root, subject: process.env.VAPID_SUBJECT ?? (origin.startsWith("https://") ? origin : "https://mts-watermelon.ru") },
   ai,
   itsmUrl: process.env.ITSM_URL,

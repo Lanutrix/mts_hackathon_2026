@@ -14,7 +14,7 @@ import {
   type Group,
   type Incident,
 } from "../../packages/domain/index.ts";
-import { Auth, type Role } from "./auth.ts";
+import { Auth, qrLoginSecret, type Role } from "./auth.ts";
 import { Store, FileSource } from "../worker/ingestion.ts";
 import { Demo, atomicWrite } from "./demo.ts";
 import { appendIncidents, IntakeError } from "./intake.ts";
@@ -50,6 +50,7 @@ export interface AppOptions {
   publicDemo: boolean;
   secure: boolean;
   origin: string;
+  qrLoginSecret?: string;
   ai?: AnalysisService;
   staticDir?: string;
   itsmUrl?: string;
@@ -70,7 +71,10 @@ function logCanvasAnswer(result: CanvasResult) {
   console.info(JSON.stringify({ event: "canvas.answer", mode: result.mode, kind, selection }));
 }
 
+const qrLoginPath = "/api/login/qr";
+
 export async function createApp(o: AppOptions) {
+  const qrSecret = qrLoginSecret(o.qrLoginSecret);
   const app = Fastify({
     logger: false,
     bodyLimit: 21 * 1024 * 1024,
@@ -246,6 +250,7 @@ export async function createApp(o: AppOptions) {
     if (
       apiRequest &&
       route !== "/api/login" &&
+      !(req.method === "GET" && route === qrLoginPath) &&
       route !== "/api/me" &&
       !identity(req)
     )
@@ -476,6 +481,32 @@ export async function createApp(o: AppOptions) {
           : [...o.stores.keys()],
     };
   });
+  const setSessionCookie = (reply: FastifyReply, token: string, maxAge: number) =>
+    reply.setCookie("wm_session", token, {
+      httpOnly: true,
+      secure: o.secure,
+      sameSite: "strict",
+      path: "/",
+      maxAge,
+    });
+  app.get(
+    qrLoginPath,
+    { exposeHeadRoute: false },
+    async (req, reply) => {
+      const authorization = req.headers.authorization;
+      if (!qrSecret || !authorization?.startsWith("Bearer "))
+        return reply.code(401).send({ message: "QR-ссылка недействительна или устарела" });
+      if (identity(req)) return reply.code(204).send();
+
+      const result = o.auth.loginWithQr(authorization.slice(7), qrSecret);
+      if (!result)
+        return reply.code(401).send({ message: "QR-ссылка недействительна или устарела" });
+
+      await push?.login(req, result.session.username);
+      setSessionCookie(reply, result.token, Math.ceil((result.session.expires - Date.now()) / 1000));
+      return reply.code(204).send();
+    },
+  );
   app.post(
     "/api/login",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
@@ -488,13 +519,7 @@ export async function createApp(o: AppOptions) {
           .send({ message: "Неверное имя пользователя или пароль" });
       o.auth.logout(req.cookies.wm_session);
       await push?.login(req, result.session.username);
-      reply.setCookie("wm_session", result.token, {
-        httpOnly: true,
-        secure: o.secure,
-        sameSite: "strict",
-        path: "/",
-        maxAge: 8 * 3600,
-      });
+      setSessionCookie(reply, result.token, 8 * 3600);
       return {
         username: result.session.username,
         role: result.session.role,
